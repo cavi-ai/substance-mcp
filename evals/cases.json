@@ -1,0 +1,678 @@
+[
+  {
+    "id": "status-success",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "equals": {
+      "/connected": true,
+      "/open": false,
+      "/busy": false
+    }
+  },
+  {
+    "id": "disconnected-status",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "unavailable",
+    "modes": [
+      "protocol"
+    ],
+    "equals": {
+      "/connected": false
+    },
+    "required": [
+      "/reason"
+    ]
+  },
+  {
+    "id": "open_project-missing-argument",
+    "tool": "open_project",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "create_project-missing-argument",
+    "tool": "create_project",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "save_project_copy-missing-argument",
+    "tool": "save_project_copy",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "export_textures-missing-argument",
+    "tool": "export_textures",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "texture_sets-disconnected",
+    "tool": "texture_sets",
+    "arguments": {},
+    "kind": "unavailable",
+    "modes": [
+      "protocol"
+    ],
+    "error": "not reachable"
+  },
+  {
+    "id": "export_presets-disconnected",
+    "tool": "export_presets",
+    "arguments": {},
+    "kind": "unavailable",
+    "modes": [
+      "protocol"
+    ],
+    "error": "not reachable"
+  },
+  {
+    "id": "open-success",
+    "tool": "open_project",
+    "arguments": {
+      "path": "input.spp"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "equals": {
+      "/requested": "open_project",
+      "/loading_may_be_pending": true
+    }
+  },
+  {
+    "id": "create-success",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "input.obj"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "equals": {
+      "/requested": "create_project",
+      "/loading_may_be_pending": true
+    }
+  },
+  {
+    "id": "texture-sets-success",
+    "tool": "texture_sets",
+    "arguments": {},
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "equals": {
+      "/texture_sets/0/name": "Body"
+    }
+  },
+  {
+    "id": "presets-success",
+    "tool": "export_presets",
+    "arguments": {},
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/presets/0/url": "resource://eval-preset"
+    }
+  },
+  {
+    "id": "save-copy-success",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "copy"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "files": [
+      "copy/project.spp"
+    ]
+  },
+  {
+    "id": "save-copy-keeps-location",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/file": "simulated-original.spp"
+    }
+  },
+  {
+    "id": "export-default-dry-run",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "dry-default",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/dry_run": true
+    },
+    "required": [
+      "/files/0"
+    ],
+    "absent": [
+      "dry-default"
+    ]
+  },
+  {
+    "id": "export-explicit-dry-run",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "dry-explicit",
+      "preset": "resource://eval-preset",
+      "dry_run": true
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/dry_run": true
+    },
+    "absent": [
+      "dry-explicit"
+    ]
+  },
+  {
+    "id": "export-success",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "textures",
+      "preset": "resource://eval-preset",
+      "dry_run": false
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/dry_run": false,
+      "/status": "Success"
+    },
+    "files": [
+      "textures/Body.png"
+    ]
+  },
+  {
+    "id": "export-string-bool",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "coerced",
+      "preset": "resource://eval-preset",
+      "dry_run": "false"
+    },
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "open_project-missing",
+    "tool": "open_project",
+    "arguments": {
+      "path": "absent.spp"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "No such file"
+  },
+  {
+    "id": "open_project-extension",
+    "tool": "open_project",
+    "arguments": {
+      "path": "existing.png"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "open_project-escape",
+    "tool": "open_project",
+    "arguments": {
+      "path": "../outside/input.spp"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "open_project-symlink",
+    "tool": "open_project",
+    "arguments": {
+      "path": "escape/input.spp"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "open_project-existing-project",
+    "tool": "open_project",
+    "arguments": {
+      "path": "input.spp"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "already open"
+  },
+  {
+    "id": "create_project-missing",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "absent.obj"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "No such file"
+  },
+  {
+    "id": "create_project-extension",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "existing.png"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "create_project-escape",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "../outside/input.obj"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "create_project-symlink",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "escape/input.obj"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "supported"
+  },
+  {
+    "id": "create_project-existing-project",
+    "tool": "create_project",
+    "arguments": {
+      "mesh_path": "input.obj"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "already open"
+  },
+  {
+    "id": "texture_sets-closed",
+    "tool": "texture_sets",
+    "arguments": {},
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "idle"
+  },
+  {
+    "id": "texture_sets-busy",
+    "tool": "texture_sets",
+    "arguments": {},
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "export_presets-closed",
+    "tool": "export_presets",
+    "arguments": {},
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "idle"
+  },
+  {
+    "id": "export_presets-busy",
+    "tool": "export_presets",
+    "arguments": {},
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "save_project_copy-closed",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "save_project_copy-busy"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "idle"
+  },
+  {
+    "id": "save_project_copy-busy",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "save_project_copy-busy"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "export_textures-closed",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "export_textures-busy",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "closed",
+    "error": "idle"
+  },
+  {
+    "id": "export_textures-busy",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "export_textures-busy",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "save_project_copy-existing",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "existing"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "already exists"
+  },
+  {
+    "id": "save_project_copy-escape",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "../outside/result"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "workspace"
+  },
+  {
+    "id": "save_project_copy-symlink",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "escape/result"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "workspace"
+  },
+  {
+    "id": "save_project_copy-parent",
+    "tool": "save_project_copy",
+    "arguments": {
+      "directory": "missing/result"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "parent"
+  },
+  {
+    "id": "export_textures-existing",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "existing",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "already exists"
+  },
+  {
+    "id": "export_textures-escape",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "../outside/result",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "workspace"
+  },
+  {
+    "id": "export_textures-symlink",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "escape/result",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "workspace"
+  },
+  {
+    "id": "export_textures-parent",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "missing/result",
+      "preset": "resource://eval-preset"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "parent"
+  },
+  {
+    "id": "invalid-preset",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "invalid-preset",
+      "preset": "not-a-preset"
+    },
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "error": "preset"
+  },
+  {
+    "id": "escape-plan",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "escape-plan",
+      "preset": "resource://eval-preset",
+      "dry_run": false
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "escape-plan",
+    "error": "out-of-directory"
+  },
+  {
+    "id": "empty-plan",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "empty-plan",
+      "preset": "resource://eval-preset",
+      "dry_run": false
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "empty-plan",
+    "error": "empty"
+  },
+  {
+    "id": "failed-export",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "failed-export",
+      "preset": "resource://eval-preset",
+      "dry_run": false
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "failed-export",
+    "error": "Partial output"
+  },
+  {
+    "id": "empty-export",
+    "tool": "export_textures",
+    "arguments": {
+      "directory": "empty-export",
+      "preset": "resource://eval-preset",
+      "dry_run": false
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "empty-export",
+    "error": "output"
+  },
+  {
+    "id": "read-after-error",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "setup": "open",
+    "equals": {
+      "/connected": true,
+      "/open": true
+    }
+  }
+]

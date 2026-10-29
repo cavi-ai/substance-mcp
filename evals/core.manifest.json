@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "probes": [
+    {
+      "id": "discovery-budget",
+      "probe": "discovery-cost",
+      "access": "read_only",
+      "max_tools": 7,
+      "max_schema_bytes": 10000
+    },
+    {
+      "id": "token-budget",
+      "probe": "token-cost",
+      "access": "read_only",
+      "max_total_tokens": 2500,
+      "max_tool_tokens": 700
+    },
+    {
+      "id": "catalog-pagination",
+      "probe": "pagination",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "declared-surfaces",
+      "probe": "surface-listing",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "protocol-version",
+      "probe": "protocol-negotiation",
+      "access": "read_only",
+      "bogus_version": "2099-01-01"
+    },
+    {
+      "id": "painter_status-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "painter_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "painter_status-output-schema",
+      "probe": "output-schema",
+      "tool": "painter_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "texture_sets-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "texture_sets",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "texture_sets-output-schema",
+      "probe": "output-schema",
+      "tool": "texture_sets",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "export_presets-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "export_presets",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "export_presets-output-schema",
+      "probe": "output-schema",
+      "tool": "export_presets",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "status-repeat",
+      "probe": "degradation-over-n",
+      "tool": "painter_status",
+      "access": "read_only",
+      "arguments": {},
+      "max_attempts": 3
+    },
+    {
+      "id": "status-contention",
+      "probe": "contention",
+      "tool": "painter_status",
+      "access": "read_only",
+      "arguments": {}
+    }
+  ]
+}

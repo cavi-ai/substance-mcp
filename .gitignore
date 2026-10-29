@@ -7,3 +7,5 @@ dist/
 *.spp
 *.sbs
 *.sbsar
+node_modules/
+.tmp/

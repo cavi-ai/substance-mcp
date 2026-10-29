@@ -94,7 +94,8 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
                 f"Export status: {result.status.name}; {result.message}. Partial output may exist."
             )
         if not actual or any(
-            not path.is_relative_to(folder) or not path.is_file() for path in actual
+            not path.is_relative_to(folder) or not path.is_file() or path.stat().st_size == 0
+            for path in actual
         ):
             raise RuntimeError(
                 "Export output does not match the requested directory; inspect partial output"

@@ -7,7 +7,7 @@ name = "cavi-substance-mcp"
 version = "0.1.0"
 description = "MCP tools for Substance Painter project inspection and texture export"
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.12,<2"]
+dependencies = ["mcp>=1.12,<2", "pydantic>=2.11,<3"]
 
 [project.scripts]
 cavi-substance-mcp = "cavi_substance_mcp.server:main"

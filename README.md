@@ -48,3 +48,18 @@ uv run --locked ruff check .
 ```
 
 Native acceptance requires a licensed Painter session and a disposable project: inspect status and texture sets, list presets, preview/export into a fresh directory, and inspect the produced textures in the destination game.
+
+## MCP evaluation
+
+```sh
+uv sync --locked --dev
+npm ci
+npm run eval:protocol
+npm run eval:core
+```
+
+The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifest checks discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifest adds schema, structured output, repeated reads, and contention checks.
+
+The corpus exercises all seven tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. No-argument read tools have no tool-specific invalid inputs.
+
+**Native Painter validation remains pending.** Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.

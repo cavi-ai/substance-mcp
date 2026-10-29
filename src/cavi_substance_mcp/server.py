@@ -1,7 +1,10 @@
 """Typed stdio MCP surface for Substance Painter."""
 
+from typing import Annotated, Any
+
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import Field, StrictBool
 
 from .client import PainterClient
 
@@ -13,13 +16,22 @@ mcp = FastMCP(
         "Designer is not supported. Never retry uncertain mutations automatically."
     ),
 )
+MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+PathInput = Annotated[
+    str, Field(description="Existing input file relative to the configured workspace.")
+]
+NewDirectory = Annotated[
+    str,
+    Field(description="New directory relative to the workspace; existing directories are refused."),
+]
+
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 
 
 @mcp.tool(annotations=READ_ONLY)
-def painter_status() -> dict:
+def painter_status() -> dict[str, Any]:
     """Check connectivity, project state and output workspace without changing a project."""
     try:
         return PainterClient().call("status")
@@ -27,38 +39,49 @@ def painter_status() -> dict:
         return {"connected": False, "reason": str(exc)}
 
 
-@mcp.tool()
-def open_project(path: str) -> dict:
+@mcp.tool(annotations=MUTATING)
+def open_project(path: PathInput) -> dict[str, Any]:
     """Open a workspace .spp only if Painter currently has no project open."""
     return PainterClient().call("open_project", {"path": path})
 
 
-@mcp.tool()
-def create_project(mesh_path: str) -> dict:
+@mcp.tool(annotations=MUTATING)
+def create_project(mesh_path: PathInput) -> dict[str, Any]:
     """Create a project from a workspace mesh only if no project is already open."""
     return PainterClient().call("create_project", {"path": mesh_path})
 
 
 @mcp.tool(annotations=READ_ONLY)
-def texture_sets() -> dict:
+def texture_sets() -> dict[str, Any]:
     """List the current project's texture sets."""
     return PainterClient().call("texture_sets")
 
 
 @mcp.tool(annotations=READ_ONLY)
-def export_presets() -> dict:
+def export_presets() -> dict[str, Any]:
     """List Painter's predefined texture export presets and their URLs."""
     return PainterClient().call("export_presets")
 
 
-@mcp.tool()
-def save_project_copy(directory: str) -> dict:
+@mcp.tool(annotations=MUTATING)
+def save_project_copy(directory: NewDirectory) -> dict[str, Any]:
     """Save project.spp in a new workspace directory, preserving the open project's location."""
     return PainterClient().call("save_copy", {"directory": directory})
 
 
-@mcp.tool()
-def export_textures(directory: str, preset: str, dry_run: bool = True) -> dict:
+@mcp.tool(annotations=MUTATING)
+def export_textures(
+    directory: NewDirectory,
+    preset: Annotated[
+        str, Field(description="Exact predefined preset URL returned by export_presets.")
+    ],
+    dry_run: Annotated[
+        StrictBool,
+        Field(
+            description="True previews paths without writing; only explicit false exports textures."
+        ),
+    ] = True,
+) -> dict[str, Any]:
     """Preview or export textures to a new workspace directory using a listed preset URL."""
     return PainterClient().call(
         "export_textures", {"directory": directory, "preset": preset, "dry_run": dry_run}
