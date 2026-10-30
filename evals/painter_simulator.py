@@ -53,6 +53,9 @@ class PainterSimulator:
             def list_available_color_spaces(self):
                 return ["sRGB"] if self_simulator.last_channel.name == "BaseColor" else ["Raw"]
 
+            def get_color_space(self):
+                return self.color_space
+
         class Identifier:
             def __init__(self, name):
                 self.name = name
@@ -71,6 +74,7 @@ class PainterSimulator:
         )
 
         class FillLayer:
+            source_mode = SimpleNamespace(name="Split")
             def __init__(self):
                 self.name = "Fill layer"
                 self.sources = {}
@@ -96,9 +100,18 @@ class PainterSimulator:
 
             def get_source(self, channel):
                 source = self.sources[channel]
-                return source if isinstance(source, Bitmap) else SimpleNamespace(get_color=lambda: source)
+                return source if isinstance(source, Bitmap) else UniformColor(source)
 
         self_simulator = self
+        class UniformColor:
+            def __init__(self, color):
+                self.color = color
+
+            def get_color(self):
+                return self.color
+
+        module.source = SimpleNamespace(SourceMode=SimpleNamespace(Split=FillLayer.source_mode),
+                                        SourceBitmap=Bitmap, SourceUniformColor=UniformColor)
         channels = Enum("ChannelType", ["BaseColor", "Roughness", "Metallic"])
         stack = SimpleNamespace(all_channels=lambda: {
             channel: SimpleNamespace(format=lambda c=channel: SimpleNamespace(
@@ -116,7 +129,7 @@ class PainterSimulator:
             return layer
 
         module.colormanagement = SimpleNamespace(
-            Color=lambda r, g, b, color_space=None: SimpleNamespace(value=(r, g, b), color_space=color_space),
+            Color=lambda r, g, b, color_space=None: SimpleNamespace(value=(r, g, b), value_raw=(r, g, b), color_space=color_space),
             GenericColorSpace=SimpleNamespace(sRGB="sRGB", Raw="Raw"),
             LegacyColorSpace=SimpleNamespace(sRGB="srgb"),
         )
@@ -129,6 +142,7 @@ class PainterSimulator:
                 self.modifying = False
 
         module.layerstack = SimpleNamespace(
+            FillLayerNode=FillLayer,
             get_root_layer_nodes=lambda requested: list(self.layers),
             InsertPosition=SimpleNamespace(from_textureset_stack=lambda requested: requested),
             insert_fill=insert_fill,

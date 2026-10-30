@@ -33,6 +33,11 @@ class TextureFillTests(unittest.TestCase):
             self.assertEqual(assigned["Metallic"].color_space, "Raw")
             self.assertEqual(assigned["Roughness"].value[0], .3)
             self.assertEqual(assigned["Metallic"].value[0], .1)
+            channels = client.call("layer_stack", {"texture_set": "Body"})["layers"][0]["channels"]
+            self.assertEqual(channels["base_color"]["color_space"], "sRGB")
+            self.assertEqual(channels["base_color"]["resource_url"], result["resource_url"])
+            self.assertEqual(channels["roughness"]["value"], [.3, .3, .3])
+            self.assertEqual(channels["roughness"]["color_space"], "Raw")
 
     def test_failed_bitmap_binding_removes_layer_and_reports_retained_resource(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:

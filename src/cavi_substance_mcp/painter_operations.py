@@ -202,8 +202,32 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         stack = textureset.Stack.from_name(params["texture_set"])
         nodes = layerstack.get_root_layer_nodes(stack)
         if operation == "layer_stack":
-            return {"layers": [{"uid": n.uid(), "name": n.get_name(),
-                                 "type": type(n).__name__} for n in nodes]}
+            from substance_painter import source
+
+            layers = []
+            for node in nodes:
+                item = {"uid": node.uid(), "name": node.get_name(), "type": type(node).__name__}
+                if isinstance(node, layerstack.FillLayerNode):
+                    item["source_mode"] = node.source_mode.name
+                    if node.source_mode == source.SourceMode.Split:
+                        item["channels"] = {}
+                        for label, channel in (("base_color", textureset.ChannelType.BaseColor),
+                                               ("roughness", textureset.ChannelType.Roughness),
+                                               ("metallic", textureset.ChannelType.Metallic)):
+                            if channel not in node.active_channels:
+                                continue
+                            value = node.get_source(channel)
+                            description = {"type": type(value).__name__}
+                            if isinstance(value, source.SourceBitmap):
+                                description.update(resource_url=value.resource_id.url(),
+                                                   color_space=str(value.get_color_space()))
+                            elif isinstance(value, source.SourceUniformColor):
+                                color = value.get_color()
+                                description.update(value=list(color.value_raw),
+                                                   color_space=str(color.color_space))
+                            item["channels"][label] = description
+                layers.append(item)
+            return {"layers": layers}
         name = params["name"]
         if not isinstance(name, str) or not name.strip() or len(name) > 63:
             raise ValueError("Layer name must be nonempty and at most 63 characters")
