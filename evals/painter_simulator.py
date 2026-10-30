@@ -20,6 +20,7 @@ class PainterSimulator:
         self.workspace = workspace
         self.state = "open"
         self.opened = True
+        self.project_id = "simulated-project-A"
 
     def setup(self, state):
         self.state = state
@@ -84,6 +85,7 @@ class PainterSimulator:
 
         def open_project(*args, **kwargs):
             self.opened = True
+            self.project_id += "-opened"
 
         def close_project():
             self.opened = False
@@ -93,6 +95,7 @@ class PainterSimulator:
 
         module.project = SimpleNamespace(
             is_open=lambda: self.opened,
+            get_uuid=lambda: self.project_id,
             is_busy=lambda: self.state == "busy",
             file_path=lambda: None if self.state == "dirty-unsaved" else "simulated-original.spp",
             needs_saving=lambda: self.state in {"dirty", "dirty-unsaved"},
