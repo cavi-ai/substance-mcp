@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "probes": [
+    {
+      "id": "discovery-budget",
+      "probe": "discovery-cost",
+      "access": "read_only",
+      "max_tools": 3,
+      "max_schema_bytes": 6600
+    },
+    {
+      "id": "token-budget",
+      "probe": "token-cost",
+      "access": "read_only",
+      "max_total_tokens": 1700,
+      "max_tool_tokens": 1000
+    },
+    {
+      "id": "catalog-pagination",
+      "probe": "pagination",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "declared-surfaces",
+      "probe": "surface-listing",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "protocol-version",
+      "probe": "protocol-negotiation",
+      "access": "read_only",
+      "bogus_version": "2099-01-01"
+    },
+    {
+      "id": "designer_status-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "designer_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "designer_status-output-schema",
+      "probe": "output-schema",
+      "tool": "designer_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "status-repeat",
+      "probe": "degradation-over-n",
+      "tool": "designer_status",
+      "access": "read_only",
+      "arguments": {},
+      "max_attempts": 3
+    },
+    {
+      "id": "status-contention",
+      "probe": "contention",
+      "tool": "designer_status",
+      "access": "read_only",
+      "arguments": {}
+    }
+  ]
+}
