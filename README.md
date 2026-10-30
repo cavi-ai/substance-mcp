@@ -125,3 +125,59 @@ The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI an
 The corpus exercises all six tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. Layer cases cover duplicate names, bounded colors, assignment rollback, and project readiness. No-argument read tools have no tool-specific invalid inputs.
 
 Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. Native export checks establish file generation, not painted-asset quality or destination-game material compatibility. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.
+
+## Designer
+
+`cavi-substance-designer-mcp` is a second stdio server for Substance 3D Designer's
+headless CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or lease.
+
+```json
+{"mcpServers": {"substance-designer": {"command": "cavi-substance-designer-mcp"}}}
+```
+
+- Binaries: `CAVI_DESIGNER_BIN_DIR`, else `CAVI_DESIGNER_APP` (`.app` path), else the
+  standard install dir for macOS, Windows or Linux.
+- Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories only.
+  Failed calls remove the directory they created.
+
+| Tool | Actions / inputs |
+| --- | --- |
+| `designer_status` | binaries, versions, packages dir, templates, workspace |
+| `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
+| `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
+
+Bake maps: `normal` Normal.Raytraced, `ambient_occlusion` AmbientOcclusion.Raytraced,
+`curvature` Curvature.Raytraced, `thickness` Thickness.Raytraced, `position`
+Position.Raytraced, `world_normal` Normal.TangentToWorld (low mesh only), `bent_normal`
+Normal.BentNormals, `id` Color.Raytraced, `height` Height.Raytraced, `opacity`
+Opacity.Raytraced. One baker run per map; each output file is verified.
+
+Channel packing spec (shared with the Painter server):
+
+```json
+{"maps": [
+  {"name": "T_Rock_MaskMap", "format": "png", "bit_depth": 8,
+   "channels": {"R": "metallic", "G": "ambientOcclusion", "B": "0", "A": "1-roughness"}},
+  {"name": "T_Rock_BaseColor", "channels": {"RGB": "baseColor", "A": "opacity"}},
+  {"name": "T_Rock_Normal", "channels": {"RGB": "normal"}}],
+ "defaults": {"opacity": 1}}
+```
+
+- Sources: usage, `1-<usage>`, or a constant `0..1`. Missing usages need `defaults`.
+- No `A` key writes RGB. All sources share one resolution. Gray from RGB uses R.
+- Formats `png`, `tga`, `tif`; `bit_depth` 16 is PNG only.
+
+Limitations:
+
+- Presets are not listed (`sbsrender info` does not expose them) and an unknown preset
+  name is ignored by `sbsrender`.
+- 16-bit RGB/RGBA sources are read at 8-bit precision; 16-bit grayscale is exact.
+
+```sh
+npm run eval:designer-protocol
+npm run eval:designer-core
+uv run --locked python -m unittest tests.test_designer_native  # skips without Designer
+```
+
+The evals run against fake CLIs (`evals/designer_fake_cli.py`); native tests need
+Designer and, for baking, Blender.
