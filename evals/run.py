@@ -59,6 +59,7 @@ async def exercise(mode, env, workspace, adapter=None):
                 case["kind"] == "safety" for case in covered
             ):
                 raise AssertionError(f"Missing safety coverage: {tool.name}")
+        lease_id = None
         for case in selected:
             try:
                 if case.get("setup"):
@@ -71,7 +72,37 @@ async def exercise(mode, env, workspace, adapter=None):
                     + list((workspace.parent / "outside").rglob("*"))
                     if p.is_file()
                 }
-                reply = await session.call_tool(case["tool"], case["arguments"])
+
+                arguments = dict(case["arguments"])
+                if mode != "protocol":
+                    needs_lease = (case["tool"] not in {"session_control", "generate_mesh"}
+                                   and not tools[case["tool"]].annotations.readOnlyHint
+                                   and not case.get("without_lease"))
+                    if needs_lease or case.get("fresh_lease"):
+                        if lease_id:
+                            released = await session.call_tool("session_control", {
+                                "action": "release", "lease_id": lease_id})
+                            assert not released.isError, str(released.content)
+                            lease_id = None
+                        state = await session.call_tool("session_control", {"action": "inspect"})
+                        assert not state.isError, str(state.content)
+                        if needs_lease:
+                            claim = await session.call_tool("session_control", {
+                                "action": "claim", "owner": "eval-fixture",
+                                "expected_project": state.structuredContent["project_id"]})
+                            assert not claim.isError, str(claim.content)
+                            lease_id = claim.structuredContent["lease_id"]
+                    if arguments.get("expected_project") == "$project":
+                        state = await session.call_tool("session_control", {"action": "inspect"})
+                        arguments["expected_project"] = state.structuredContent["project_id"]
+                    if arguments.get("lease_id") == "$lease" or needs_lease:
+                        arguments["lease_id"] = lease_id
+                reply = await session.call_tool(case["tool"], arguments)
+                if not reply.isError and case["tool"] == "session_control":
+                    if arguments.get("action") == "claim":
+                        lease_id = reply.structuredContent["lease_id"]
+                    elif arguments.get("action") == "release":
+                        lease_id = None
                 error = "\n".join(getattr(item, "text", "") for item in reply.content)
                 if case.get("error"):
                     assert reply.isError, "Expected an explicit MCP tool error"

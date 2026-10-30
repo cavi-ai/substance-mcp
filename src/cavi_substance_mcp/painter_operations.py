@@ -1,6 +1,8 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import hashlib
 import math
+import os
 from pathlib import Path
 
 
@@ -31,6 +33,30 @@ def input_file(workspace: Path, name: str, extensions: set[str]) -> Path:
 
 
 def execute(operation: str, params: dict, workspace: str) -> dict:
+    import substance_painter
+    from substance_painter import project
+
+    # setdefault keeps one application-local lease even for concurrent remote clients.
+    session = vars(substance_painter).setdefault(
+        "_cavi_mcp_lease", Lease()  # noqa: F821 -- trusted lease source is prepended by expression_for
+    )
+
+    def identity():
+        value = (os.getpid(), str(project.get_uuid()) if project.is_open() else None,
+                 project.file_path() if project.is_open() else None)
+        return hashlib.sha256(repr(value).encode()).hexdigest()
+
+    if operation == "session_control":
+        return session.control(params, identity)
+    if operation in {"status", "texture_sets", "layer_stack", "export_presets"} or (
+        operation == "export_textures" and params.get("dry_run", True) is True
+    ):
+        return _execute(operation, params, workspace)
+    with session.edit(params.get("lease_id"), identity):
+        return _execute(operation, params, workspace)
+
+
+def _execute(operation: str, params: dict, workspace: str) -> dict:
     import substance_painter
     from substance_painter import export, project, textureset
 

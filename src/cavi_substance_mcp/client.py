@@ -18,6 +18,7 @@ OPERATIONS = frozenset(
         "export_presets",
         "save_copy",
         "export_textures",
+        "session_control",
     }
 )
 
@@ -25,7 +26,8 @@ OPERATIONS = frozenset(
 def expression_for(operation: str, params: dict, workspace: Path) -> str:
     if operation not in OPERATIONS:
         raise ValueError(f"Unknown operation: {operation}")
-    source = Path(__file__).with_name("painter_operations.py").read_text()
+    source = (Path(__file__).with_name("lease.py").read_text() + "\n"
+              + Path(__file__).with_name("painter_operations.py").read_text())
     # repr() makes every caller-controlled value data in a single Python expression.
     return (
         "(lambda ns: (__import__('builtins').exec(" + repr(source) + ", ns), "
@@ -52,7 +54,9 @@ class PainterClient:
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = self.workspace.resolve()
 
-    def call(self, operation: str, params: dict | None = None):
+    def call(self, operation: str, params: dict | None = None, *, lease_id: str | None = None):
+        if lease_id is not None:
+            params = {**(params or {}), "lease_id": lease_id}
         expression = expression_for(operation, params or {}, self.workspace)
         body = json.dumps({"python": base64.b64encode(expression.encode()).decode()})
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=60)

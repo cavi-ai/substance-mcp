@@ -832,5 +832,145 @@
       "/connected": true,
       "/open": true
     }
+  },
+  {
+    "id": "session-inspect",
+    "tool": "session_control",
+    "arguments": {
+      "action": "inspect"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "required": [
+      "/project_id",
+      "/active"
+    ]
+  },
+  {
+    "id": "session-invalid-action",
+    "tool": "session_control",
+    "arguments": {
+      "action": "steal"
+    },
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "session-stale-project",
+    "tool": "session_control",
+    "arguments": {
+      "action": "claim",
+      "owner": "eval-B",
+      "expected_project": "stale"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "error": "project changed"
+  },
+  {
+    "id": "session-claim",
+    "tool": "session_control",
+    "arguments": {
+      "action": "claim",
+      "owner": "eval-A",
+      "expected_project": "$project"
+    },
+    "fresh_lease": true,
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/active": true,
+      "/owner": "eval-A"
+    },
+    "required": [
+      "/lease_id"
+    ]
+  },
+  {
+    "id": "session-competing-claim",
+    "tool": "session_control",
+    "arguments": {
+      "action": "claim",
+      "owner": "eval-B",
+      "expected_project": "$project"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "error": "eval-A"
+  },
+  {
+    "id": "session-renew",
+    "tool": "session_control",
+    "arguments": {
+      "action": "renew",
+      "lease_id": "$lease"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/active": true
+    }
+  },
+  {
+    "id": "session-release",
+    "tool": "session_control",
+    "arguments": {
+      "action": "release",
+      "lease_id": "$lease"
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/active": false,
+      "/owner": null
+    }
+  },
+  {
+    "id": "session-foreign-release",
+    "tool": "session_control",
+    "arguments": {
+      "action": "release",
+      "lease_id": "foreign"
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "error": "lease_id"
+  },
+  {
+    "id": "unowned-mutation",
+    "tool": "create_fill_layer",
+    "arguments": {
+      "texture_set": "Body",
+      "name": "Unowned",
+      "base_color": [
+        0.2,
+        0.5,
+        0.8
+      ]
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "without_lease": true,
+    "error": "lease_id"
   }
 ]

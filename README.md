@@ -46,6 +46,7 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 
 ## Tools
 
+- `session_control`: inspect, claim, renew, or release application edit ownership.
 - `painter_status`: connectivity and project state.
 - `open_project`, `create_project`: open a workspace project or import a workspace mesh, only when no project is already open.
 - `close_project`: close only the project matching the inspected file path. Unsaved changes are refused unless `discard_unsaved=true` is explicit; use `expected_file=null` for an unsaved project.
@@ -60,6 +61,31 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 `CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript.
 
 There are no automatic retries, external uploads, telemetry or account logins. Application launch is explicit through the CLI. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
+
+
+## Shared application ownership
+
+Before editing, call `session_control` with `action="inspect"`, then claim the
+returned `project_id` with `action="claim"`, an `owner` label, and that exact
+`expected_project`. Claim returns a private `lease_id`; pass it on application
+mutations. Read-only inspection remains available without ownership.
+
+Claims last 30–3600 seconds, default 600. Renew with `action="renew"` and release
+with `action="release"`, both supplying the same `lease_id`. Release and expiry
+never save, close, or discard a project. Conflicting claims and missing, foreign,
+expired, or project-mismatched edit tokens are refused. An owned operation holds
+its exclusive section until it finishes. A successful owned save or project
+transition updates the claim's binding.
+
+Claims coordinate participating MCP clients, not direct human edits or arbitrary
+scripts. Upgrade every participating client. Keep lease IDs out of asset receipts
+and handoff documents; a new agent inspects and claims its own session.
+
+Project identity includes Painter's process, project UUID, and file path, so
+separate unsaved projects are distinguished. Project creation and opening remain
+asynchronous; inspect loading completion before continuing. If that changes the
+binding after the call returns, release and claim the inspected new project.
+The existing unsaved-close guard remains in force.
 
 ## Validation
 
