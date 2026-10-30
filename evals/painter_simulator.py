@@ -8,6 +8,8 @@ import base64
 import json
 import sys
 import threading
+from contextlib import nullcontext
+from enum import Enum
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -22,12 +24,63 @@ class PainterSimulator:
     def setup(self, state):
         self.state = state
         self.opened = state != "closed"
+        self.layers = []
 
     def __enter__(self):
         module = ModuleType("substance_painter")
         module.__version__ = "simulated"
         self.previous = sys.modules.get("substance_painter")
         sys.modules["substance_painter"] = module
+        self.layers = []
+
+        class FillLayer:
+            def __init__(self):
+                self.name = "Fill layer"
+                self.sources = {}
+
+            def uid(self):
+                return 100 + self_simulator.layers.index(self)
+
+            def get_name(self):
+                return self.name
+
+            def set_name(self, name):
+                self.name = name
+
+            def set_source(self, channel, color):
+                if self_simulator.state == "fill-failure" and channel.name == "Roughness":
+                    raise RuntimeError("simulated source assignment failure")
+                self.sources[channel] = color
+
+            def get_source(self, channel):
+                return SimpleNamespace(get_color=lambda: self.sources[channel])
+
+        self_simulator = self
+        channels = Enum("ChannelType", ["BaseColor", "Roughness", "Metallic"])
+        stack = SimpleNamespace(all_channels=lambda: dict.fromkeys(channels))
+
+        def from_name(name):
+            if name != "Body":
+                raise ValueError("Texture Set not found")
+            return stack
+
+        def insert_fill(position):
+            assert position is stack
+            layer = FillLayer()
+            self.layers.insert(0, layer)
+            return layer
+
+        module.colormanagement = SimpleNamespace(
+            Color=lambda r, g, b, color_space=None: SimpleNamespace(value=(r, g, b)),
+            GenericColorSpace=SimpleNamespace(sRGB="sRGB", Raw="Raw"),
+        )
+        module.layerstack = SimpleNamespace(
+            get_root_layer_nodes=lambda requested: list(self.layers),
+            InsertPosition=SimpleNamespace(from_textureset_stack=lambda requested: requested),
+            insert_fill=insert_fill,
+            delete_node=lambda node: self.layers.remove(node),
+            ScopedModification=lambda name: nullcontext(),
+        )
 
         def open_project(*args, **kwargs):
             self.opened = True
@@ -50,7 +103,9 @@ class PainterSimulator:
             ProjectSaveMode=SimpleNamespace(Full="Full"),
         )
         module.textureset = SimpleNamespace(
-            all_texture_sets=lambda: [SimpleNamespace(name=lambda: "Body")]
+            all_texture_sets=lambda: [SimpleNamespace(name=lambda: "Body")],
+            Stack=SimpleNamespace(from_name=from_name),
+            ChannelType=channels,
         )
         success, failure = SimpleNamespace(name="Success"), SimpleNamespace(name="Error")
 

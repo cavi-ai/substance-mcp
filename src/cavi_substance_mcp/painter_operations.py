@@ -1,6 +1,13 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import math
 from pathlib import Path
+
+
+def unit_value(value):
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError("Channel values must be finite numbers between 0 and 1")
+    return float(value)
 
 
 def export_destination(workspace: Path, name: str) -> Path:
@@ -65,6 +72,49 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
         return {"closed": not project.is_open()}
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
+    if operation in {"layer_stack", "create_fill_layer"}:
+        from substance_painter import colormanagement, layerstack
+
+        stack = textureset.Stack.from_name(params["texture_set"])
+        nodes = layerstack.get_root_layer_nodes(stack)
+        if operation == "layer_stack":
+            return {"layers": [{"uid": n.uid(), "name": n.get_name(),
+                                 "type": type(n).__name__} for n in nodes]}
+        name = params["name"]
+        if not isinstance(name, str) or not name.strip() or len(name) > 63:
+            raise ValueError("Layer name must be nonempty and at most 63 characters")
+        if any(n.get_name() == name for n in nodes):
+            raise ValueError("A root layer with this name already exists")
+        color = params["base_color"]
+        if not isinstance(color, (list, tuple)) or len(color) != 3:
+            raise ValueError("Base color must contain three values between 0 and 1")
+        color = [unit_value(value) for value in color]
+        roughness = unit_value(params.get("roughness", 0.5))
+        metallic = unit_value(params.get("metallic", 0.0))
+        channels = textureset.ChannelType
+        active = {channels.BaseColor, channels.Roughness, channels.Metallic}
+        if not active.issubset(stack.all_channels()):
+            raise ValueError("Texture Set must have BaseColor, Roughness and Metallic channels")
+        position = layerstack.InsertPosition.from_textureset_stack(stack)
+        with layerstack.ScopedModification(f"Create fill layer {name}"):
+            node = layerstack.insert_fill(position)
+            try:
+                node.set_name(name)
+                node.active_channels = active
+                node.set_source(channels.BaseColor, colormanagement.Color(
+                    *color, colormanagement.GenericColorSpace.sRGB))
+                for channel, value in [(channels.Roughness, roughness), (channels.Metallic, metallic)]:
+                    node.set_source(channel, colormanagement.Color(
+                        value, value, value, colormanagement.GenericColorSpace.Raw))
+            except Exception:
+                layerstack.delete_node(node)
+                raise
+        return {
+            "name": node.get_name(), "uid": node.uid(), "texture_set": params["texture_set"],
+            "base_color": list(node.get_source(channels.BaseColor).get_color().value),
+            "roughness": node.get_source(channels.Roughness).get_color().value[0],
+            "metallic": node.get_source(channels.Metallic).get_color().value[0],
+        }
     if operation == "texture_sets":
         return {"texture_sets": [{"name": item.name()} for item in textureset.all_texture_sets()]}
     if operation == "export_presets":

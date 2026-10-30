@@ -13,6 +13,8 @@ OPERATIONS = frozenset(
         "create_project",
         "close_project",
         "texture_sets",
+        "layer_stack",
+        "create_fill_layer",
         "export_presets",
         "save_copy",
         "export_textures",

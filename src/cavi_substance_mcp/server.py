@@ -30,6 +30,8 @@ NewDirectory = Annotated[
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
+UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -57,6 +59,27 @@ def create_project(mesh_path: PathInput) -> dict[str, Any]:
 def texture_sets() -> dict[str, Any]:
     """List the current project's texture sets."""
     return PainterClient().call("texture_sets")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def layer_stack(texture_set: TextureSetName) -> dict[str, Any]:
+    """Inspect root layer names, IDs and types in the named Texture Set's default stack."""
+    return PainterClient().call("layer_stack", {"texture_set": texture_set})
+
+
+@mcp.tool(annotations=MUTATING)
+def create_fill_layer(
+    texture_set: TextureSetName,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
+    base_color: Annotated[tuple[UnitValue, UnitValue, UnitValue], Field(description="sRGB RGB, 0–1.")],
+    roughness: UnitValue = 0.5,
+    metallic: UnitValue = 0.0,
+) -> dict[str, Any]:
+    """Add a named root fill for color, roughness and metallic; refuse duplicate names."""
+    return PainterClient().call("create_fill_layer", {
+        "texture_set": texture_set, "name": name, "base_color": base_color,
+        "roughness": roughness, "metallic": metallic,
+    })
 
 
 @mcp.tool(annotations=CLOSING)
