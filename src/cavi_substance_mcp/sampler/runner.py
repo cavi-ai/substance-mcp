@@ -152,7 +152,7 @@ async def _collect(process):
     return out, err
 
 
-async def run_script(script: Path, timeout: float, job_dir: Path) -> Result:
+async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> Result:
     executable = installation().require()
     env = dict(os.environ)
     env["SAMPLER_SCRIPT_PATH"] = str(job_dir)
@@ -161,7 +161,7 @@ async def run_script(script: Path, timeout: float, job_dir: Path) -> Result:
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
     process = await asyncio.create_subprocess_exec(
-        str(executable), "--skip-version-check", "--run-script-silent", str(script),
+        str(executable), "--skip-version-check", "--run-script-silent", str(script), *extra,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

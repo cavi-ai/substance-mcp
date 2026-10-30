@@ -9,11 +9,14 @@
   ],
   "equals": {
    "/available": true,
-   "/binaries/sbsrender/version": "0.0.0-fake"
+   "/binaries/sbsrender/version": "0.0.0-fake",
+   "/sampler/version": "0.0.0-fake",
+   "/sampler/running": false
   },
   "required": [
    "/templates/0",
-   "/workspace"
+   "/workspace",
+   "/sampler/path"
   ]
  },
  {
@@ -26,7 +29,8 @@
   ],
   "equals": {
    "/available": false,
-   "/package_count": 0
+   "/package_count": 0,
+   "/sampler/path": null
   }
  },
  {
@@ -1378,6 +1382,809 @@
   "error": "killed",
   "absent": [
    "x"
+  ]
+ },
+ {
+  "id": "sampler-i2m-success",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "s_i2m",
+   "resolution": 256
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/baseColor": "s_i2m/baseColor.png",
+   "/maps/specularLevel": "s_i2m/specularLevel.png",
+   "/layers/1": "Image to Material (AI Powered)",
+   "/layers/2": "Make It Tile",
+   "/packed": null,
+   "/project": null
+  },
+  "required": [
+   "/seconds"
+  ],
+  "files": [
+   "s_i2m/normal.png",
+   "s_i2m/ambientOcclusion.png"
+  ]
+ },
+ {
+  "id": "sampler-i2m-pack-save",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "s_pack",
+   "mode": "b2m",
+   "delight": true,
+   "resolution": 256,
+   "pack": {
+    "maps": [
+     {
+      "name": "T_MaskMap",
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     },
+     {
+      "name": "T_BaseColor",
+      "channels": {
+       "RGB": "baseColor",
+       "A": "opacity"
+      }
+     },
+     {
+      "name": "T_Normal",
+      "channels": {
+       "RGB": "normal"
+      }
+     }
+    ],
+    "defaults": {
+     "opacity": 1,
+     "metallic": 0
+    }
+   },
+   "save_project": true
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/project": "s_pack/photo.ssa",
+   "/packed/0/path": "s_pack/packed/T_MaskMap.png",
+   "/packed/0/width": 256,
+   "/layers/2": "Delighter (AI Powered)",
+   "/layers/3": "Make It Tile"
+  },
+  "files": [
+   "s_pack/packed/T_MaskMap.png",
+   "s_pack/packed/T_BaseColor.png",
+   "s_pack/packed/T_Normal.png",
+   "s_pack/photo.ssa"
+  ]
+ },
+ {
+  "id": "sampler-i2m-multiangle-tif",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/angle0.png",
+    "photos/angle1.png",
+    "photos/angle2.png",
+    "photos/angle3.png"
+   ],
+   "directory": "s_multi",
+   "mode": "multiangle",
+   "tiling": false,
+   "format": "tif",
+   "resolution": 256
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/normal": "s_multi/normal.tif",
+   "/layers/1": "Multiangle To Material"
+  },
+  "absent": [
+   "s_multi/opacity.tif"
+  ]
+ },
+ {
+  "id": "sampler-i2m-exr",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "s_exr",
+   "resolution": 256,
+   "format": "exr"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/height": "s_exr/height.exr"
+  },
+  "files": [
+   "s_exr/height.exr"
+  ]
+ },
+ {
+  "id": "sampler-export-success",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "directory": "s_exp",
+   "resolution": 256,
+   "pack": {
+    "maps": [
+     {
+      "name": "T_MaskMap",
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     },
+     {
+      "name": "T_BaseColor",
+      "channels": {
+       "RGB": "baseColor",
+       "A": "opacity"
+      }
+     },
+     {
+      "name": "T_Normal",
+      "channels": {
+       "RGB": "normal"
+      }
+     }
+    ],
+    "defaults": {
+     "opacity": 1,
+     "metallic": 0
+    }
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/asset": "rock",
+   "/maps/roughness": "s_exp/roughness.png",
+   "/packed/2/path": "s_exp/packed/T_Normal.png"
+  },
+  "files": [
+   "s_exp/baseColor.png"
+  ]
+ },
+ {
+  "id": "sampler-export-asset",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/multi.ssa",
+   "asset": "b",
+   "directory": "s_exp_b",
+   "resolution": 256
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/asset": "b"
+  }
+ },
+ {
+  "id": "sampler-i2m-missing-images",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "images is required",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-missing-directory",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "sampler-i2m-extra-project",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "project": "projects/scene.ssa",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "Not valid for action=image_to_material: project",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-extra-tiling",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "directory": "x_sampler",
+   "tiling": false
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "Not valid for action=export_project: tiling",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-extra-save",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "directory": "x_sampler",
+   "save_project": true
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "Not valid for action=export_project: save_project",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-bad-resolution",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "x_sampler",
+   "resolution": 300
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "sampler-bad-format",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "x_sampler",
+   "format": "jpg"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "sampler-too-many-images",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/p0.png",
+    "photos/p1.png",
+    "photos/p2.png",
+    "photos/p3.png",
+    "photos/p4.png",
+    "photos/p5.png",
+    "photos/p6.png",
+    "photos/p7.png",
+    "photos/p8.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "sampler-ai-two-images",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/angle0.png",
+    "photos/angle1.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "takes 1-1",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-multiangle-one",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "mode": "multiangle",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "takes 2-8",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-duplicate-images",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/angle0.png",
+    "photos/angle0.png"
+   ],
+   "mode": "multiangle",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "unique",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-exr-pack",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "x_sampler",
+   "format": "exr",
+   "pack": {
+    "maps": [
+     {
+      "name": "T_MaskMap",
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     },
+     {
+      "name": "T_BaseColor",
+      "channels": {
+       "RGB": "baseColor",
+       "A": "opacity"
+      }
+     },
+     {
+      "name": "T_Normal",
+      "channels": {
+       "RGB": "normal"
+      }
+     }
+    ],
+    "defaults": {
+     "opacity": 1,
+     "metallic": 0
+    }
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "png or tif",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-bad-extension",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "single.sbsar"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "supported file",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-missing-project",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "project is required",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-multi-asset",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/multi.ssa",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "exactly one asset",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-unknown-asset",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "asset": "nope",
+   "directory": "x_sampler"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not found",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-escape-image",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "escape/photo.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-escape-dir",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "../outside/x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "sampler-i2m-symlink-dir",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "escape/x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "sampler-i2m-existing-dir",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "existing"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already exists"
+ },
+ {
+  "id": "sampler-i2m-running",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "while_running": true,
+  "error": "already running",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-running",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "while_running": true,
+  "error": "already running",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-timeout",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/hang.png"
+   ],
+   "directory": "x_sampler",
+   "timeout_seconds": 2
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "killed",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-failure",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/fail.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "fake import failure",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-silent",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/silent.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "exported no material maps",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-i2m-noscript",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/noscript.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "did not run the worker",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-silent",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/silent.ssa",
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "exported no material maps",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-escape",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "escape/scene.ssa",
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace",
+  "absent": [
+   "x_sampler"
+  ]
+ },
+ {
+  "id": "sampler-export-existing-dir",
+  "tool": "sampler",
+  "arguments": {
+   "action": "export_project",
+   "project": "projects/scene.ssa",
+   "directory": "existing"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already exists"
+ },
+ {
+  "id": "sampler-unavailable",
+  "tool": "sampler",
+  "arguments": {
+   "action": "image_to_material",
+   "images": [
+    "photos/photo.png"
+   ],
+   "directory": "x_sampler"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol"
+  ],
+  "error": "executable not found",
+  "absent": [
+   "x_sampler"
   ]
  }
 ]

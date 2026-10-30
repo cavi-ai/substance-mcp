@@ -160,7 +160,8 @@ headless CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or
 
 | Tool | Actions / inputs |
 | --- | --- |
-| `designer_status` | binaries, versions, packages dir, templates, workspace |
+| `designer_status` | binaries, versions, packages dir, templates, workspace, `sampler` |
+| `sampler` | Sampler batch jobs; see [Sampler batch tool](#sampler-batch-tool) |
 | `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
 | `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
 
@@ -244,3 +245,41 @@ uv run --locked python -m unittest tests.test_sampler_native  # launch test need
 ```
 
 The evals run against a fake Sampler executable (`evals/sampler_fake_cli.py`).
+
+## Sampler batch tool
+
+The Designer server's `sampler` tool runs one Substance 3D Sampler batch job per call:
+`--run-script-silent sampler_worker.py -S job.json --skip-version-check
+--ignore-gpu-warning`. The worker is fixed; no user code runs inside Sampler.
+
+- Executable: `CAVI_SAMPLER_BIN`, else `CAVI_SAMPLER_APP`, else the standard install.
+- Refuses to start while another Sampler instance is running (`pgrep`).
+- Timeout 900 s by default, 3600 s max; the process group is killed on timeout.
+- Success needs non-empty exported maps; the exit code alone is not trusted.
+- Maps are renamed to `<usage>.<format>`: `baseColor`, `normal`, `roughness`,
+  `metallic`, `height`, `ambientOcclusion`, `opacity`, `specularLevel`.
+
+| Action | Inputs |
+| --- | --- |
+| `image_to_material` | `images`, `mode`, `tiling` (default true), `delight`, `resolution`, `format`, `directory`, optional `pack`, `save_project` |
+| `export_project` | `project` (`.ssa`), optional `asset`, `resolution`, `format`, `directory`, optional `pack` |
+
+- `mode`: `ai` Image to Material (AI Powered), `b2m` Image to Material (B2M), one
+  image; `multiangle` Multiangle To Material, 2-8 images.
+- `tiling` adds Make It Tile; `delight` adds Delighter (AI Powered).
+- `resolution` 256-8192 (power of two) sets document and export size.
+- `format` `png`, `tif` or `exr`; `pack` (the spec above) needs `png` or `tif`.
+- `save_project` writes `<first image>.ssa` into the output directory.
+
+Limitations:
+
+- Sampler opens its app process (a window may appear); there is no headless mode.
+- Filter parameters are Sampler defaults; no per-filter tuning.
+- `export_project` exports one asset; several assets need `asset`.
+
+```sh
+CAVI_SAMPLER_NATIVE=1 uv run --locked python -m unittest tests.test_designer_sampler_native
+```
+
+The evals use `evals/designer_sampler_fake.py`, which runs the real worker against a
+stub `substance_sampler` module.
