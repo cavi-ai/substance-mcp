@@ -104,6 +104,22 @@ def create_fill_layer(
     )
 
 
+@mcp.tool(annotations=MUTATING)
+def create_texture_fill(
+    texture_set: TextureSetName,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
+    base_color_texture: PathInput,
+    roughness: UnitValue = .5,
+    metallic: UnitValue = 0,
+    lease_id: str | None = None,
+) -> dict[str, Any]:
+    """Create an sRGB bitmap color fill with raw roughness and metallic; embed the PNG in the project."""
+    return PainterClient().call("create_texture_fill", {
+        "texture_set": texture_set, "name": name, "base_color_texture": base_color_texture,
+        "roughness": roughness, "metallic": metallic,
+    }, lease_id=lease_id)
+
+
 @mcp.tool(annotations=CLOSING)
 def close_project(
     expected_file: Annotated[
