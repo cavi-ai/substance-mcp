@@ -11,6 +11,7 @@ OPERATIONS = frozenset(
         "status",
         "open_project",
         "create_project",
+        "close_project",
         "texture_sets",
         "export_presets",
         "save_copy",

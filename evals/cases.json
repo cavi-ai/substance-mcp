@@ -1,5 +1,94 @@
 [
   {
+    "id": "close-project-missing-inspected-file",
+    "tool": "close_project",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": ["protocol", "simulated"],
+    "error": "validation"
+  },
+  {
+    "id": "close-project-string-discard",
+    "tool": "close_project",
+    "arguments": {"expected_file": null, "discard_unsaved": "true"},
+    "kind": "invalid",
+    "modes": ["protocol", "simulated"],
+    "error": "validation"
+  },
+  {
+    "id": "close-project-success",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "open",
+    "equals": {"/closed": true}
+  },
+  {
+    "id": "closed-project-status",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "success",
+    "modes": ["simulated"],
+    "equals": {"/open": false}
+  },
+  {
+    "id": "close-project-unsaved-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "dirty",
+    "error": "unsaved"
+  },
+  {
+    "id": "close-project-changed-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "different.spp", "discard_unsaved": true},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "open",
+    "error": "changed"
+  },
+  {
+    "id": "close-project-busy-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "close-project-explicit-discard",
+    "tool": "close_project",
+    "arguments": {"expected_file": null, "discard_unsaved": true},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "dirty-unsaved",
+    "equals": {"/closed": true}
+  },
+  {
+    "id": "close-project-already-closed",
+    "tool": "close_project",
+    "arguments": {"expected_file": null},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "closed",
+    "equals": {"/closed": true, "/already_closed": true}
+  },
+  {
+    "id": "export-reports-omitted-maps",
+    "tool": "export_textures",
+    "arguments": {"directory": "omitted-textures", "preset": "resource://eval-preset", "dry_run": false},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "omitted-export",
+    "required": ["/omitted_files/0"],
+    "files": ["omitted-textures/Body.png"],
+    "absent": ["omitted-textures/Body_AO.png"]
+  },
+  {
     "id": "status-success",
     "tool": "painter_status",
     "arguments": {},

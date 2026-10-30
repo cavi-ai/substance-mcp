@@ -49,6 +49,20 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
             path = input_file(root, params["path"], {".fbx", ".obj", ".gltf", ".glb"})
             project.create(mesh_file_path=str(path))
         return {"requested": operation, "path": str(path), "loading_may_be_pending": True}
+    if operation == "close_project":
+        if not project.is_open():
+            return {"closed": True, "already_closed": True}
+        if project.is_busy():
+            raise RuntimeError("Painter must be idle before closing a project")
+        if project.file_path() != params["expected_file"]:
+            raise RuntimeError("The open project changed; inspect status before closing it")
+        discard = params.get("discard_unsaved", False)
+        if type(discard) is not bool:
+            raise ValueError("discard_unsaved must be a boolean")
+        if project.needs_saving() and not discard:
+            raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
+        project.close()
+        return {"closed": not project.is_open()}
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
     if operation == "texture_sets":

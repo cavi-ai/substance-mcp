@@ -8,6 +8,31 @@ from pathlib import Path
 
 
 class RemoteTests(unittest.TestCase):
+    def test_close_refuses_unsaved_work_by_default(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            simulator.setup("dirty")
+            client = PainterClient(port=simulator.port, workspace=Path(folder))
+            with self.assertRaisesRegex(RuntimeError, "unsaved"):
+                client.call("close_project", {"expected_file": "simulated-original.spp"})
+            self.assertTrue(client.call("status")["open"])
+
+    def test_close_requires_the_inspected_project_and_explicit_discard(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            simulator.setup("dirty-unsaved")
+            client = PainterClient(port=simulator.port, workspace=Path(folder))
+            with self.assertRaisesRegex(RuntimeError, "changed"):
+                client.call("close_project", {"expected_file": "another.spp", "discard_unsaved": True})
+            self.assertTrue(client.call("status")["open"])
+            result = client.call("close_project", {"expected_file": None, "discard_unsaved": True})
+            self.assertTrue(result["closed"])
+            self.assertFalse(client.call("status")["open"])
+
     def test_successful_export_reports_maps_omitted_by_painter(self):
         from cavi_substance_mcp.client import PainterClient
         from evals.painter_simulator import PainterSimulator

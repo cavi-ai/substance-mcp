@@ -18,6 +18,7 @@ mcp = FastMCP(
     ),
 )
 MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 PathInput = Annotated[
     str, Field(description="Existing input file relative to the configured workspace.")
 ]
@@ -56,6 +57,21 @@ def create_project(mesh_path: PathInput) -> dict[str, Any]:
 def texture_sets() -> dict[str, Any]:
     """List the current project's texture sets."""
     return PainterClient().call("texture_sets")
+
+
+@mcp.tool(annotations=CLOSING)
+def close_project(
+    expected_file: Annotated[
+        str | None, Field(description="Exact file from painter_status; null for an unsaved project.")
+    ],
+    discard_unsaved: Annotated[
+        StrictBool, Field(description="Explicit true permits discarding the inspected project's edits.")
+    ] = False,
+) -> dict[str, Any]:
+    """Close the inspected project; refuse unsaved edits unless explicitly discarded."""
+    return PainterClient().call(
+        "close_project", {"expected_file": expected_file, "discard_unsaved": discard_unsaved}
+    )
 
 
 @mcp.tool(annotations=READ_ONLY)

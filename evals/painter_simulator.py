@@ -32,16 +32,20 @@ class PainterSimulator:
         def open_project(*args, **kwargs):
             self.opened = True
 
+        def close_project():
+            self.opened = False
+
         def save_copy(path, mode):
             Path(path).write_bytes(b"simulated-spp")
 
         module.project = SimpleNamespace(
             is_open=lambda: self.opened,
             is_busy=lambda: self.state == "busy",
-            file_path=lambda: "simulated-original.spp",
-            needs_saving=lambda: False,
+            file_path=lambda: None if self.state == "dirty-unsaved" else "simulated-original.spp",
+            needs_saving=lambda: self.state in {"dirty", "dirty-unsaved"},
             open=open_project,
             create=open_project,
+            close=close_project,
             save_as_copy=save_copy,
             ProjectSaveMode=SimpleNamespace(Full="Full"),
         )

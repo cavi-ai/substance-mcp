@@ -6,7 +6,7 @@ Typed MCP tools for Adobe Substance 3D Painter project inspection and texture ex
 
 This version targets Painter's documented Python remote scripting API. It does not control Substance Designer or provide painting, layer editing, baking, or smart-material authoring tools.
 
-**Live Painter validation is pending.** The transport, request encoding and path boundaries have automated local tests. These tests do not establish compatibility with a running Painter installation.
+Native project creation, texture-set and preset inspection, texture export, save-copy/reopen, and guarded closing have been checked with Painter 12.2.0 on macOS. Automated transport and path tests use an explicitly simulated API and do not establish compatibility with other Painter versions.
 
 ## Install
 
@@ -48,6 +48,7 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 
 - `painter_status`: connectivity and project state.
 - `open_project`, `create_project`: open a workspace project or import a workspace mesh, only when no project is already open.
+- `close_project`: close only the project matching the inspected file path. Unsaved changes are refused unless `discard_unsaved=true` is explicit; use `expected_file=null` for an unsaved project.
 - `texture_sets`, `export_presets`: inspect the current project and predefined presets.
 - `save_project_copy`: save a new copy without changing the open project's location.
 - `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied. Results include `omitted_files` for maps Painter planned but did not emit; check these against the asset's required channels.
@@ -78,6 +79,6 @@ npm run eval:core
 
 The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifest checks discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifest adds schema, structured output, repeated reads, and contention checks.
 
-The corpus exercises all seven tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. No-argument read tools have no tool-specific invalid inputs.
+The corpus exercises all eight tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. No-argument read tools have no tool-specific invalid inputs.
 
-**Native Painter validation remains pending.** Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.
+Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. Native export checks establish file generation, not painted-asset quality or destination-game material compatibility. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.
