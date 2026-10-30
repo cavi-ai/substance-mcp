@@ -1,0 +1,1383 @@
+[
+ {
+  "id": "status-success",
+  "tool": "designer_status",
+  "arguments": {},
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/available": true,
+   "/binaries/sbsrender/version": "0.0.0-fake"
+  },
+  "required": [
+   "/templates/0",
+   "/workspace"
+  ]
+ },
+ {
+  "id": "status-unavailable",
+  "tool": "designer_status",
+  "arguments": {},
+  "kind": "success",
+  "modes": [
+   "protocol"
+  ],
+  "equals": {
+   "/available": false,
+   "/package_count": 0
+  }
+ },
+ {
+  "id": "info-success",
+  "tool": "material",
+  "arguments": {
+   "action": "info",
+   "path": "single.sbsar"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/graphs/0/url": "pkg://single",
+   "/graphs/0/inputs/2/id": "roughness_level",
+   "/graphs/0/outputs/0/usage": "baseColor"
+  }
+ },
+ {
+  "id": "cook-success",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "path": "source.sbs",
+   "directory": "cooked",
+   "expose_random_seed": false
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/sbsar": "cooked/source.sbsar",
+   "/graphs/0/url": "pkg://metallic_roughness"
+  },
+  "files": [
+   "cooked/source.sbsar"
+  ]
+ },
+ {
+  "id": "cook-builtin-success",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "builtin": "templates/01_02_pbr_metallic_roughness",
+   "directory": "cooked_builtin"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/source": "templates/01_02_pbr_metallic_roughness"
+  },
+  "files": [
+   "cooked_builtin/01_02_pbr_metallic_roughness.sbsar"
+  ]
+ },
+ {
+  "id": "render-success",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "multi.sbsar",
+   "graph": "pkg://metallic_roughness",
+   "directory": "rendered",
+   "resolution": 64,
+   "seed": 7,
+   "values": {
+    "roughness_level": 0.3,
+    "tint": [
+     1,
+     0.5,
+     0.25
+    ],
+    "tiling": 4
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/baseColor": "rendered/basecolor.png",
+   "/maps/mask": "rendered/mask.png",
+   "/graph": "pkg://metallic_roughness"
+  },
+  "required": [
+   "/report/0/outputs/0/value",
+   "/outputs/0/usages/0"
+  ],
+  "files": [
+   "rendered/basecolor.png",
+   "rendered/normal.png"
+  ]
+ },
+ {
+  "id": "render-pack-success",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "rendered_pack",
+   "resolution": 32,
+   "pack": {
+    "maps": [
+     {
+      "name": "T_Rock_MaskMap",
+      "format": "png",
+      "bit_depth": 8,
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     },
+     {
+      "name": "T_Rock_BaseColor",
+      "channels": {
+       "RGB": "baseColor",
+       "A": "opacity"
+      }
+     },
+     {
+      "name": "T_Rock_Normal",
+      "channels": {
+       "RGB": "normal"
+      }
+     }
+    ],
+    "defaults": {
+     "opacity": 1
+    }
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/packed/0/name": "T_Rock_MaskMap",
+   "/packed/0/width": 32,
+   "/packed/0/channels": "RGBA",
+   "/packed/2/channels": "RGB"
+  },
+  "files": [
+   "rendered_pack/packed/T_Rock_MaskMap.png",
+   "rendered_pack/packed/T_Rock_BaseColor.png",
+   "rendered_pack/packed/T_Rock_Normal.png"
+  ]
+ },
+ {
+  "id": "render-subset-success",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "rendered_subset",
+   "outputs": [
+    "basecolor"
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/baseColor": "rendered_subset/basecolor.png"
+  },
+  "absent": [
+   "rendered_subset/normal.png"
+  ]
+ },
+ {
+  "id": "pack-success",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "packed",
+   "pack": {
+    "maps": [
+     {
+      "name": "Mask16",
+      "bit_depth": 16,
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     },
+     {
+      "name": "Base",
+      "format": "tga",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/packed/0/bit_depth": 16,
+   "/packed/1/path": "packed/Base.tga"
+  },
+  "files": [
+   "packed/Mask16.png",
+   "packed/Base.tga"
+  ]
+ },
+ {
+  "id": "render-missing-path",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "path is required",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "material-missing-action",
+  "tool": "material",
+  "arguments": {},
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "info-extra-param",
+  "tool": "material",
+  "arguments": {
+   "action": "info",
+   "path": "single.sbsar",
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "Not valid for action=info"
+ },
+ {
+  "id": "render-bad-resolution",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "resolution": 100
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "render-string-value",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "roughness_level": "0.3"
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "render-reserved-value",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "$outputsize": [
+     4,
+     4
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "render-long-vector",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "tint": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "render-bad-graph",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "multi.sbsar",
+   "directory": "x",
+   "graph": "file:///etc"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "graph must match",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-graph-required",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "multi.sbsar",
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "graph is required",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-unknown-graph",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "multi.sbsar",
+   "directory": "x",
+   "graph": "pkg://nope"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not in sbsar",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-unknown-input",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "nope": 1
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Unknown input",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-arity",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "tint": [
+     1,
+     1
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "expects 3",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-int-type",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "values": {
+    "tiling": 1.5
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "expects integers",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-unknown-output",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "outputs": [
+    "albedo"
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Unknown output",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-depth-format",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "format": "jpg",
+   "bit_depth": "16"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "unsupported for jpg",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "cook-both-sources",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "path": "source.sbs",
+   "builtin": "packages/brick_1",
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "exactly one",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "pack-bad-name",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "bad name",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "pack-too-many",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M0",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M1",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M2",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M3",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M4",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M5",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M6",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M7",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M8",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M9",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M10",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M11",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M12",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M13",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M14",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M15",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     },
+     {
+      "name": "M16",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "pack-bad-source",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "channels": {
+       "RGB": "2"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "pack-extra-key",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "channels": {
+       "RGB": "baseColor"
+      },
+      "gamma": 2
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "pack-rgb-conflict",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "channels": {
+       "RGB": "baseColor",
+       "R": "metallic"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "cannot be combined",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "pack-missing-usage",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "channels": {
+       "RGB": "baseColor",
+       "A": "opacity"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "missing and has no default",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "pack-size-mismatch",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "directory": "x",
+   "sources": {
+    "metallic": "maps/metallic.png",
+    "roughness": "maps/small.png"
+   },
+   "pack": {
+    "maps": [
+     {
+      "name": "Mask",
+      "channels": {
+       "R": "metallic",
+       "G": "ambientOcclusion",
+       "B": "0",
+       "A": "1-roughness"
+      }
+     }
+    ],
+    "defaults": {
+     "ambientOcclusion": 1
+    }
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "resolutions differ",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "pack-16-tga",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "sources": {
+    "baseColor": "maps/basecolor.png",
+    "roughness": "maps/roughness.png",
+    "metallic": "maps/metallic.png",
+    "ambientOcclusion": "maps/ao.png"
+   },
+   "directory": "x",
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "format": "tga",
+      "bit_depth": 16,
+      "channels": {
+       "RGB": "baseColor"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "requires png",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "info-outside",
+  "tool": "material",
+  "arguments": {
+   "action": "info",
+   "path": "../outside/outside.sbsar"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "info-symlink-escape",
+  "tool": "material",
+  "arguments": {
+   "action": "info",
+   "path": "escape/outside.sbsar"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "render-absolute-output",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "/tmp/cavi-designer-eval"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "render-symlink-output",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "escape/new"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "render-existing-directory",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "existing"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already exists"
+ },
+ {
+  "id": "render-engine-failure",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "broken.sbsar",
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "failed with exit 3",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-no-report",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "noreport.sbsar",
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "no JSON report",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "render-preset-injection",
+  "tool": "material",
+  "arguments": {
+   "action": "render",
+   "path": "single.sbsar",
+   "directory": "x",
+   "preset": "a@b"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "preset must",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "cook-builtin-traversal",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "builtin": "templates/../../../etc/passwd",
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "builtin must look like",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "cook-builtin-missing",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "builtin": "packages/nope",
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not found",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "cook-silent",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "path": "silent.sbs",
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "wrote no .sbsar",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "cook-existing",
+  "tool": "material",
+  "arguments": {
+   "action": "cook",
+   "path": "source.sbs",
+   "directory": "existing"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already exists"
+ },
+ {
+  "id": "pack-outside-source",
+  "tool": "material",
+  "arguments": {
+   "action": "pack",
+   "directory": "x",
+   "sources": {
+    "baseColor": "escape/outside.sbsar"
+   },
+   "pack": {
+    "maps": [
+     {
+      "name": "M",
+      "channels": {
+       "RGB": "baseColor"
+      }
+     }
+    ]
+   }
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "inside the workspace",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-success",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "high": "meshes/high.fbx",
+   "maps": [
+    "normal",
+    "ambient_occlusion",
+    "world_normal"
+   ],
+   "directory": "baked",
+   "resolution": 32,
+   "max_frontal": 0.05
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/maps/normal": "baked/normal.png",
+   "/commands/ambient_occlusion": "AmbientOcclusion.Raytraced",
+   "/commands/world_normal": "Normal.TangentToWorld",
+   "/high_used/world_normal": false
+  },
+  "files": [
+   "baked/normal.png",
+   "baked/ambient_occlusion.png",
+   "baked/world_normal.png"
+  ]
+ },
+ {
+  "id": "bake-low-only-success",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "curvature",
+    "id"
+   ],
+   "directory": "baked_low",
+   "resolution": 32,
+   "normal_format": "DirectX",
+   "udim": 1001
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/high_used/curvature": false
+  },
+  "files": [
+   "baked_low/id.png"
+  ]
+ },
+ {
+  "id": "bake-missing-arguments",
+  "tool": "bake",
+  "arguments": {
+   "maps": [
+    "normal"
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-unknown-map",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "albedo"
+   ],
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-bad-resolution",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x",
+   "resolution": 100
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-duplicate-maps",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "normal",
+    "normal"
+   ],
+   "directory": "x"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "unique",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-cage-required",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x",
+   "use_cage": true
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "use_cage needs cage",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-bad-suffix",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x",
+   "suffix_low": "--inputs"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-outside-mesh",
+  "tool": "bake",
+  "arguments": {
+   "low": "../outside/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "inside the workspace",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-symlink-mesh",
+  "tool": "bake",
+  "arguments": {
+   "low": "escape/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "inside the workspace",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-existing-directory",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/low.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "existing"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already exists"
+ },
+ {
+  "id": "bake-silent-output",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/silent.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x",
+   "resolution": 32
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "wrote no normal.png",
+  "absent": [
+   "x"
+  ]
+ },
+ {
+  "id": "bake-timeout-killed",
+  "tool": "bake",
+  "arguments": {
+   "low": "meshes/hang.fbx",
+   "maps": [
+    "normal"
+   ],
+   "directory": "x",
+   "timeout_seconds": 1
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "killed",
+  "absent": [
+   "x"
+  ]
+ }
+]
