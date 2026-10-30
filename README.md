@@ -1,6 +1,7 @@
 # Cavi Substance MCP
 
-Typed MCP tools for Adobe Substance 3D Painter project inspection and texture export.
+Typed MCP tools for Adobe Substance 3D Painter, Designer and Sampler. Each application
+has its own stdio server.
 
 ## Application support
 
@@ -12,7 +13,8 @@ Baking, layer actions beyond `fill`/`texture_fill`, shelf search, mesh reload an
 
 ## Install
 
-Requires Python 3.11+, uv, and a separately installed and licensed Substance 3D Painter with the Python API. The MCP does not supply an Adobe license or authenticate accounts.
+Requires Python 3.11+, uv, and a separately installed and licensed Adobe application.
+The MCP does not supply an Adobe license or authenticate accounts.
 
 ```sh
 uv sync --locked
@@ -130,9 +132,13 @@ uv sync --locked --dev
 npm ci
 npm run eval:protocol
 npm run eval:core
+npm run eval:designer-protocol
+npm run eval:designer-core
+npm run eval:sampler-protocol
+npm run eval:sampler-core
 ```
 
-The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifest checks discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifest adds schema, structured output, repeated reads, and contention checks.
+The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. All commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifests check discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifests add schema, structured output, repeated reads, and contention checks.
 
 The corpus exercises all seven tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. Layer cases cover duplicate names, bounded colors, assignment rollback, nesting, masks, shelf resolution, property edits, guarded deletion, and project readiness. Bake cases cover parameter mapping, async status, launch rollback and missing parameters; export cases cover channel packing and refused inversions. No-argument read tools have no tool-specific invalid inputs.
 
@@ -193,3 +199,48 @@ uv run --locked python -m unittest tests.test_designer_native  # skips without D
 
 The evals run against fake CLIs (`evals/designer_fake_cli.py`); native tests need
 Designer and, for baking, Blender.
+
+## Sampler
+
+`cavi-substance-sampler-mcp` is a third stdio server. It launches Sampler with
+`--run-script-silent` for one script job per tool call. Sampler must be fully quit:
+a running instance receives the arguments but does not run startup scripts.
+
+```json
+{"mcpServers": {"substance-sampler": {"command": "cavi-substance-sampler-mcp"}}}
+```
+
+- Executable: `CAVI_SAMPLER_BIN` (exact path), else `CAVI_SAMPLER_APP` (`.app` path),
+  else the standard install path for macOS, Windows or Linux.
+- Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories.
+  Failed calls remove the directory they created.
+- Each call starts Sampler, opens the project if supplied, runs one operation, saves
+  mutations, and exits. There is no persistent Sampler session, ownership or lease.
+
+| Tool | Actions / inputs |
+| --- | --- |
+| `sampler_status` | executable, version, scripts folder, workspace, running state |
+| `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators and export presets |
+| `sampler_project` | `create` `name` + new `directory`; `save_as` `project` + new `directory` |
+| `sampler_asset` | `create`, `delete`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
+| `sampler_export` | `project`, new `directory`, `format`, optional `preset`, `channels`, `resolution`; `dry_run` defaults to true |
+
+Limitations:
+
+- Sampler exposes startup scripts and plugins, not remote control.
+- No UI automation, environment assets, bakes, masks or project closing.
+- Export handles one asset at a time. `sbsar`, `sbs`, `png`, `jpg`, `tga`, `tif` and
+  `exr` are passed through to Sampler.
+- `sampler_status` reports `running: null` where process inspection is unavailable.
+- A timed-out call may have written partial files; inspect the destination before
+  retrying. Mutations that were not saved are lost when the process exits.
+- The launch path is validated by simulated transport tests; native use requires a
+  licensed Sampler installation and a closed application.
+
+```sh
+npm run eval:sampler-protocol
+npm run eval:sampler-core
+uv run --locked python -m unittest tests.test_sampler_native  # launch test needs CAVI_SAMPLER_NATIVE=1
+```
+
+The evals run against a fake Sampler executable (`evals/sampler_fake_cli.py`).

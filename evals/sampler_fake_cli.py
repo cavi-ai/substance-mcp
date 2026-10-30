@@ -1,0 +1,471 @@
+"""Explicitly fake Sampler executable for CI; mirrors the documented Python API."""
+
+import json
+import os
+import sys
+import types
+from pathlib import Path
+
+VERSION = "0.0.0-fake"
+FILTERS = ["Equalize", "Tiling", "Brightness/Contrast", "Grain"]
+MATERIALS = ["Brick", "Fabric", "Metal"]
+GENERATORS = ["Noise", "Gradient", "Cells"]
+PRESETS = ["Unreal Engine 4", "Blender Cycles/Eevee", "Unity HD Render Pipeline Standard"]
+
+
+class Resource:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return f"Resource({self.name})"
+
+
+class Parameter:
+    def __init__(self, identifier, label, value=None, kind="float"):
+        self.identifier = identifier
+        self.label = label
+        self.value = value
+        self.type = kind
+        self.widget_type = "slider" if kind == "float" else "no_widget"
+        self.default_value = value
+        self.min_value = 0.0
+        self.max_value = 1.0
+        self.visible = True
+
+
+class Layer:
+    def __init__(self, data):
+        self.data = data
+
+    @property
+    def name(self):
+        return self.data["name"]
+
+    @property
+    def type(self):
+        return self.data["type"]
+
+    @property
+    def position(self):
+        return self.data["position"]
+
+    @property
+    def output_usages(self):
+        return list(self.data.get("output_usages", []))
+
+    @property
+    def applied_channels(self):
+        return list(self.data.get("applied_channels", []))
+
+    @property
+    def blend_applied_channels(self):
+        return list(self.data.get("blend_applied_channels", []))
+
+    @property
+    def blend_mode(self):
+        return self.data.get("blend_mode")
+
+    @property
+    def image_names(self):
+        return list(self.data.get("image_names", []))
+
+    @property
+    def presets(self):
+        return []
+
+    @property
+    def parameters(self):
+        return [Parameter(*item) for item in self.data.get("parameters", [])]
+
+
+class Metadata:
+    def __init__(self, data):
+        self.data = data
+        self.author = "fake"
+        self.category = "material"
+        self.description = "fake asset"
+        self.tags = []
+        self.physical_size = (1.0, 1.0, 1.0)
+        self.custom_metadata = {}
+
+    @property
+    def name(self):
+        return self.data["name"]
+
+
+class Asset:
+    def __init__(self, state, data):
+        self.state = state
+        self.data = data
+
+    @property
+    def name(self):
+        return self.data["name"]
+
+    @name.setter
+    def name(self, value):
+        self.data["name"] = value
+
+    @property
+    def type(self):
+        return "material"
+
+    @property
+    def material_model(self):
+        return self.data.get("material_model", "asm")
+
+    @property
+    def document_resolution(self):
+        return tuple(self.data.get("resolution", [1024, 1024]))
+
+    @property
+    def metadata(self):
+        return Metadata(self.data)
+
+    @property
+    def resource(self):
+        return Resource(self.name)
+
+    def get_layers(self):
+        return [Layer(item) for item in self.data.get("layers", [])]
+
+    def _insert(self, layer, position, insert_above):
+        layers = self.data.setdefault("layers", [])
+        index = max(0, min(position, len(layers)))
+        if insert_above and index < len(layers):
+            index += 1
+        layers.insert(index, layer)
+        for number, item in enumerate(layers):
+            item["position"] = number
+        self.state.save()
+        return Layer(layer)
+
+    def import_images(self, images, position, import_option, insert_above=False, **_):
+        layer = {
+            "name": "Image Import",
+            "type": "layer_image_import",
+            "position": position,
+            "output_usages": ["baseColor"],
+            "applied_channels": ["baseColor"],
+            "image_names": [Path(item).stem for item in images],
+            "parameters": [["Input Image", "Input Image", os.path.basename(images[0]), "image"]],
+        }
+        return self._insert(layer, position, insert_above)
+
+    def import_textures(self, images, position, insert_above=True, **_):
+        layer = {
+            "name": "Texture Import",
+            "type": "layer_image_import",
+            "position": position,
+            "output_usages": sorted(images),
+            "applied_channels": sorted(images),
+            "image_names": [Path(item).stem for item in images.values()],
+            "parameters": [],
+        }
+        return self._insert(layer, position, insert_above)
+
+    def insert_filter(self, filter, position, insert_above=True, **_):
+        layer = {
+            "name": filter.name,
+            "type": "layer_filter",
+            "position": position,
+            "output_usages": ["baseColor"],
+            "applied_channels": ["baseColor"],
+            "parameters": [["opacity", "Opacity", 1.0, "float"]],
+        }
+        return self._insert(layer, position, insert_above)
+
+    def insert_material(self, material, position, blend_mode, insert_above=True, **_):
+        layer = {
+            "name": material.name,
+            "type": "layer_material",
+            "position": position,
+            "output_usages": ["baseColor", "normal", "roughness", "metallic"],
+            "blend_mode": blend_mode,
+            "blend_applied_channels": ["baseColor"],
+            "parameters": [],
+        }
+        return self._insert(layer, position, insert_above)
+
+    def remove_layer(self, index):
+        del self.data["layers"][index]
+        self.state.save()
+
+    def export_material(self, path, name="", format="sbsar", channels=(), controller=None,
+                        w_resolution=0, h_resolution=0, **_):
+        if "fail" in self.name.lower():
+            raise RuntimeError("fake export failure")
+        target = Path(path)
+        target.mkdir(parents=True, exist_ok=True)
+        name = name or self.name
+        if "silent" in self.name.lower():
+            return str(target)
+        fmt = str(format)
+        if fmt in ("sbsar", "sbs"):
+            (target / f"{name}.{fmt}").write_text("fake")
+        else:
+            for channel in channels or ["basecolor", "normal", "roughness", "metallic"]:
+                (target / f"{name}_{channel}.{fmt}").write_text("fake")
+        if controller is not None:
+            controller.finished = True
+        return str(target)
+
+    def activate_channels(self, channels):
+        pass
+
+    def deactivate_channels(self, channels):
+        pass
+
+    def flatten(self):
+        pass
+
+
+class ExportController:
+    def __init__(self):
+        self.finished = False
+
+    def cancel(self):
+        pass
+
+    def on_canceled(self):
+        pass
+
+    def on_failed(self):
+        pass
+
+    def on_finished(self):
+        pass
+
+    def wait(self):
+        return None
+
+    def wait_for(self, _timeout):
+        return "no_timeout"
+
+
+class State:
+    def __init__(self):
+        self.path = None
+        self.data = {"assets": [], "selected": None}
+
+    def load(self, path):
+        self.path = Path(path)
+        self.data = json.loads(self.path.read_text())
+        return str(self.path)
+
+    def save(self):
+        if self.path is not None:
+            self.path.write_text(json.dumps(self.data))
+
+    def assets(self):
+        return [Asset(self, item) for item in self.data["assets"]]
+
+    def selected(self):
+        if not self.data["assets"]:
+            return None
+        name = self.data.get("selected")
+        for item in self.data["assets"]:
+            if item["name"] == name:
+                return Asset(self, item)
+        return Asset(self, self.data["assets"][0])
+
+    def find(self, name):
+        for item in self.data["assets"]:
+            if item["name"] == name:
+                return Asset(self, item)
+        return None
+
+
+def module():
+    state = State()
+    module = types.ModuleType("substance_sampler")
+
+    def create_project(name, path):
+        state.path = Path(path)
+        state.data = {"assets": [{"name": name, "layers": [], "resolution": [1024, 1024]}],
+                      "selected": name}
+        state.save()
+
+    def open_project(path):
+        if not Path(path).is_file():
+            return ""
+        return state.load(path)
+
+    def save_project():
+        if state.path is None:
+            return False
+        state.save()
+        return True
+
+    def save_project_as(path):
+        state.path = Path(path)
+        state.save()
+        return str(state.path)
+
+    def get_project_assets():
+        return state.assets()
+
+    def get_selected_asset():
+        return state.selected()
+
+    def create_asset(name, *_args, select_asset=False, **_kwargs):
+        item = {"name": name, "layers": [], "resolution": [1024, 1024]}
+        state.data["assets"].append(item)
+        if select_asset:
+            state.data["selected"] = name
+        state.save()
+        return Asset(state, item)
+
+    def delete_asset(asset):
+        before = len(state.data["assets"])
+        state.data["assets"] = [item for item in state.data["assets"] if item["name"] != asset.name]
+        state.save()
+        return len(state.data["assets"]) < before
+
+    def get_preset(model=None, preset_name=""):
+        return Resource(preset_name)
+
+    def resources(names, query):
+        found = [Resource(name) for name in names if query.lower() in name.lower()]
+        return found
+
+    def import_resources(path):
+        return [Resource(Path(path).stem)]
+
+    def wait_for_computation():
+        pass
+
+    def run_in_main_thread(callback):
+        callback()
+
+    def clear_render_cache():
+        pass
+
+    class MaterialExportFormat:
+        sbsar = "sbsar"
+        sbs = "sbs"
+        exr = "exr"
+        png = "png"
+        jpg = "jpg"
+        tga = "tga"
+        tif = "tif"
+
+    class MaterialType:
+        standard = "standard"
+        decal = "decal"
+        atlas = "atlas"
+
+    class ImageImportOption:
+        image_to_material_B2M = "image_to_material_B2M"
+        image_to_material_AI_powered = "image_to_material_AI_powered"
+        multiangle_to_material = "multiangle_to_material"
+        use_as_bitmap = "use_as_bitmap"
+        as_channels = "as_channels"
+        HDR_merge = "HDR_merge"
+        use_as_environment = "use_as_environment"
+
+    class BlendMode:
+        blend_ao = "blend_ao"
+        blend_color_id = "blend_color_id"
+        blend_curvature = "blend_curvature"
+        blend_custom_mask = "blend_custom_mask"
+        blend_opacity = "blend_opacity"
+        blend_height = "blend_height"
+        blend_normal = "blend_normal"
+        blend_per_channel = "blend_per_channel"
+
+    class AssetType:
+        material = "material"
+
+    class MaterialModel:
+        asm = "asm"
+        openpbr = "openpbr"
+
+    class PredefinedPreset:
+        base_material = "base_material"
+        anisotropy = "anisotropy"
+        coating = "coating"
+        fuzz = "fuzz"
+        subsurface = "subsurface"
+        transparent = "transparent"
+
+    for name, value in {
+        "create_project": create_project,
+        "open_project": open_project,
+        "save_project": save_project,
+        "save_project_as": save_project_as,
+        "get_project_path": lambda: str(state.path) if state.path else "",
+        "get_project_assets": get_project_assets,
+        "get_selected_asset": get_selected_asset,
+        "create_asset": create_asset,
+        "delete_asset": delete_asset,
+        "get_preset": get_preset,
+        "get_filters": lambda name="": resources(FILTERS, name),
+        "get_materials": lambda name="": resources(MATERIALS, name),
+        "get_texture_generators": lambda name="": resources(GENERATORS, name),
+        "get_export_presets": lambda name="": resources(PRESETS, name),
+        "import_resources": import_resources,
+        "wait_for_computation": wait_for_computation,
+        "run_in_main_thread": run_in_main_thread,
+        "clear_render_cache": clear_render_cache,
+        "ImageImportOption": ImageImportOption,
+        "BlendMode": BlendMode,
+        "MaterialExportFormat": MaterialExportFormat,
+        "MaterialType": MaterialType,
+        "AssetType": AssetType,
+        "MaterialModel": MaterialModel,
+        "PredefinedPreset": PredefinedPreset,
+        "ExportController": ExportController,
+        "Asset": Asset,
+        "Layer": Layer,
+        "Resource": Resource,
+        "Parameter": Parameter,
+    }.items():
+        setattr(module, name, value)
+    return module
+
+
+def install(root: Path) -> Path:
+    app = Path(root) / "Fake Sampler.app"
+    macos = app / "Contents/MacOS"
+    macos.mkdir(parents=True)
+    (app / "Contents/Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+        '<plist version="1.0"><dict>'
+        '<key>CFBundleExecutable</key><string>Adobe Substance 3D Sampler</string>'
+        '<key>CFBundleShortVersionString</key><string>0.0.0</string>'
+        '</dict></plist>'
+    )
+    executable = macos / "Adobe Substance 3D Sampler"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import runpy, sys\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})\n"
+        "import sampler_fake_cli\n"
+        "args = sys.argv[1:]\n"
+        "if '--version' in args:\n"
+        "    print(sampler_fake_cli.VERSION)\n"
+        "    raise SystemExit(0)\n"
+        "if '--run-script-silent' in args or '--run-script' in args:\n"
+        "    index = args.index('--run-script-silent' if '--run-script-silent' in args "
+        "else '--run-script')\n"
+        "    script = args[index + 1]\n"
+        "    sys.modules['substance_sampler'] = sampler_fake_cli.module()\n"
+        "    runpy.run_path(script, run_name='__main__')\n"
+    )
+    executable.chmod(0o755)
+    return app
+
+
+def main():
+    if "--version" in sys.argv[1:]:
+        print(VERSION)
+        return
+    print("fake Sampler only runs through tests/test_sampler.py", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
