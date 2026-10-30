@@ -51,15 +51,27 @@ class PainterSimulator:
         success, failure = SimpleNamespace(name="Success"), SimpleNamespace(name="Error")
 
         def plan(config):
+            if type(config.get("exportShaderParams")) is not bool:
+                raise ValueError("@/exportShaderParams, Expected a boolean value")
+            if not any(
+                item.get("parameters", {}).get("paddingAlgorithm")
+                for item in config.get("exportParameters", [])
+                if not item.get("filter")
+            ):
+                raise ValueError("padding algorithm could not be resolved")
             folder = Path(config["exportPath"])
             if self.state == "empty-plan":
                 return {}
             if self.state == "escape-plan":
                 return {"Body": [str(folder.parent / "escaped.png")]}
+            if self.state == "omitted-export":
+                return {"Body": [str(folder / "Body.png"), str(folder / "Body_AO.png")]}
             return {"Body": [str(folder / "Body.png")]}
 
         def export(config):
             outputs = plan(config)
+            if self.state == "omitted-export":
+                outputs = {"Body": outputs["Body"][:1]}
             for paths in outputs.values():
                 for path in paths:
                     Path(path).write_bytes(

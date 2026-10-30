@@ -50,7 +50,7 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 - `open_project`, `create_project`: open a workspace project or import a workspace mesh, only when no project is already open.
 - `texture_sets`, `export_presets`: inspect the current project and predefined presets.
 - `save_project_copy`: save a new copy without changing the open project's location.
-- `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied.
+- `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied. Results include `omitted_files` for maps Painter planned but did not emit; check these against the asset's required channels.
 
 `CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/CaviGameArt`. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. Use the same workspace for your Blender exports to pass meshes between applications.
 

@@ -74,9 +74,11 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
         if params["preset"] not in presets:
             raise ValueError("Choose a predefined preset URL returned by export_presets")
         config = {
+            "exportShaderParams": False,
             "exportPath": str(folder),
             "defaultExportPreset": params["preset"],
             "exportList": [{"rootPath": item.name()} for item in textureset.all_texture_sets()],
+            "exportParameters": [{"parameters": {"paddingAlgorithm": "infinite"}}],
         }
         planned = export.list_project_textures(config)
         files = [Path(path).resolve() for paths in planned.values() for path in paths]
@@ -104,5 +106,6 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
             "dry_run": False,
             "status": result.status.name,
             "files": [str(path) for path in actual],
+            "omitted_files": sorted(str(path) for path in set(files) - set(actual)),
         }
     raise ValueError(f"Unknown operation: {operation}")
