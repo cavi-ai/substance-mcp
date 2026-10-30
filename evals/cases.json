@@ -1629,5 +1629,1314 @@
   ],
   "setup": "bitmap-failure",
   "error": "no Painter API removes it"
+ },
+ {
+  "id": "layer-group-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "Wear"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/name": "Wear",
+   "/uid": 100
+  }
+ },
+ {
+  "id": "layer-fill-in-group",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill",
+   "texture_set": "Body",
+   "name": "Base",
+   "base_color": [
+    0.3,
+    0.3,
+    0.3
+   ],
+   "parent_uid": 100,
+   "values": {
+    "height": 0.5,
+    "normal": [
+     0.5,
+     0.5,
+     1.0
+    ]
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/uid": 101,
+   "/values/height/0": 0.5,
+   "/values/normal/2": 1.0
+  }
+ },
+ {
+  "id": "layer-fill-absent-channel",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill",
+   "texture_set": "Body",
+   "name": "Glow",
+   "base_color": [
+    0.3,
+    0.3,
+    0.3
+   ],
+   "values": {
+    "emissive": [
+     1.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "no emissive channel"
+ },
+ {
+  "id": "layer-fill-unknown-channel",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill",
+   "texture_set": "Body",
+   "name": "Odd",
+   "base_color": [
+    0.3,
+    0.3,
+    0.3
+   ],
+   "values": {
+    "sheen": 0.5
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Unknown channel sheen"
+ },
+ {
+  "id": "layer-parent-not-group",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "Nested",
+   "parent_uid": 101
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "must be a group"
+ },
+ {
+  "id": "layer-parent-and-above",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "Twice",
+   "parent_uid": 100,
+   "above_uid": 100
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not both"
+ },
+ {
+  "id": "layer-fill-mask-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill_mask",
+   "texture_set": "Body",
+   "uid": 101,
+   "mask": "white"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/mask": "white"
+  }
+ },
+ {
+  "id": "layer-fill-mask-twice",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill_mask",
+   "texture_set": "Body",
+   "uid": 101,
+   "mask": "black"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "already has a mask"
+ },
+ {
+  "id": "layer-fill-mask-missing-uid",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "fill_mask",
+   "texture_set": "Body",
+   "mask": "black"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "uid is required"
+ },
+ {
+  "id": "layer-generator-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "generator",
+   "texture_set": "Body",
+   "uid": 101,
+   "resource": "Metal Edge Wear",
+   "parameters": {
+    "wear": 0.8
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/mask_added": false,
+   "/parameters/0": "wear",
+   "/effects/0/name": "Metal Edge Wear"
+  }
+ },
+ {
+  "id": "layer-generator-ambiguous",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "generator",
+   "texture_set": "Body",
+   "uid": 101,
+   "resource": "Dirt"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Ambiguous"
+ },
+ {
+  "id": "layer-generator-wrong-usage",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "generator",
+   "texture_set": "Body",
+   "uid": 101,
+   "resource": "Concrete Asphalt"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "No generator named"
+ },
+ {
+  "id": "layer-generator-color-parameter",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "generator",
+   "texture_set": "Body",
+   "uid": 101,
+   "resource": "resource://starter_assets/Metal Edge Wear",
+   "parameters": {
+    "tint": [
+     1.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "new nodes removed"
+ },
+ {
+  "id": "layer-smart-mask-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "smart_mask",
+   "texture_set": "Body",
+   "uid": 101,
+   "resource": "Edges Dirt"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/effects/0/name": "Grunge Concrete"
+  },
+  "required": [
+   "/effects/1/uid"
+  ]
+ },
+ {
+  "id": "layer-smart-material-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "smart_material",
+   "texture_set": "Body",
+   "name": "Steel",
+   "resource": "Steel Painted Worn",
+   "above_uid": 100
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/name": "Steel"
+  },
+  "required": [
+   "/layers/0",
+   "/resource_url"
+  ]
+ },
+ {
+  "id": "layer-sbsar-fill-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "sbsar_fill",
+   "texture_set": "Body",
+   "name": "Rock",
+   "sbsar": "material.sbsar",
+   "parameters": {
+    "wear": 0.25,
+    "$randomseed": 7
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/parameters/0": "$randomseed",
+   "/graphs": 1
+  },
+  "required": [
+   "/active_channels/0"
+  ]
+ },
+ {
+  "id": "layer-sbsar-escape",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "sbsar_fill",
+   "texture_set": "Body",
+   "name": "Escape",
+   "sbsar": "escape/material.sbsar"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "layer-sbsar-missing",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "sbsar_fill",
+   "texture_set": "Body",
+   "name": "NoFile"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "sbsar is required"
+ },
+ {
+  "id": "layer-set-properties-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "set_properties",
+   "texture_set": "Body",
+   "uid": 100,
+   "name": "Wear2",
+   "blend_mode": "Multiply",
+   "opacity": 0.5,
+   "channel": "base_color",
+   "visible": false
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/name": "Wear2",
+   "/visible": false,
+   "/channels/0": "base_color"
+  }
+ },
+ {
+  "id": "layer-set-properties-bad-blend",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "set_properties",
+   "texture_set": "Body",
+   "uid": 100,
+   "blend_mode": "Bogus"
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Unknown blend_mode"
+ },
+ {
+  "id": "layer-set-properties-absent-channel",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "set_properties",
+   "texture_set": "Body",
+   "uid": 100,
+   "opacity": 0.5,
+   "channel": "emissive"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "no emissive channel"
+ },
+ {
+  "id": "layer-stack-tree",
+  "tool": "inspect",
+  "arguments": {
+   "action": "layer_stack",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/layers/0/name": "Rock",
+   "/layers/0/source_mode": "Material",
+   "/layers/1/name": "Steel",
+   "/layers/2/name": "Wear2",
+   "/layers/2/visible": false,
+   "/layers/2/blending/base_color/mode": "Multiply",
+   "/layers/2/blending/base_color/opacity": 0.5,
+   "/layers/2/layers/0/name": "Base",
+   "/layers/2/layers/0/mask/background": "White",
+   "/layers/2/layers/0/mask/effects/0/name": "Grunge Concrete",
+   "/layers/2/layers/0/mask/effects/2/name": "Metal Edge Wear",
+   "/layers/2/layers/0/channels/height/value/0": 0.5,
+   "/truncated": false
+  },
+  "required": [
+   "/layers/0/material_url",
+   "/layers/2/layers/0/mask/effects/2/resource_url"
+  ]
+ },
+ {
+  "id": "layer-delete-unowned",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not created by this lease"
+ },
+ {
+  "id": "layer-delete-wrong-name",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100,
+   "confirm_name": "Wear"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not created by this lease"
+ },
+ {
+  "id": "layer-delete-confirmed",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100,
+   "confirm_name": "Wear2"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/deleted": 100,
+   "/name": "Wear2"
+  }
+ },
+ {
+  "id": "layer-delete-gone",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 101,
+   "confirm_name": "Base"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "No layer stack node"
+ },
+ {
+  "id": "project-create-udim-template",
+  "tool": "project",
+  "arguments": {
+   "action": "create",
+   "mesh_path": "input.obj",
+   "udim": true,
+   "tangent_space_per_fragment": true,
+   "template": "template.spt"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "closed",
+  "equals": {
+   "/udim": true,
+   "/tangent_space_per_fragment": true
+  },
+  "required": [
+   "/template"
+  ]
+ },
+ {
+  "id": "project-create-template-escape",
+  "tool": "project",
+  "arguments": {
+   "action": "create",
+   "mesh_path": "input.obj",
+   "template": "escape/template.spt"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "closed",
+  "error": "inside the workspace"
+ },
+ {
+  "id": "project-create-udim-string",
+  "tool": "project",
+  "arguments": {
+   "action": "create",
+   "mesh_path": "input.obj",
+   "udim": "true"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "project-reload-mesh-success",
+  "tool": "project",
+  "arguments": {
+   "action": "reload_mesh",
+   "mesh_path": "input.obj"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/loading_may_be_pending": true,
+   "/preserve_strokes": true
+  }
+ },
+ {
+  "id": "project-reload-mesh-wait",
+  "tool": "project",
+  "arguments": {
+   "action": "wait_ready",
+   "timeout_seconds": 10
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/ready": true,
+   "/mesh_reload/status": "SUCCESS"
+  }
+ },
+ {
+  "id": "project-reload-mesh-missing",
+  "tool": "project",
+  "arguments": {
+   "action": "reload_mesh"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "mesh_path is required"
+ },
+ {
+  "id": "project-reload-mesh-escape",
+  "tool": "project",
+  "arguments": {
+   "action": "reload_mesh",
+   "mesh_path": "escape/input.obj"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "error": "inside the workspace"
+ },
+ {
+  "id": "project-reload-mesh-busy",
+  "tool": "project",
+  "arguments": {
+   "action": "reload_mesh",
+   "mesh_path": "input.obj"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "busy",
+  "error": "idle"
+ },
+ {
+  "id": "inspect-shelf-success",
+  "tool": "inspect",
+  "arguments": {
+   "action": "shelf",
+   "query": "dirt",
+   "usage": "generator"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/resources/0/name": "Dirt",
+   "/resources/0/usages/0": "generator",
+   "/truncated": false
+  },
+  "required": [
+   "/resources/1/url"
+  ]
+ },
+ {
+  "id": "inspect-shelf-limit",
+  "tool": "inspect",
+  "arguments": {
+   "action": "shelf",
+   "limit": 2
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/truncated": true
+  },
+  "required": [
+   "/resources/1/name"
+  ]
+ },
+ {
+  "id": "inspect-shelf-invalid-usage",
+  "tool": "inspect",
+  "arguments": {
+   "action": "shelf",
+   "usage": "brush"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "inspect-bake-settings-success",
+  "tool": "inspect",
+  "arguments": {
+   "action": "bake_settings"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/texture_sets/0/name": "Body",
+   "/texture_sets/0/common/OutputSize/0": 11
+  },
+  "required": [
+   "/texture_sets/0/mesh_maps/ao",
+   "/texture_sets/0/maps/0"
+  ]
+ },
+ {
+  "id": "inspect-bake-settings-busy",
+  "tool": "inspect",
+  "arguments": {
+   "action": "bake_settings"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "busy",
+  "error": "idle"
+ },
+ {
+  "id": "export-maps-dry-run",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "packed",
+   "maps": [
+    {
+     "name": "T_$textureSet_MaskMap",
+     "format": "png",
+     "bit_depth": 8,
+     "channels": {
+      "R": "metallic",
+      "G": "ambientOcclusion",
+      "B": "0",
+      "A": "1-roughness"
+     }
+    },
+    {
+     "name": "T_$textureSet_BaseColor",
+     "channels": {
+      "RGB": "baseColor",
+      "A": "opacity"
+     }
+    }
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/dry_run": true
+  },
+  "required": [
+   "/files/1"
+  ],
+  "absent": [
+   "packed"
+  ]
+ },
+ {
+  "id": "export-maps-success",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "packed-real",
+   "maps": [
+    {
+     "name": "T_$textureSet_MaskMap",
+     "format": "png",
+     "bit_depth": 8,
+     "channels": {
+      "R": "metallic",
+      "G": "ambientOcclusion",
+      "B": "0",
+      "A": "1-roughness"
+     }
+    },
+    {
+     "name": "T_$textureSet_BaseColor",
+     "channels": {
+      "RGB": "baseColor",
+      "A": "opacity"
+     }
+    }
+   ],
+   "resolution": 1024,
+   "padding": "diffusion",
+   "dilation_distance": 8,
+   "texture_sets": [
+    "Body"
+   ],
+   "dry_run": false
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/dry_run": false
+  },
+  "files": [
+   "packed-real/T_Body_MaskMap.png",
+   "packed-real/T_Body_BaseColor.png"
+  ]
+ },
+ {
+  "id": "export-maps-invert-refused",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "inverted",
+   "maps": [
+    {
+     "name": "Bad",
+     "channels": {
+      "RGB": "baseColor",
+      "A": "1-metallic"
+     }
+    }
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "cannot invert metallic",
+  "absent": [
+   "inverted"
+  ]
+ },
+ {
+  "id": "export-maps-constant-refused",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "constant",
+   "maps": [
+    {
+     "name": "Bad",
+     "channels": {
+      "L": 0.5
+     }
+    }
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "only the constants 0 and 1"
+ },
+ {
+  "id": "export-maps-name-escape",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "named",
+   "maps": [
+    {
+     "name": "../evil",
+     "channels": {
+      "L": "roughness"
+     }
+    }
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "Invalid map name"
+ },
+ {
+  "id": "export-maps-incomplete",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "partial",
+   "maps": [
+    {
+     "name": "Half",
+     "channels": {
+      "R": "metallic",
+      "G": "roughness"
+     }
+    }
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "must write R, G and B"
+ },
+ {
+  "id": "export-maps-and-preset",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "both",
+   "preset": "resource://eval-preset",
+   "maps": [
+    {
+     "name": "T_$textureSet_BaseColor",
+     "channels": {
+      "RGB": "baseColor",
+      "A": "opacity"
+     }
+    }
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "exactly one"
+ },
+ {
+  "id": "export-maps-bad-depth",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "depth",
+   "maps": [
+    {
+     "name": "T",
+     "format": "tga",
+     "bit_depth": 16,
+     "channels": {
+      "L": "roughness"
+     }
+    }
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "supports bit depths"
+ },
+ {
+  "id": "export-maps-bad-key",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "keys",
+   "maps": [
+    {
+     "name": "T",
+     "channels": {
+      "X": "roughness"
+     }
+    }
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "export-preset-overrides",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "overrides",
+   "preset": "resource://eval-preset",
+   "resolution": 512,
+   "file_format": "tga",
+   "bit_depth": 8,
+   "padding": "transparent"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/dry_run": true
+  }
+ },
+ {
+  "id": "export-unknown-texture-set",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "subset",
+   "preset": "resource://eval-preset",
+   "texture_sets": [
+    "Missing"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not found"
+ },
+ {
+  "id": "export-dilation-needs-padding",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "dilate",
+   "preset": "resource://eval-preset",
+   "dilation_distance": 4
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated"
+  ],
+  "error": "dilation_distance needs"
+ },
+ {
+  "id": "export-udim-absent",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "tiles",
+   "preset": "resource://eval-preset",
+   "udim_tiles": [
+    [
+     1,
+     0
+    ]
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "lacks some requested UV tiles"
+ },
+ {
+  "id": "export-udim-success",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "tiles-ok",
+   "udim_tiles": [
+    [
+     1,
+     0
+    ]
+   ],
+   "maps": [
+    {
+     "name": "$textureSet_BaseColor.$udim",
+     "channels": {
+      "RGB": "baseColor"
+     }
+    }
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "udim",
+  "equals": {
+   "/dry_run": true
+  },
+  "required": [
+   "/files/0"
+  ]
+ },
+ {
+  "id": "bake-start-success",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao",
+    "curvature",
+    "thickness",
+    "id",
+    "position",
+    "world_space_normal"
+   ],
+   "high_poly_meshes": [
+    "high.obj"
+   ],
+   "resolution": 2048,
+   "antialiasing": "4x4",
+   "max_frontal": 0.02,
+   "max_rear": 0.03,
+   "use_cage": true,
+   "cage_mesh": "cage.obj",
+   "match": "by_mesh_name",
+   "low_poly_suffix": "_lo",
+   "high_poly_suffix": "_hi"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/started": true,
+   "/texture_sets/0": "Body",
+   "/maps/Body/0": "AO"
+  }
+ },
+ {
+  "id": "bake-status-running",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/busy": true,
+   "/running": true,
+   "/status": null
+  }
+ },
+ {
+  "id": "bake-start-while-running",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "is baking"
+ },
+ {
+  "id": "bake-blocks-layer-edit",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "During"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "idle"
+ },
+ {
+  "id": "bake-status-ended",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "bake-ended",
+  "equals": {
+   "/busy": false,
+   "/status": "Success",
+   "/progress": 1.0
+  },
+  "required": [
+   "/mesh_maps/Body/ao",
+   "/mesh_maps/Body/thickness"
+  ]
+ },
+ {
+  "id": "bake-settings-applied",
+  "tool": "inspect",
+  "arguments": {
+   "action": "bake_settings",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/texture_sets/0/common/SubSampling": 2,
+   "/texture_sets/0/common/FilterMethod": 1,
+   "/texture_sets/0/common/CageMode": 2,
+   "/texture_sets/0/common/LowAsHigh": false,
+   "/texture_sets/0/common/OutputSize/0": 11,
+   "/texture_sets/0/common/MaxDepth": 0.03,
+   "/texture_sets/0/common/HipolySuffix": "_hi",
+   "/texture_sets/0/maps/0": "ao"
+  }
+ },
+ {
+  "id": "bake-high-poly-escape",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "high_poly_meshes": [
+    "escape/high.obj"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "inside the workspace"
+ },
+ {
+  "id": "bake-cage-without-flag",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "cage_mesh": "cage.obj"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "cage_mesh is required with use_cage"
+ },
+ {
+  "id": "bake-unknown-texture-set",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "texture_sets": [
+    "Missing"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "not found"
+ },
+ {
+  "id": "bake-legacy-params",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "max_frontal": 0.1
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "bake-legacy-params",
+  "error": "does not expose baking parameter MaxHeight"
+ },
+ {
+  "id": "bake-launch-failure",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "normal"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "bake-start-failure",
+  "error": "baking settings restored"
+ },
+ {
+  "id": "bake-launch-failure-restored",
+  "tool": "inspect",
+  "arguments": {
+   "action": "bake_settings"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/texture_sets/0/maps/0": "ao"
+  }
+ },
+ {
+  "id": "bake-unowned",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "without_lease": true,
+  "error": "lease"
+ },
+ {
+  "id": "bake-invalid-resolution",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "resolution": 1000
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-missing-action",
+  "tool": "bake",
+  "arguments": {},
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "bake-status-disconnected",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "unavailable",
+  "modes": [
+   "protocol"
+  ],
+  "error": "not reachable"
  }
 ]
