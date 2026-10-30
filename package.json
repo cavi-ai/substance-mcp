@@ -5,7 +5,9 @@
     "eval:protocol": "uv run --locked python evals/run.py protocol",
     "eval:core": "uv run --locked python evals/run.py simulated",
     "eval:designer-protocol": "uv run --locked python evals/designer_run.py protocol",
-    "eval:designer-core": "uv run --locked python evals/designer_run.py simulated"
+    "eval:designer-core": "uv run --locked python evals/designer_run.py simulated",
+    "eval:sampler-protocol": "uv run --locked python evals/sampler_run.py protocol",
+    "eval:sampler-core": "uv run --locked python evals/sampler_run.py simulated"
   },
   "devDependencies": {
     "@cavi-ai/mcp-eval": "0.8.0"

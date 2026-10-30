@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 cavi-substance-mcp = "cavi_substance_mcp.server:main"
 cavi-substance-designer-mcp = "cavi_substance_mcp.designer.server:main"
+cavi-substance-sampler-mcp = "cavi_substance_mcp.sampler.server:main"
 
 [dependency-groups]
 dev = ["ruff>=0.14,<1"]

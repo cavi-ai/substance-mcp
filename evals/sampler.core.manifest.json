@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "probes": [
+    {
+      "id": "discovery-budget",
+      "probe": "discovery-cost",
+      "access": "read_only",
+      "max_tools": 5,
+      "max_schema_bytes": 9000
+    },
+    {
+      "id": "token-budget",
+      "probe": "token-cost",
+      "access": "read_only",
+      "max_total_tokens": 2400,
+      "max_tool_tokens": 1400
+    },
+    {
+      "id": "catalog-pagination",
+      "probe": "pagination",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "declared-surfaces",
+      "probe": "surface-listing",
+      "access": "read_only",
+      "max_pages": 2
+    },
+    {
+      "id": "protocol-version",
+      "probe": "protocol-negotiation",
+      "access": "read_only",
+      "bogus_version": "2099-01-01"
+    },
+    {
+      "id": "sampler_status-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "sampler_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "sampler_status-output-schema",
+      "probe": "output-schema",
+      "tool": "sampler_status",
+      "access": "read_only",
+      "arguments": {}
+    },
+    {
+      "id": "status-repeat",
+      "probe": "degradation-over-n",
+      "tool": "sampler_status",
+      "access": "read_only",
+      "arguments": {},
+      "max_attempts": 3
+    },
+    {
+      "id": "status-contention",
+      "probe": "contention",
+      "tool": "sampler_status",
+      "access": "read_only",
+      "arguments": {}
+    }
+  ]
+}

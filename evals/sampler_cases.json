@@ -1,0 +1,571 @@
+[
+  {
+    "id": "status-unavailable",
+    "tool": "sampler_status",
+    "kind": "success",
+    "modes": [
+      "protocol"
+    ],
+    "arguments": {},
+    "equals": {
+      "available": false
+    },
+    "required": [
+      "executable",
+      "scripts_dir",
+      "workspace"
+    ]
+  },
+  {
+    "id": "status-success",
+    "tool": "sampler_status",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {},
+    "equals": {
+      "available": true,
+      "version": "0.0.0"
+    },
+    "required": [
+      "executable",
+      "scripts_dir",
+      "workspace",
+      "running"
+    ]
+  },
+  {
+    "id": "inspect-missing-action",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {},
+    "error": "validation"
+  },
+  {
+    "id": "inspect-asset-requires-project",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "asset",
+      "asset": "Rock"
+    },
+    "error": "project is required"
+  },
+  {
+    "id": "inspect-project-extra-parameter",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project",
+      "query": "metal"
+    },
+    "error": "Not valid for action=project"
+  },
+  {
+    "id": "project-create",
+    "tool": "sampler_project",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "name": "Rock",
+      "directory": "projects"
+    },
+    "equals": {
+      "project": "projects/Rock.ssa"
+    },
+    "files": [
+      "projects/Rock.ssa"
+    ]
+  },
+  {
+    "id": "inspect-project",
+    "tool": "sampler_inspect",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project",
+      "project": "projects/Rock.ssa"
+    },
+    "equals": {
+      "project": "projects/Rock.ssa",
+      "assets/0/name": "Rock"
+    },
+    "required": [
+      "assets"
+    ]
+  },
+  {
+    "id": "inspect-catalog",
+    "tool": "sampler_inspect",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "catalog"
+    },
+    "required": [
+      "filters",
+      "materials",
+      "texture_generators",
+      "export_presets"
+    ]
+  },
+  {
+    "id": "inspect-missing-project",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project",
+      "project": "missing.ssa"
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "inspect-asset-layers",
+    "tool": "sampler_inspect",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "asset",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock"
+    },
+    "required": [
+      "asset",
+      "layers"
+    ]
+  },
+  {
+    "id": "project-create-missing-name",
+    "tool": "sampler_project",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "directory": "x"
+    },
+    "error": "name is required"
+  },
+  {
+    "id": "project-create-extra-project",
+    "tool": "sampler_project",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "name": "X",
+      "directory": "x",
+      "project": "projects/Rock.ssa"
+    },
+    "error": "project is only valid"
+  },
+  {
+    "id": "project-save-as",
+    "tool": "sampler_project",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "save_as",
+      "project": "projects/Rock.ssa",
+      "directory": "copy",
+      "name": "RockCopy"
+    },
+    "equals": {
+      "project": "copy/RockCopy.ssa",
+      "source": "projects/Rock.ssa"
+    },
+    "files": [
+      "copy/RockCopy.ssa"
+    ]
+  },
+  {
+    "id": "project-save-as-existing",
+    "tool": "sampler_project",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "save_as",
+      "project": "projects/Rock.ssa",
+      "directory": "existing"
+    },
+    "error": "already exists"
+  },
+  {
+    "id": "project-escape",
+    "tool": "sampler_inspect",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project",
+      "project": "../outside/outside.ssa"
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "asset-create",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa",
+      "name": "Brick"
+    },
+    "equals": {
+      "asset/name": "Brick",
+      "saved": true
+    }
+  },
+  {
+    "id": "asset-create-fail",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa",
+      "name": "fail"
+    },
+    "equals": {
+      "asset/name": "fail"
+    }
+  },
+  {
+    "id": "asset-create-missing-name",
+    "tool": "sampler_asset",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa"
+    },
+    "error": "name is required"
+  },
+  {
+    "id": "asset-delete-missing",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "delete",
+      "project": "projects/Rock.ssa",
+      "asset": "Missing"
+    },
+    "error": "not found"
+  },
+  {
+    "id": "asset-import-images",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_images",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "images": [
+        "maps/basecolor.png"
+      ],
+      "position": 0,
+      "import_option": "use_as_bitmap"
+    },
+    "equals": {
+      "layer/name": "Image Import"
+    }
+  },
+  {
+    "id": "asset-import-outside",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_images",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "images": [
+        "../outside/basecolor.png"
+      ],
+      "position": 0
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "asset-import-missing-images",
+    "tool": "sampler_asset",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_images",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock"
+    },
+    "error": "images must be a list"
+  },
+  {
+    "id": "asset-import-bad-option",
+    "tool": "sampler_asset",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_images",
+      "project": "projects/Rock.ssa",
+      "images": [
+        "maps/basecolor.png"
+      ],
+      "import_option": "nope"
+    },
+    "error": "validation"
+  },
+  {
+    "id": "asset-import-textures",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_textures",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "images": {
+        "basecolor": "maps/basecolor.png",
+        "normal": "maps/normal.png"
+      },
+      "position": 0
+    },
+    "equals": {
+      "layer/output_usages": [
+        "basecolor",
+        "normal"
+      ]
+    }
+  },
+  {
+    "id": "asset-insert-filter",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "insert_filter",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "filter": "Equalize",
+      "position": 1
+    },
+    "equals": {
+      "layer/name": "Equalize"
+    }
+  },
+  {
+    "id": "asset-insert-missing-filter",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "insert_filter",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "filter": "Missing",
+      "position": 0
+    },
+    "error": "not found"
+  },
+  {
+    "id": "asset-insert-material",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "insert_material",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "material": "Brick",
+      "position": 0,
+      "blend_mode": "blend_normal"
+    },
+    "equals": {
+      "layer/name": "Brick"
+    }
+  },
+  {
+    "id": "export-preview",
+    "tool": "sampler_export",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "directory": "out",
+      "format": "sbsar"
+    },
+    "equals": {
+      "dry_run": true,
+      "files": []
+    },
+    "absent": [
+      "out"
+    ]
+  },
+  {
+    "id": "export-write",
+    "tool": "sampler_export",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "directory": "out",
+      "format": "sbsar",
+      "dry_run": false
+    },
+    "equals": {
+      "files": [
+        "out/Rock.sbsar"
+      ]
+    },
+    "files": [
+      "out/Rock.sbsar"
+    ]
+  },
+  {
+    "id": "export-failure-cleanup",
+    "tool": "sampler_export",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "asset": "fail",
+      "directory": "bad",
+      "format": "png",
+      "dry_run": false
+    },
+    "error": "fake export failure",
+    "absent": [
+      "bad"
+    ]
+  },
+  {
+    "id": "export-existing",
+    "tool": "sampler_export",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "directory": "existing",
+      "dry_run": false
+    },
+    "error": "already exists"
+  },
+  {
+    "id": "export-missing-directory",
+    "tool": "sampler_export",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa"
+    },
+    "error": "validation"
+  },
+  {
+    "id": "export-bad-format",
+    "tool": "sampler_export",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "directory": "x",
+      "format": "bmp"
+    },
+    "error": "validation"
+  },
+  {
+    "id": "export-bad-resolution",
+    "tool": "sampler_export",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "directory": "x",
+      "resolution": 32
+    },
+    "error": "validation"
+  }
+]

@@ -1,0 +1,212 @@
+"""Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
+
+from typing import Annotated, Any, Literal
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import Field, StrictBool, StrictInt
+
+from . import operations
+
+mcp = FastMCP(
+    "cavi-substance-sampler-mcp",
+    instructions=(
+        "Runs Sampler startup scripts through --run-script-silent. Quit Sampler first; an "
+        "existing instance ignores startup scripts. Paths are relative to "
+        "CAVI_SUBSTANCE_WORKSPACE and outputs go to new directories. Call sampler_status first."
+    ),
+)
+READ_ONLY = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
+WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
+ProjectPath = Annotated[str, Field(description="Existing .ssa relative to the workspace.")]
+NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
+AssetName = Annotated[str, Field(min_length=1, max_length=128)]
+PlainName = Annotated[str, Field(min_length=1, max_length=96)]
+Query = Annotated[str, Field(max_length=128)]
+ImportOption = Literal[
+    "image_to_material_B2M", "image_to_material_AI_powered", "multiangle_to_material",
+    "use_as_bitmap", "as_channels", "HDR_merge", "use_as_environment",
+]
+BlendMode = Literal[
+    "blend_ao", "blend_color_id", "blend_curvature", "blend_custom_mask", "blend_opacity",
+    "blend_height", "blend_normal", "blend_per_channel",
+]
+ExportFormat = Literal["sbsar", "sbs", "png", "jpg", "tga", "tif", "exr"]
+MaterialType = Literal["standard", "decal", "atlas"]
+INSPECT_PARAMS = {
+    "project": {"project"},
+    "asset": {"project", "asset"},
+    "catalog": {"query"},
+}
+ASSET_PARAMS = {
+    "create": {"project", "name"},
+    "delete": {"project", "asset"},
+    "import_images": {"project", "asset", "images", "position", "import_option", "insert_above"},
+    "import_textures": {"project", "asset", "images", "position", "insert_above"},
+    "insert_filter": {"project", "asset", "filter", "position", "insert_above"},
+    "insert_material": {
+        "project", "asset", "material", "position", "blend_mode", "insert_above",
+    },
+}
+
+
+def need(value, name, action):
+    if value is None:
+        raise ValueError(f"{name} is required for action={action}")
+    return value
+
+
+def extras(action: str, values: dict, params: dict) -> list[str]:
+    return sorted({key for key, value in values.items() if value is not None} - params[action])
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def sampler_status() -> dict[str, Any]:
+    """Sampler executable, version, scripts folder, workspace and running state."""
+    return operations.status()
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def sampler_inspect(
+    action: Literal["project", "asset", "catalog"],
+    project: ProjectPath | None = None,
+    asset: AssetName | None = None,
+    query: Query = "",
+    timeout_seconds: Timeout = 600,
+) -> dict[str, Any]:
+    """project lists assets; asset lists layers and parameters; catalog lists resources."""
+    given = {"project": project, "asset": asset, "query": query or None}
+    unexpected = extras(action, given, INSPECT_PARAMS)
+    if unexpected:
+        raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    if action == "asset":
+        need(project, "project", action)
+        need(asset, "asset", action)
+    arguments = {key: value for key, value in given.items() if value is not None}
+    operation = {"project": "inspect_project", "asset": "inspect_asset",
+                 "catalog": "catalog"}[action]
+    return await operations.invoke(operation, arguments, timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
+async def sampler_project(
+    action: Literal["create", "save_as"],
+    directory: NewDirectory,
+    name: PlainName | None = None,
+    project: ProjectPath | None = None,
+    timeout_seconds: Timeout = 600,
+) -> dict[str, Any]:
+    """create a new .ssa in a new directory; save_as copies an existing project."""
+    if action == "create":
+        if project is not None:
+            raise ValueError("project is only valid for action=save_as")
+        need(name, "name", action)
+    else:
+        need(project, "project", action)
+    operation = "create_project" if action == "create" else "save_as"
+    return await operations.invoke(operation, {
+        key: value for key, value in {
+            "directory": directory, "name": name, "project": project,
+        }.items() if value is not None
+    }, timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
+async def sampler_asset(
+    action: Literal[
+        "create", "delete", "import_images", "import_textures", "insert_filter",
+        "insert_material",
+    ],
+    project: ProjectPath,
+    asset: AssetName | None = None,
+    name: PlainName | None = None,
+    images: list[str] | dict[str, str] | None = None,
+    position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
+    import_option: ImportOption = "use_as_bitmap",
+    insert_above: StrictBool | None = None,
+    filter: PlainName | None = None,
+    material: PlainName | None = None,
+    blend_mode: BlendMode = "blend_normal",
+    timeout_seconds: Timeout = 600,
+) -> dict[str, Any]:
+    """Add, remove or extend asset layers, then save the project."""
+    values = {
+        "project": project, "asset": asset, "name": name, "images": images, "position": position,
+        "import_option": import_option, "insert_above": insert_above, "filter": filter,
+        "material": material, "blend_mode": blend_mode,
+    }
+    if action != "import_images":
+        values["import_option"] = None
+    if action != "insert_material":
+        values["blend_mode"] = None
+    if action not in ("import_images", "import_textures", "insert_filter", "insert_material"):
+        values["position"], values["insert_above"] = None, None
+    unexpected = extras(action, values, ASSET_PARAMS)
+    if unexpected:
+        raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    if action == "create":
+        need(name, "name", action)
+    if action in ("delete", "import_images", "import_textures", "insert_filter",
+                  "insert_material"):
+        need(asset, "asset", action)
+    if action == "import_images" and not isinstance(images, list):
+        raise ValueError("images must be a list of workspace images")
+    if action == "import_textures" and not isinstance(images, dict):
+        raise ValueError("images must map usages to workspace images")
+    if action == "insert_filter":
+        need(filter, "filter", action)
+    if action == "insert_material":
+        need(material, "material", action)
+    arguments = {"project": project}
+    if asset is not None:
+        arguments["asset"] = asset
+    if action == "create":
+        arguments["name"] = name
+    if action in ("import_images", "import_textures"):
+        arguments["images"] = images
+    if action in ("import_images", "import_textures", "insert_filter", "insert_material"):
+        arguments["position"] = position
+        if insert_above is not None:
+            arguments["insert_above"] = insert_above
+    if action == "import_images":
+        arguments["import_option"] = import_option
+    if action == "insert_filter":
+        arguments["filter"] = filter
+    if action == "insert_material":
+        arguments["material"] = material
+        arguments["blend_mode"] = blend_mode
+    operation = {"create": "create_asset", "delete": "delete_asset"}.get(action, action)
+    return await operations.invoke(operation, arguments, timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
+async def sampler_export(
+    project: ProjectPath,
+    directory: NewDirectory,
+    asset: AssetName | None = None,
+    format: ExportFormat = "sbsar",
+    preset: Annotated[str | None, Field(max_length=128)] = None,
+    channels: Annotated[list[str] | None, Field(max_length=64)] = None,
+    resolution: Annotated[StrictInt | None, Field(ge=64, le=8192)] = None,
+    material_type: MaterialType = "standard",
+    subfolder: StrictBool = False,
+    dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
+    timeout_seconds: Timeout = 600,
+) -> dict[str, Any]:
+    """Preview or export an asset into a new workspace directory."""
+    return await operations.invoke("export", {
+        "project": project, "directory": directory, "asset": asset, "format": format,
+        "preset": preset, "channels": channels, "resolution": resolution,
+        "material_type": material_type, "subfolder": subfolder, "dry_run": dry_run,
+    }, timeout_seconds)
+
+
+def main():
+    mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()
