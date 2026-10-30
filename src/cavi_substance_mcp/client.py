@@ -26,8 +26,7 @@ OPERATIONS = frozenset(
 def expression_for(operation: str, params: dict, workspace: Path) -> str:
     if operation not in OPERATIONS:
         raise ValueError(f"Unknown operation: {operation}")
-    source = (Path(__file__).with_name("lease.py").read_text() + "\n"
-              + Path(__file__).with_name("painter_operations.py").read_text())
+    source = Path(__file__).with_name("painter_operations.py").read_text()
     # repr() makes every caller-controlled value data in a single Python expression.
     return (
         "(lambda ns: (__import__('builtins').exec(" + repr(source) + ", ns), "

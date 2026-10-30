@@ -7,6 +7,18 @@ from evals.painter_simulator import PainterSimulator
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_cached_clients_can_execute_the_self_contained_status_payload(self):
+        from cavi_substance_mcp import painter_operations
+
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            simulator.setup("dirty-unsaved")
+            namespace = {}
+            exec(Path(painter_operations.__file__).read_text(), namespace)  # noqa: S102 -- trusted payload in simulator
+            result = namespace["execute"]("status", {}, folder)
+            self.assertTrue(result["connected"])
+            self.assertTrue(result["needs_saving"])
+            self.assertTrue(result["open"])
+
     def test_two_independent_clients_cannot_edit_each_others_unsaved_project(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("dirty-unsaved")
