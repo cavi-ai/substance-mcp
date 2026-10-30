@@ -28,6 +28,8 @@ class TextureFillTests(unittest.TestCase):
             self.assertEqual(len(simulator.layers), 1)
             self.assertEqual(len(simulator.resources), 1)
             assigned = {channel.name: source for channel, source in simulator.layers[0].sources.items()}
+            assigned.update(Roughness=assigned["SpecularRoughness"],
+                            Metallic=assigned["BaseMetalness"])
             self.assertEqual(assigned["BaseColor"].color_space, "sRGB")
             self.assertEqual(assigned["Roughness"].color_space, "Raw")
             self.assertEqual(assigned["Metallic"].color_space, "Raw")

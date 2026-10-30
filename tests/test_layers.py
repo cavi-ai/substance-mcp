@@ -4,7 +4,7 @@ from pathlib import Path
 
 from owned_client import OwnedPainterClient
 
-from evals.painter_simulator import PainterSimulator
+from evals.painter_simulator import ChannelType, PainterSimulator
 
 
 class FillLayerTests(unittest.TestCase):
@@ -16,9 +16,10 @@ class FillLayerTests(unittest.TestCase):
             result = client.call("create_fill_layer", args)
             self.assertEqual(result["base_color"], [0.2, 0.5, 0.8])
             self.assertEqual(result["roughness"], 0.7)
-            sources = {c.name: s.value for c, s in simulator.layers[0].sources.items()}
-            self.assertEqual(sources, {"BaseColor": (0.2, 0.5, 0.8),
-                                       "Roughness": (0.7, 0.7, 0.7), "Metallic": (0.0, 0.0, 0.0)})
+            sources = {c: s.value for c, s in simulator.layers[0].sources.items()}
+            self.assertEqual(sources, {ChannelType.BaseColor: (0.2, 0.5, 0.8),
+                                       ChannelType.Roughness: (0.7, 0.7, 0.7),
+                                       ChannelType.Metallic: (0.0, 0.0, 0.0)})
             with self.assertRaisesRegex(RuntimeError, "already exists"):
                 client.call("create_fill_layer", args)
             listing = client.call("layer_stack", {"texture_set": "Body"})

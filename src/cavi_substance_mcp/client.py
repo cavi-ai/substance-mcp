@@ -23,14 +23,21 @@ OPERATIONS = frozenset(
         "export_presets",
         "export_textures",
         "session_control",
+        "layer_edit",
+        "bake",
+        "bake_status",
+        "bake_settings",
+        "shelf",
+        "reload_mesh",
     }
 )
 READ_ONLY_OPERATIONS = frozenset(
-    {"status", "session_control", "texture_sets", "layer_stack", "export_presets"}
+    {"status", "session_control", "texture_sets", "layer_stack", "export_presets", "shelf",
+     "bake_settings", "bake_status"}
 )
 DEFAULT_TIMEOUT = 60.0
 SLOW_TIMEOUT = 600.0
-SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures"})
+SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures", "layer_edit"})
 RESPONSE_LIMIT = 8 * 1024 * 1024
 SOURCE = Path(__file__).with_name("painter_operations.py").read_text()
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()
