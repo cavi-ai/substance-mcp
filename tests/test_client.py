@@ -8,6 +8,62 @@ from pathlib import Path
 
 
 class RemoteTests(unittest.TestCase):
+    def test_close_refuses_unsaved_work_by_default(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            simulator.setup("dirty")
+            client = PainterClient(port=simulator.port, workspace=Path(folder))
+            with self.assertRaisesRegex(RuntimeError, "unsaved"):
+                client.call("close_project", {"expected_file": "simulated-original.spp"})
+            self.assertTrue(client.call("status")["open"])
+
+    def test_close_requires_the_inspected_project_and_explicit_discard(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            simulator.setup("dirty-unsaved")
+            client = PainterClient(port=simulator.port, workspace=Path(folder))
+            with self.assertRaisesRegex(RuntimeError, "changed"):
+                client.call("close_project", {"expected_file": "another.spp", "discard_unsaved": True})
+            self.assertTrue(client.call("status")["open"])
+            result = client.call("close_project", {"expected_file": None, "discard_unsaved": True})
+            self.assertTrue(result["closed"])
+            self.assertFalse(client.call("status")["open"])
+
+    def test_successful_export_reports_maps_omitted_by_painter(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder).resolve()
+            with PainterSimulator(workspace) as simulator:
+                simulator.setup("omitted-export")
+                result = PainterClient(port=simulator.port, workspace=workspace).call(
+                    "export_textures",
+                    {"directory": "textures", "preset": "resource://eval-preset", "dry_run": False},
+                )
+            self.assertEqual(result["files"], [str(workspace / "textures/Body.png")])
+            self.assertEqual(result["omitted_files"], [str(workspace / "textures/Body_AO.png")])
+            self.assertFalse((workspace / "textures/Body_AO.png").exists())
+
+    def test_export_plan_satisfies_painter_configuration_contract(self):
+        from cavi_substance_mcp.client import PainterClient
+        from evals.painter_simulator import PainterSimulator
+
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            with PainterSimulator(workspace) as simulator:
+                simulator.setup("open")
+                result = PainterClient(port=simulator.port, workspace=workspace).call(
+                    "export_textures", {"directory": "textures", "preset": "resource://eval-preset"}
+                )
+            self.assertTrue(result["dry_run"])
+            self.assertEqual(result["files"], [str(workspace.resolve() / "textures/Body.png")])
+            self.assertFalse((workspace / "textures").exists())
+
     def test_unknown_operations_are_rejected_without_network(self):
         module = Path(__file__).resolve().parents[1] / "src/cavi_substance_mcp/client.py"
         self.assertTrue(module.exists(), "Painter transport is not implemented")

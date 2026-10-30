@@ -5,7 +5,7 @@
       "id": "discovery-budget",
       "probe": "discovery-cost",
       "access": "read_only",
-      "max_tools": 7,
+      "max_tools": 10,
       "max_schema_bytes": 10000
     },
     {

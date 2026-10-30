@@ -11,12 +11,14 @@ from .client import PainterClient
 mcp = FastMCP(
     "cavi-substance-mcp",
     instructions=(
-        "Painter must be installed, licensed, and started by the user with remote scripting enabled. "
+        "Painter must be installed, licensed, and running with remote scripting enabled. "
+        "If disconnected, use cavi-substance-mcp runtime start on macOS to launch Painter. "
         "Inspect status first. Export dry runs are the default; use a new output directory. "
         "Designer is not supported. Never retry uncertain mutations automatically."
     ),
 )
 MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 PathInput = Annotated[
     str, Field(description="Existing input file relative to the configured workspace.")
 ]
@@ -28,6 +30,8 @@ NewDirectory = Annotated[
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
+UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -55,6 +59,42 @@ def create_project(mesh_path: PathInput) -> dict[str, Any]:
 def texture_sets() -> dict[str, Any]:
     """List the current project's texture sets."""
     return PainterClient().call("texture_sets")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def layer_stack(texture_set: TextureSetName) -> dict[str, Any]:
+    """Inspect root layer names, IDs and types in the named Texture Set's default stack."""
+    return PainterClient().call("layer_stack", {"texture_set": texture_set})
+
+
+@mcp.tool(annotations=MUTATING)
+def create_fill_layer(
+    texture_set: TextureSetName,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
+    base_color: Annotated[tuple[UnitValue, UnitValue, UnitValue], Field(description="sRGB RGB, 0–1.")],
+    roughness: UnitValue = 0.5,
+    metallic: UnitValue = 0.0,
+) -> dict[str, Any]:
+    """Add a named root fill for color, roughness and metallic; refuse duplicate names."""
+    return PainterClient().call("create_fill_layer", {
+        "texture_set": texture_set, "name": name, "base_color": base_color,
+        "roughness": roughness, "metallic": metallic,
+    })
+
+
+@mcp.tool(annotations=CLOSING)
+def close_project(
+    expected_file: Annotated[
+        str | None, Field(description="Exact file from painter_status; null for an unsaved project.")
+    ],
+    discard_unsaved: Annotated[
+        StrictBool, Field(description="Explicit true permits discarding the inspected project's edits.")
+    ] = False,
+) -> dict[str, Any]:
+    """Close the inspected project; refuse unsaved edits unless explicitly discarded."""
+    return PainterClient().call(
+        "close_project", {"expected_file": expected_file, "discard_unsaved": discard_unsaved}
+    )
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -89,6 +129,12 @@ def export_textures(
 
 
 def main():
+    import sys
+
+    if len(sys.argv) > 1:
+        from .cli import main as cli_main
+
+        raise SystemExit(cli_main())
     mcp.run(transport="stdio")
 
 

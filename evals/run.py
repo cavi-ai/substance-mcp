@@ -166,7 +166,7 @@ def main():
             "application": APP,
             "cases": results,
             "native_evidence": False,
-            "native_status": "pending: no reachable licensed Painter installation",
+            "native_status": "not run by the simulated or disconnected evaluator",
             "model_evaluation": "not supported",
         }
         (output / "cases.json").write_text(json.dumps(report, indent=2) + "\n")

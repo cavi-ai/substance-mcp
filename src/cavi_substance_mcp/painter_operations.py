@@ -1,6 +1,13 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import math
 from pathlib import Path
+
+
+def unit_value(value):
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError("Channel values must be finite numbers between 0 and 1")
+    return float(value)
 
 
 def export_destination(workspace: Path, name: str) -> Path:
@@ -49,8 +56,65 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
             path = input_file(root, params["path"], {".fbx", ".obj", ".gltf", ".glb"})
             project.create(mesh_file_path=str(path))
         return {"requested": operation, "path": str(path), "loading_may_be_pending": True}
+    if operation == "close_project":
+        if not project.is_open():
+            return {"closed": True, "already_closed": True}
+        if project.is_busy():
+            raise RuntimeError("Painter must be idle before closing a project")
+        if project.file_path() != params["expected_file"]:
+            raise RuntimeError("The open project changed; inspect status before closing it")
+        discard = params.get("discard_unsaved", False)
+        if type(discard) is not bool:
+            raise ValueError("discard_unsaved must be a boolean")
+        if project.needs_saving() and not discard:
+            raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
+        project.close()
+        return {"closed": not project.is_open()}
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
+    if operation in {"layer_stack", "create_fill_layer"}:
+        from substance_painter import colormanagement, layerstack
+
+        stack = textureset.Stack.from_name(params["texture_set"])
+        nodes = layerstack.get_root_layer_nodes(stack)
+        if operation == "layer_stack":
+            return {"layers": [{"uid": n.uid(), "name": n.get_name(),
+                                 "type": type(n).__name__} for n in nodes]}
+        name = params["name"]
+        if not isinstance(name, str) or not name.strip() or len(name) > 63:
+            raise ValueError("Layer name must be nonempty and at most 63 characters")
+        if any(n.get_name() == name for n in nodes):
+            raise ValueError("A root layer with this name already exists")
+        color = params["base_color"]
+        if not isinstance(color, (list, tuple)) or len(color) != 3:
+            raise ValueError("Base color must contain three values between 0 and 1")
+        color = [unit_value(value) for value in color]
+        roughness = unit_value(params.get("roughness", 0.5))
+        metallic = unit_value(params.get("metallic", 0.0))
+        channels = textureset.ChannelType
+        active = {channels.BaseColor, channels.Roughness, channels.Metallic}
+        if not active.issubset(stack.all_channels()):
+            raise ValueError("Texture Set must have BaseColor, Roughness and Metallic channels")
+        position = layerstack.InsertPosition.from_textureset_stack(stack)
+        with layerstack.ScopedModification(f"Create fill layer {name}"):
+            node = layerstack.insert_fill(position)
+            try:
+                node.set_name(name)
+                node.active_channels = active
+                node.set_source(channels.BaseColor, colormanagement.Color(
+                    *color, colormanagement.GenericColorSpace.sRGB))
+                for channel, value in [(channels.Roughness, roughness), (channels.Metallic, metallic)]:
+                    node.set_source(channel, colormanagement.Color(
+                        value, value, value, colormanagement.GenericColorSpace.Raw))
+            except Exception:
+                layerstack.delete_node(node)
+                raise
+        return {
+            "name": node.get_name(), "uid": node.uid(), "texture_set": params["texture_set"],
+            "base_color": list(node.get_source(channels.BaseColor).get_color().value),
+            "roughness": node.get_source(channels.Roughness).get_color().value[0],
+            "metallic": node.get_source(channels.Metallic).get_color().value[0],
+        }
     if operation == "texture_sets":
         return {"texture_sets": [{"name": item.name()} for item in textureset.all_texture_sets()]}
     if operation == "export_presets":
@@ -74,9 +138,11 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
         if params["preset"] not in presets:
             raise ValueError("Choose a predefined preset URL returned by export_presets")
         config = {
+            "exportShaderParams": False,
             "exportPath": str(folder),
             "defaultExportPreset": params["preset"],
             "exportList": [{"rootPath": item.name()} for item in textureset.all_texture_sets()],
+            "exportParameters": [{"parameters": {"paddingAlgorithm": "infinite"}}],
         }
         planned = export.list_project_textures(config)
         files = [Path(path).resolve() for paths in planned.values() for path in paths]
@@ -104,5 +170,6 @@ def execute(operation: str, params: dict, workspace: str) -> dict:
             "dry_run": False,
             "status": result.status.name,
             "files": [str(path) for path in actual],
+            "omitted_files": sorted(str(path) for path in set(files) - set(actual)),
         }
     raise ValueError(f"Unknown operation: {operation}")

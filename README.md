@@ -4,9 +4,9 @@ Typed MCP tools for Adobe Substance 3D Painter project inspection and texture ex
 
 ## Application support
 
-This version targets Painter's documented Python remote scripting API. It does not control Substance Designer or provide painting, layer editing, baking, or smart-material authoring tools.
+This version targets Painter's documented Python remote scripting API. It supports project operations, root-layer inspection, uniform fill-layer creation, and texture export. It does not control Substance Designer or provide brush strokes, baking, masks, or smart-material authoring tools.
 
-**Live Painter validation is pending.** The transport, request encoding and path boundaries have automated local tests. These tests do not establish compatibility with a running Painter installation.
+Native project creation, texture-set and preset inspection, uniform fill creation, texture export, save-copy/reopen, and guarded closing have been checked with Painter 12.2.0 on macOS. Exported color, roughness, and metallic pixel values were checked against the fill inputs. Automated transport and path tests use an explicitly simulated API and do not establish compatibility with other Painter versions.
 
 ## Install
 
@@ -16,7 +16,25 @@ Requires Python 3.11+, uv, and a separately installed and licensed Substance 3D 
 uv sync --locked
 ```
 
-Launch Painter with `--enable-remote-scripting`. Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
+Launch the installed Painter application with remote scripting enabled:
+
+```sh
+cavi-substance-mcp runtime start
+cavi-substance-mcp runtime status
+```
+
+Automatic launch currently supports macOS. It finds the standard Adobe installation,
+or the app bundle selected by `CAVI_PAINTER_APP`, and supplies `--enable-remote-scripting`.
+A connected session is reused. An open app without a reachable scripting connection
+is left untouched; save and quit that app before launching it again. The launcher does
+not install software, sign in, accept terms, or dismiss license prompts.
+
+`start` reports that launch was requested; it does not claim Painter is ready. Require
+`connected=true` from `status` or the actual `painter_status` MCP tool before project work.
+Commands print JSON and exit nonzero on failure. Running `cavi-substance-mcp` without
+arguments continues to serve MCP over stdio.
+
+Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
 
 Register the stdio server in your MCP client:
 
@@ -30,15 +48,18 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 
 - `painter_status`: connectivity and project state.
 - `open_project`, `create_project`: open a workspace project or import a workspace mesh, only when no project is already open.
+- `close_project`: close only the project matching the inspected file path. Unsaved changes are refused unless `discard_unsaved=true` is explicit; use `expected_file=null` for an unsaved project.
 - `texture_sets`, `export_presets`: inspect the current project and predefined presets.
+- `layer_stack`: inspect root layers in a named Texture Set's default stack.
+- `create_fill_layer`: add a uniquely named root fill with sRGB base color, roughness, and metallic values from 0 to 1. Only those three channels are enabled. Existing layers are preserved; a failed source assignment removes the new layer.
 - `save_project_copy`: save a new copy without changing the open project's location.
-- `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied.
+- `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied. Results include `omitted_files` for maps Painter planned but did not emit; check these against the asset's required channels.
 
 `CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/CaviGameArt`. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. Use the same workspace for your Blender exports to pass meshes between applications.
 
 `CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript.
 
-There are no automatic retries, external uploads, telemetry, application launches or account logins. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
+There are no automatic retries, external uploads, telemetry or account logins. Application launch is explicit through the CLI. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
 
 ## Validation
 
@@ -60,6 +81,6 @@ npm run eval:core
 
 The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifest checks discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifest adds schema, structured output, repeated reads, and contention checks.
 
-The corpus exercises all seven tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. No-argument read tools have no tool-specific invalid inputs.
+The corpus exercises all ten tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. Layer cases cover duplicate names, bounded colors, assignment rollback, and project readiness. No-argument read tools have no tool-specific invalid inputs.
 
-**Native Painter validation remains pending.** Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.
+Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. Native export checks establish file generation, not painted-asset quality or destination-game material compatibility. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.

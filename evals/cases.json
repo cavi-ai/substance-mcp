@@ -1,5 +1,163 @@
 [
   {
+    "id": "fill-layer-success", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Toon base", "base_color": [0.2, 0.5, 0.8], "roughness": 0.7, "metallic": 0.0},
+    "kind": "success", "modes": ["simulated"], "setup": "open",
+    "equals": {"/name": "Toon base", "/base_color/0": 0.2, "/roughness": 0.7, "/metallic": 0.0}
+  },
+  {
+    "id": "layer-stack-success", "tool": "layer_stack",
+    "arguments": {"texture_set": "Body"}, "kind": "success", "modes": ["simulated"],
+    "equals": {"/layers/0/name": "Toon base"}, "required": ["/layers/0/uid", "/layers/0/type"]
+  },
+  {
+    "id": "fill-duplicate-refused", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Toon base", "base_color": [0.4, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "error": "already exists"
+  },
+  {
+    "id": "fill-layer-missing-arguments", "tool": "create_fill_layer", "arguments": {},
+    "kind": "invalid", "modes": ["protocol", "simulated"], "error": "validation"
+  },
+  {
+    "id": "layer-stack-missing-arguments", "tool": "layer_stack", "arguments": {},
+    "kind": "invalid", "modes": ["protocol", "simulated"], "error": "validation"
+  },
+  {
+    "id": "fill-color-out-of-range", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Invalid", "base_color": [2.0, 0.5, 0.6]},
+    "kind": "invalid", "modes": ["protocol", "simulated"], "error": "validation"
+  },
+  {
+    "id": "fill-color-string-refused", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Invalid", "base_color": ["0.2", 0.5, 0.6]},
+    "kind": "invalid", "modes": ["protocol", "simulated"], "error": "validation"
+  },
+  {
+    "id": "fill-blank-name-refused", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": " ", "base_color": [0.2, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "setup": "open", "error": "nonempty"
+  },
+  {
+    "id": "fill-unknown-texture-set", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Missing", "name": "Invalid", "base_color": [0.2, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "setup": "open", "error": "not found"
+  },
+  {
+    "id": "fill-closed-refused", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Invalid", "base_color": [0.2, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "setup": "closed", "error": "idle"
+  },
+  {
+    "id": "fill-busy-refused", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Invalid", "base_color": [0.2, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "setup": "busy", "error": "idle"
+  },
+  {
+    "id": "layer-stack-closed-refused", "tool": "layer_stack",
+    "arguments": {"texture_set": "Body"}, "kind": "safety", "modes": ["simulated"],
+    "setup": "closed", "error": "idle"
+  },
+  {
+    "id": "fill-rollback", "tool": "create_fill_layer",
+    "arguments": {"texture_set": "Body", "name": "Failed", "base_color": [0.2, 0.5, 0.6]},
+    "kind": "safety", "modes": ["simulated"], "setup": "fill-failure", "error": "source assignment failure"
+  },
+  {
+    "id": "fill-rollback-keeps-stack-empty", "tool": "layer_stack",
+    "arguments": {"texture_set": "Body"}, "kind": "success", "modes": ["simulated"],
+    "equals": {"/layers": []}
+  },
+  {
+    "id": "close-project-missing-inspected-file",
+    "tool": "close_project",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": ["protocol", "simulated"],
+    "error": "validation"
+  },
+  {
+    "id": "close-project-string-discard",
+    "tool": "close_project",
+    "arguments": {"expected_file": null, "discard_unsaved": "true"},
+    "kind": "invalid",
+    "modes": ["protocol", "simulated"],
+    "error": "validation"
+  },
+  {
+    "id": "close-project-success",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "open",
+    "equals": {"/closed": true}
+  },
+  {
+    "id": "closed-project-status",
+    "tool": "painter_status",
+    "arguments": {},
+    "kind": "success",
+    "modes": ["simulated"],
+    "equals": {"/open": false}
+  },
+  {
+    "id": "close-project-unsaved-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "dirty",
+    "error": "unsaved"
+  },
+  {
+    "id": "close-project-changed-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "different.spp", "discard_unsaved": true},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "open",
+    "error": "changed"
+  },
+  {
+    "id": "close-project-busy-refused",
+    "tool": "close_project",
+    "arguments": {"expected_file": "simulated-original.spp"},
+    "kind": "safety",
+    "modes": ["simulated"],
+    "setup": "busy",
+    "error": "idle"
+  },
+  {
+    "id": "close-project-explicit-discard",
+    "tool": "close_project",
+    "arguments": {"expected_file": null, "discard_unsaved": true},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "dirty-unsaved",
+    "equals": {"/closed": true}
+  },
+  {
+    "id": "close-project-already-closed",
+    "tool": "close_project",
+    "arguments": {"expected_file": null},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "closed",
+    "equals": {"/closed": true, "/already_closed": true}
+  },
+  {
+    "id": "export-reports-omitted-maps",
+    "tool": "export_textures",
+    "arguments": {"directory": "omitted-textures", "preset": "resource://eval-preset", "dry_run": false},
+    "kind": "success",
+    "modes": ["simulated"],
+    "setup": "omitted-export",
+    "required": ["/omitted_files/0"],
+    "files": ["omitted-textures/Body.png"],
+    "absent": ["omitted-textures/Body_AO.png"]
+  },
+  {
     "id": "status-success",
     "tool": "painter_status",
     "arguments": {},
