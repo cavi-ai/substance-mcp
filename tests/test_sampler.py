@@ -214,7 +214,7 @@ class SamplerServerTests(unittest.TestCase):
         self.assertEqual(
             set(tools),
             {"sampler_status", "sampler_inspect", "sampler_project", "sampler_asset",
-             "sampler_export"},
+             "sampler_layer", "sampler_export", "sampler_build"},
         )
         self.assertTrue(tools["sampler_status"].annotations.readOnlyHint)
         self.assertTrue(tools["sampler_inspect"].annotations.readOnlyHint)

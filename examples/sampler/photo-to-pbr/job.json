@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "directory": "jobs/photo-to-pbr",
+  "project": {
+    "name": "Photo PBR",
+    "asset": {
+      "name": "PhotoPBR",
+      "model": "openpbr",
+      "preset": "base_material"
+    }
+  },
+  "steps": [
+    {
+      "action": "import_images",
+      "asset": "PhotoPBR",
+      "images": [
+        "photos/albedo.png"
+      ],
+      "position": 0,
+      "import_option": "image_to_material_B2M"
+    },
+    {
+      "action": "insert_filter",
+      "asset": "PhotoPBR",
+      "filter": "Tiling",
+      "position": 1
+    },
+    {
+      "action": "set_parameters",
+      "asset": "PhotoPBR",
+      "layer": "Tiling",
+      "parameters": {
+        "Threshold": 0.1
+      }
+    },
+    {
+      "action": "export",
+      "asset": "PhotoPBR",
+      "target": "unreal",
+      "resolution": 2048
+    }
+  ]
+}

@@ -25,13 +25,24 @@ class Parameter:
     def __init__(self, identifier, label, value=None, kind="float"):
         self.identifier = identifier
         self.label = label
-        self.value = value
+        self._value = value
+        self._data = None
         self.type = kind
         self.widget_type = "slider" if kind == "float" else "no_widget"
         self.default_value = value
-        self.min_value = 0.0
-        self.max_value = 1.0
+        self.min_value = -1000.0 if kind.startswith(("float", "integer")) else None
+        self.max_value = 1000.0 if kind.startswith(("float", "integer")) else None
         self.visible = True
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
+        if self._data is not None:
+            self._data[2] = value
 
 
 class Layer:
@@ -72,11 +83,22 @@ class Layer:
 
     @property
     def presets(self):
-        return []
+        return list(self.data.get("presets", []))
+
+    def apply_preset(self, preset_name):
+        if preset_name not in self.presets:
+            return False
+        self.data["preset"] = preset_name
+        return True
 
     @property
     def parameters(self):
-        return [Parameter(*item) for item in self.data.get("parameters", [])]
+        found = []
+        for item in self.data.get("parameters", []):
+            parameter = Parameter(*item)
+            parameter._data = item
+            found.append(parameter)
+        return found
 
 
 class Metadata:
@@ -172,7 +194,9 @@ class Asset:
             "position": position,
             "output_usages": ["baseColor"],
             "applied_channels": ["baseColor"],
-            "parameters": [["opacity", "Opacity", 1.0, "float"]],
+            "parameters": [["opacity", "Opacity", 1.0, "float"],
+                           ["tiling", "Tiling", 1.0, "float"]],
+            "presets": ["Default", "Wet"],
         }
         return self._insert(layer, position, insert_above)
 
@@ -185,6 +209,7 @@ class Asset:
             "blend_mode": blend_mode,
             "blend_applied_channels": ["baseColor"],
             "parameters": [],
+            "presets": ["Default"],
         }
         return self._insert(layer, position, insert_above)
 
@@ -248,6 +273,7 @@ class State:
     def __init__(self):
         self.path = None
         self.data = {"assets": [], "selected": None}
+        self.imported = []
 
     def load(self, path):
         self.path = Path(path)
@@ -283,8 +309,7 @@ def module():
 
     def create_project(name, path):
         state.path = Path(path)
-        state.data = {"assets": [{"name": name, "layers": [], "resolution": [1024, 1024]}],
-                      "selected": name}
+        state.data = {"assets": [], "selected": None}
         state.save()
 
     def open_project(path):
@@ -309,8 +334,12 @@ def module():
     def get_selected_asset():
         return state.selected()
 
-    def create_asset(name, *_args, select_asset=False, **_kwargs):
+    def create_asset(name, *args, select_asset=False, **_kwargs):
         item = {"name": name, "layers": [], "resolution": [1024, 1024]}
+        if args:
+            item["material_model"] = str(args[0])
+        if len(args) > 1:
+            item["preset"] = getattr(args[1], "name", str(args[1]))
         state.data["assets"].append(item)
         if select_asset:
             state.data["selected"] = name
@@ -327,11 +356,14 @@ def module():
         return Resource(preset_name)
 
     def resources(names, query):
+        names = list(names) + [item.name for item in state.imported]
         found = [Resource(name) for name in names if query.lower() in name.lower()]
         return found
 
     def import_resources(path):
-        return [Resource(Path(path).stem)]
+        found = [Resource(Path(path).stem)]
+        state.imported.extend(found)
+        return found
 
     def wait_for_computation():
         pass
