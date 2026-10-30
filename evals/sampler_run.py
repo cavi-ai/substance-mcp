@@ -102,13 +102,55 @@ def fixtures(output: Path) -> Path:
     from sampler_fake_cli import install
 
     workspace, outside = output / "workspace", output / "outside"
-    for folder in (workspace / "maps", workspace / "existing", outside):
+    for folder in (workspace / "maps", workspace / "assets", workspace / "jobs",
+                   workspace / "existing", outside):
         folder.mkdir(parents=True)
     (workspace / "escape").symlink_to(outside, target_is_directory=True)
     (outside / "outside.ssa").write_text("{}")
     (workspace / "maps/basecolor.png").write_bytes(b"fake-png")
     (workspace / "maps/normal.png").write_bytes(b"fake-png")
+    (workspace / "assets/custom.sbsar").write_bytes(b"fake-sbsar")
     (workspace / "existing/keep.txt").write_text("keep")
+
+    def build(directory, target, asset="Rock"):
+        return {
+            "schema": 1,
+            "directory": directory,
+            "project": {"name": "RockProject",
+                        "asset": {"name": asset, "model": "openpbr",
+                                  "preset": "base_material"}},
+            "steps": [
+                {"action": "import_images", "asset": asset,
+                 "images": ["maps/basecolor.png"], "position": 0,
+                 "import_option": "use_as_bitmap"},
+                {"action": "insert_filter", "asset": asset, "filter": "Tiling",
+                 "position": 1},
+                {"action": "set_parameters", "asset": asset, "layer": "Tiling",
+                 "parameters": {"Tiling": 3}},
+                {"action": "apply_preset", "asset": asset, "layer": "Tiling",
+                 "preset": "Wet"},
+                {"action": "export", "asset": asset, "target": target,
+                 "resolution": 64},
+            ],
+        }
+
+    jobs = {
+        "unreal": build("jobs/unreal", "unreal"),
+        "unity": build("jobs/unity", "unity"),
+        "blender": build("jobs/blender", "blender"),
+        "generic": build("jobs/generic", "generic"),
+        "existing": build("existing", "generic"),
+        "fail": build("jobs/fail", "generic", asset="fail"),
+    }
+    for name, data in jobs.items():
+        (workspace / "jobs" / f"{name}.json").write_text(json.dumps(data))
+    invalid = build("jobs/invalid", "generic")
+    invalid["directory"] = "../outside/escape"
+    (workspace / "jobs/invalid.json").write_text(json.dumps(invalid))
+    bad_schema = build("jobs/bad-schema", "generic")
+    bad_schema["steps"] = [step for step in bad_schema["steps"]
+                           if step["action"] != "export"]
+    (workspace / "jobs/bad-schema.json").write_text(json.dumps(bad_schema))
     install(output / "app")
     return workspace
 

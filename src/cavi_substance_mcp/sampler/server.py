@@ -6,14 +6,15 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field, StrictBool, StrictInt
 
-from . import operations
+from . import batch, operations
 
 mcp = FastMCP(
     "cavi-substance-sampler-mcp",
     instructions=(
         "Runs Sampler startup scripts through --run-script-silent. Quit Sampler first; an "
         "existing instance ignores startup scripts. Paths are relative to "
-        "CAVI_SUBSTANCE_WORKSPACE and outputs go to new directories. Call sampler_status first."
+        "CAVI_SUBSTANCE_WORKSPACE and outputs go to new directories. Call sampler_status first. "
+        "Use sampler_build for multi-step batch jobs."
     ),
 )
 READ_ONLY = ToolAnnotations(
@@ -36,14 +37,18 @@ BlendMode = Literal[
 ]
 ExportFormat = Literal["sbsar", "sbs", "png", "jpg", "tga", "tif", "exr"]
 MaterialType = Literal["standard", "decal", "atlas"]
+TargetName = Literal["unreal", "unity", "blender", "generic"]
+ParameterValue = bool | int | float | str | list[bool | int | float | str]
+JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
 INSPECT_PARAMS = {
     "project": {"project"},
     "asset": {"project", "asset"},
     "catalog": {"query"},
 }
 ASSET_PARAMS = {
-    "create": {"project", "name"},
+    "create": {"project", "name", "model", "preset"},
     "delete": {"project", "asset"},
+    "import_resource": {"project", "path"},
     "import_images": {"project", "asset", "images", "position", "import_option", "insert_above"},
     "import_textures": {"project", "asset", "images", "position", "insert_above"},
     "insert_filter": {"project", "asset", "filter", "position", "insert_above"},
@@ -117,12 +122,15 @@ async def sampler_project(
 @mcp.tool(annotations=WRITES)
 async def sampler_asset(
     action: Literal[
-        "create", "delete", "import_images", "import_textures", "insert_filter",
-        "insert_material",
+        "create", "delete", "import_resource", "import_images", "import_textures",
+        "insert_filter", "insert_material",
     ],
     project: ProjectPath,
     asset: AssetName | None = None,
     name: PlainName | None = None,
+    model: Literal["asm", "openpbr"] = "asm",
+    preset: Annotated[str | None, Field(max_length=128)] = None,
+    path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
     images: list[str] | dict[str, str] | None = None,
     position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
     import_option: ImportOption = "use_as_bitmap",
@@ -132,12 +140,17 @@ async def sampler_asset(
     blend_mode: BlendMode = "blend_normal",
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """Add, remove or extend asset layers, then save the project."""
+    """Create assets and resources or add, remove and extend asset layers."""
     values = {
-        "project": project, "asset": asset, "name": name, "images": images, "position": position,
+        "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
+        "path": path, "images": images, "position": position,
         "import_option": import_option, "insert_above": insert_above, "filter": filter,
         "material": material, "blend_mode": blend_mode,
     }
+    if action != "create":
+        values["model"], values["preset"] = None, None
+    if action != "import_resource":
+        values["path"] = None
     if action != "import_images":
         values["import_option"] = None
     if action != "insert_material":
@@ -149,6 +162,8 @@ async def sampler_asset(
         raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
     if action == "create":
         need(name, "name", action)
+    if action == "import_resource":
+        need(path, "path", action)
     if action in ("delete", "import_images", "import_textures", "insert_filter",
                   "insert_material"):
         need(asset, "asset", action)
@@ -165,6 +180,11 @@ async def sampler_asset(
         arguments["asset"] = asset
     if action == "create":
         arguments["name"] = name
+        arguments["model"] = model
+        if preset is not None:
+            arguments["preset"] = preset
+    if action == "import_resource":
+        arguments["path"] = path
     if action in ("import_images", "import_textures"):
         arguments["images"] = images
     if action in ("import_images", "import_textures", "insert_filter", "insert_material"):
@@ -183,10 +203,51 @@ async def sampler_asset(
 
 
 @mcp.tool(annotations=WRITES)
+async def sampler_layer(
+    action: Literal["set_parameters", "apply_preset", "remove"],
+    project: ProjectPath,
+    asset: AssetName,
+    layer: Annotated[str, Field(min_length=1, max_length=128)],
+    position: Annotated[StrictInt | None, Field(ge=0, le=100000)] = None,
+    parameters: Annotated[dict[str, ParameterValue] | None, Field(max_length=64)] = None,
+    preset: Annotated[str | None, Field(max_length=128)] = None,
+    confirm: StrictBool = False,
+    timeout_seconds: Timeout = 600,
+) -> dict[str, Any]:
+    """Set layer parameters, apply a layer preset, or remove a layer."""
+    if action == "set_parameters":
+        if not isinstance(parameters, dict) or not parameters:
+            raise ValueError("parameters must be a non-empty object")
+        if preset is not None or confirm:
+            raise ValueError("preset and confirm are not valid for action=set_parameters")
+        arguments = {"project": project, "asset": asset, "layer": layer,
+                     "position": position, "parameters": parameters}
+    elif action == "apply_preset":
+        need(preset, "preset", action)
+        if parameters is not None or confirm:
+            raise ValueError("parameters and confirm are not valid for action=apply_preset")
+        arguments = {"project": project, "asset": asset, "layer": layer,
+                     "position": position, "preset": preset}
+    else:
+        if not confirm:
+            raise ValueError("confirm must be true for action=remove")
+        if parameters is not None or preset is not None:
+            raise ValueError("parameters and preset are not valid for action=remove")
+        arguments = {"project": project, "asset": asset, "layer": layer,
+                     "position": position}
+    operation = {"set_parameters": "set_parameters", "apply_preset": "apply_preset",
+                 "remove": "remove_layer"}[action]
+    return await operations.invoke(operation, {
+        key: value for key, value in arguments.items() if value is not None
+    }, timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
 async def sampler_export(
     project: ProjectPath,
     directory: NewDirectory,
     asset: AssetName | None = None,
+    target: TargetName | None = None,
     format: ExportFormat = "sbsar",
     preset: Annotated[str | None, Field(max_length=128)] = None,
     channels: Annotated[list[str] | None, Field(max_length=64)] = None,
@@ -197,14 +258,35 @@ async def sampler_export(
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
     """Preview or export an asset into a new workspace directory."""
+    if target is not None and format in ("sbsar", "sbs"):
+        format = "png"
     return await operations.invoke("export", {
-        "project": project, "directory": directory, "asset": asset, "format": format,
-        "preset": preset, "channels": channels, "resolution": resolution,
+        "project": project, "directory": directory, "asset": asset, "target": target,
+        "format": format, "preset": preset, "channels": channels, "resolution": resolution,
         "material_type": material_type, "subfolder": subfolder, "dry_run": dry_run,
     }, timeout_seconds)
 
 
+@mcp.tool(annotations=WRITES)
+async def sampler_build(
+    job: JobFile,
+    dry_run: StrictBool = False,
+    timeout_seconds: Timeout = 1800,
+) -> dict[str, Any]:
+    """Validate or run a batch job file and return its manifest or plan."""
+    root = operations.workspace()
+    if dry_run:
+        return {**batch.validate_job_file(job, root), "dry_run": True}
+    return await batch.run_job_file_async(job, root, timeout_seconds=timeout_seconds)
+
+
 def main():
+    import sys
+
+    if len(sys.argv) > 1:
+        from .cli import main as cli_main
+
+        raise SystemExit(cli_main())
     mcp.run(transport="stdio")
 
 

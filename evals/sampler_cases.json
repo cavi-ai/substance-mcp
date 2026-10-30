@@ -567,5 +567,319 @@
       "resolution": 32
     },
     "error": "validation"
+  },
+  {
+    "id": "asset-create-preset",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa",
+      "name": "Preset",
+      "model": "openpbr",
+      "preset": "base_material"
+    },
+    "equals": {
+      "asset/name": "Preset",
+      "asset/material_model": "openpbr"
+    }
+  },
+  {
+    "id": "asset-import-resource",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_resource",
+      "project": "projects/Rock.ssa",
+      "path": "assets/custom.sbsar"
+    },
+    "equals": {
+      "resources/0/name": "custom"
+    }
+  },
+  {
+    "id": "asset-import-resource-missing",
+    "tool": "sampler_asset",
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_resource",
+      "project": "projects/Rock.ssa",
+      "path": "assets/missing.sbsar"
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "build-validate",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/unreal.json",
+      "dry_run": true
+    },
+    "equals": {
+      "targets/0/target": "unreal"
+    },
+    "required": [
+      "directory",
+      "steps",
+      "inputs"
+    ],
+    "absent": [
+      "jobs/unreal"
+    ]
+  },
+  {
+    "id": "build-unreal",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/unreal.json"
+    },
+    "equals": {
+      "status": "success",
+      "project": "jobs/unreal/RockProject.ssa"
+    },
+    "files": [
+      "jobs/unreal/manifest.json",
+      "jobs/unreal/RockProject.ssa"
+    ],
+    "required": [
+      "outputs",
+      "steps"
+    ]
+  },
+  {
+    "id": "build-unity",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/unity.json"
+    },
+    "equals": {
+      "status": "success",
+      "project": "jobs/unity/RockProject.ssa"
+    },
+    "files": [
+      "jobs/unity/manifest.json"
+    ],
+    "required": [
+      "outputs"
+    ]
+  },
+  {
+    "id": "build-blender",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/blender.json"
+    },
+    "equals": {
+      "status": "success"
+    },
+    "files": [
+      "jobs/blender/manifest.json"
+    ]
+  },
+  {
+    "id": "build-generic",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/generic.json"
+    },
+    "equals": {
+      "status": "success"
+    },
+    "files": [
+      "jobs/generic/manifest.json"
+    ]
+  },
+  {
+    "id": "layer-set-parameters",
+    "tool": "sampler_layer",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "set_parameters",
+      "project": "jobs/unreal/RockProject.ssa",
+      "asset": "Rock",
+      "layer": "Tiling",
+      "parameters": {
+        "Tiling": 4
+      }
+    },
+    "equals": {
+      "parameters/tiling": 4.0
+    }
+  },
+  {
+    "id": "layer-apply-preset",
+    "tool": "sampler_layer",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "apply_preset",
+      "project": "jobs/unreal/RockProject.ssa",
+      "asset": "Rock",
+      "layer": "Tiling",
+      "preset": "Default"
+    },
+    "equals": {
+      "preset": "Default"
+    }
+  },
+  {
+    "id": "layer-remove-missing",
+    "tool": "sampler_layer",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "remove",
+      "project": "jobs/unreal/RockProject.ssa",
+      "asset": "Rock",
+      "layer": "Missing",
+      "confirm": true
+    },
+    "error": "not found"
+  },
+  {
+    "id": "layer-remove-no-confirm",
+    "tool": "sampler_layer",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "remove",
+      "project": "jobs/unreal/RockProject.ssa",
+      "asset": "Rock",
+      "layer": "Tiling"
+    },
+    "error": "confirm must be true"
+  },
+  {
+    "id": "layer-remove",
+    "tool": "sampler_layer",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "remove",
+      "project": "jobs/unreal/RockProject.ssa",
+      "asset": "Rock",
+      "layer": "Tiling",
+      "confirm": true
+    },
+    "equals": {
+      "removed": "Tiling"
+    }
+  },
+  {
+    "id": "build-invalid-path",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/invalid.json",
+      "dry_run": true
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "build-invalid-schema",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/bad-schema.json",
+      "dry_run": true
+    },
+    "error": "at least one export"
+  },
+  {
+    "id": "build-existing",
+    "tool": "sampler_build",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/existing.json"
+    },
+    "error": "already exists"
+  },
+  {
+    "id": "build-failure",
+    "tool": "sampler_build",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/fail.json"
+    },
+    "error": "fake export failure",
+    "absent": [
+      "jobs/fail"
+    ]
+  },
+  {
+    "id": "export-target-unreal",
+    "tool": "sampler_export",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "directory": "out_target",
+      "target": "unreal",
+      "dry_run": false
+    },
+    "required": [
+      "files/0"
+    ],
+    "files": [
+      "out_target/Rock_basecolor.png"
+    ]
   }
 ]

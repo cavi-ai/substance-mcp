@@ -10,10 +10,11 @@ import time
 from pathlib import Path
 
 from ..painter_operations import export_destination, input_file, remove_tree
-from . import runner
+from . import runner, targets
 
 PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
+RESOURCE_FILES = {".sbsar", ".sbs"}
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 NAME = re.compile(r"^[^/\\<>:\"|?*\x00-\x1f\x7f]{1,96}$")
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
@@ -29,6 +30,8 @@ IMPORT_OPTIONS = (
     "use_as_environment",
 )
 RESPONSE_LIMIT = 8 * 1024 * 1024
+_BATCH = {"active": False}
+_CURRENT = {"path": None}
 BLEND_MODES = (
     "blend_ao",
     "blend_color_id",
@@ -52,11 +55,14 @@ def main():
     data = json.loads(REQUEST.read_text(encoding="utf-8"))
     try:
         sys.path.insert(0, PACKAGE_ROOT)
-        from cavi_substance_mcp.sampler.operations import execute_in_sampler
+        from cavi_substance_mcp.sampler.operations import execute_in_sampler, execute_job
 
-        result = execute_in_sampler(
-            data["operation"], data.get("arguments") or {{}}, data["workspace"]
-        )
+        if "job" in data:
+            result = execute_job(data["job"], data["workspace"])
+        else:
+            result = execute_in_sampler(
+                data["operation"], data.get("arguments") or {{}}, data["workspace"]
+            )
     except BaseException as exc:
         RESPONSE.write_text(
             json.dumps({{"ok": False, "error": f"{{type(exc).__name__}}: {{exc}}"}}),
@@ -98,22 +104,12 @@ def status() -> dict:
     }
 
 
-async def invoke(operation: str, arguments: dict, timeout_seconds: float) -> dict:
-    root = workspace(create=True)
-    if runner.running():
-        raise RuntimeError(
-            "Sampler is already running. Save and quit it; Sampler runs startup scripts only "
-            "when no other instance is active."
-        )
+async def _run_payload(payload: dict, timeout_seconds: float) -> dict:
     job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
     request, response, script = job / "request.json", job / "response.json", job / "run.py"
     try:
         request.write_text(
-            json.dumps(
-                {"operation": operation, "arguments": arguments, "workspace": str(root)},
-                allow_nan=False,
-            ),
-            encoding="utf-8",
+            json.dumps(payload, allow_nan=False), encoding="utf-8"
         )
         script.write_text(
             DRIVER.format(
@@ -158,6 +154,59 @@ async def invoke(operation: str, arguments: dict, timeout_seconds: float) -> dic
         return reply
     finally:
         remove_tree(job)
+
+
+async def invoke(operation: str, arguments: dict, timeout_seconds: float) -> dict:
+    root = workspace(create=True)
+    if runner.running():
+        raise RuntimeError(
+            "Sampler is already running. Save and quit it; Sampler runs startup scripts only "
+            "when no other instance is active."
+        )
+    return await _run_payload(
+        {"operation": operation, "arguments": arguments, "workspace": str(root)},
+        timeout_seconds,
+    )
+
+
+async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None) -> dict:
+    if workspace_path is None:
+        root = workspace(create=True)
+    else:
+        root = Path(workspace_path).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+    return await _run_payload({"job": job, "workspace": str(root)}, timeout_seconds)
+
+
+def _wait_file(path: Path, timeout: float = 120) -> Path:
+    deadline = time.monotonic() + timeout
+    while not path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if not path.is_file():
+        raise RuntimeError(f"Sampler did not write {path.name}")
+    return path
+
+
+def _wait_changed(path: Path, before: int | None, timeout: float = 30) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.is_file() and path.stat().st_mtime_ns != before:
+            return
+        time.sleep(0.05)
+    raise RuntimeError("Sampler did not finish saving the project")
+
+
+def _wait_files(directory: Path, timeout: float = 120) -> list[Path]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        files = sorted(
+            item for item in directory.rglob("*")
+            if item.is_file() and not item.is_symlink() and item.stat().st_size
+        )
+        if files:
+            return files
+        time.sleep(0.1)
+    return []
 
 
 def _root(value) -> Path:
@@ -321,10 +370,104 @@ def _layer(layer) -> dict:
     }
 
 
+def _slug(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    return text or "asset"
+
+
+def _find_layer(asset, name: str, position: int | None = None):
+    layers = list(asset.get_layers())
+    matches = [item for item in layers if _get(item, "name") == name]
+    if position is not None:
+        matches = [item for item in matches if _get(item, "position") == position]
+    if not matches:
+        available = ", ".join(
+            f"{_get(item, 'name')}@{_get(item, 'position')}" for item in layers[:64]
+        ) or "none"
+        raise ValueError(f"Layer {name!r} not found; layers: {available}")
+    if len(matches) > 1:
+        raise ValueError(f"Layer {name!r} is ambiguous; provide position")
+    return matches[0]
+
+
+def _parameter(layer, identifier: str):
+    parameters = list(_get(layer, "parameters", []) or [])
+    matches = [item for item in parameters if _get(item, "identifier") == identifier]
+    if not matches:
+        matches = [item for item in parameters if _get(item, "label") == identifier]
+    if not matches:
+        available = ", ".join(
+            str(_get(item, "identifier")) for item in parameters[:64]
+        ) or "none"
+        raise ValueError(f"Parameter {identifier!r} not found; parameters: {available}")
+    if len(matches) > 1:
+        raise ValueError(f"Parameter {identifier!r} is ambiguous")
+    return matches[0]
+
+
+def _bounds(parameter, value) -> None:
+    low, high = _get(parameter, "min_value"), _get(parameter, "max_value")
+    values = value if isinstance(value, list) else [value]
+    for index, item in enumerate(values):
+        if not isinstance(item, (int, float)) or isinstance(item, bool):
+            continue
+        floor = low[index] if isinstance(low, (list, tuple)) and index < len(low) else low
+        ceiling = high[index] if isinstance(high, (list, tuple)) and index < len(high) else high
+        if isinstance(floor, (int, float)) and item < floor:
+            raise ValueError(f"{_get(parameter, 'identifier')} is below {floor}")
+        if isinstance(ceiling, (int, float)) and item > ceiling:
+            raise ValueError(f"{_get(parameter, 'identifier')} is above {ceiling}")
+
+
+def _parameter_value(parameter, value):
+    kind = _enum(_get(parameter, "type"))
+    identifier = _get(parameter, "identifier")
+    if kind == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"{identifier} expects a string")
+        return value
+    if kind == "image":
+        raise ValueError(f"{identifier} is an image parameter and is not supported")
+    match = re.fullmatch(r"(float|integer)([1-4])?", kind or "")
+    if not match:
+        raise ValueError(f"{identifier} has unsupported type {kind}")
+    size = int(match.group(2) or 1)
+    items = value if isinstance(value, list) else [value]
+    if len(items) != size:
+        raise ValueError(f"{identifier} expects {size} value(s)")
+    converted = []
+    for item in items:
+        if match.group(1) == "integer":
+            if isinstance(item, bool):
+                item = int(item)
+            if type(item) is not int:
+                raise ValueError(f"{identifier} expects integers")
+        else:
+            if isinstance(item, bool) or type(item) not in (int, float) or not math.isfinite(item):
+                raise ValueError(f"{identifier} expects finite numbers")
+            item = float(item)
+        converted.append(item)
+    _bounds(parameter, converted)
+    return converted[0] if size == 1 else converted
+
+
 def _open(ssa, root: Path, name: str | None) -> Path | None:
     if name is None:
         return None
+    candidate = (root / name).resolve()
+    if _CURRENT.get("path") == candidate:
+        return candidate
     path = _input(root, name, PROJECT)
+    try:
+        current = ssa.get_project_path()
+    except Exception:  # noqa: BLE001 -- optional native call
+        current = ""
+    if current:
+        try:
+            if Path(current).resolve() == path:
+                return path
+        except OSError:
+            pass
     opened = ssa.open_project(str(path))
     if not opened:
         raise RuntimeError(f"Sampler did not open {_rel(root, path)}")
@@ -353,8 +496,20 @@ def _find_asset(ssa, name: str | None):
 
 
 def _save(ssa) -> None:
+    if _BATCH["active"]:
+        return
+    try:
+        target = Path(ssa.get_project_path())
+    except Exception:  # noqa: BLE001 -- optional native call
+        target = None
+    before = target.stat().st_mtime_ns if target is not None and target.is_file() else None
     if not ssa.save_project():
         raise RuntimeError("Sampler did not save the project")
+    if target is not None:
+        if before is None:
+            _wait_file(target)
+        else:
+            _wait_changed(target, before)
 
 
 def _resource(ssa, kind: str, name: str, getter):
@@ -401,6 +556,7 @@ def _catalog(ssa, root, args) -> dict:
     ):
         names = {_resource_name(item) for item in getter(query)}
         result[key] = sorted(names)[:256]
+    result["export_targets"] = targets.catalog()
     return result
 
 
@@ -410,12 +566,12 @@ def _create_project(ssa, root, args) -> dict:
     project = directory / f"{name}.ssa"
     try:
         ssa.create_project(name, str(project))
+        if not list(ssa.get_project_assets()):
+            ssa.create_asset(name, ssa.MaterialModel.asm,
+                             ssa.PredefinedPreset.base_material, select_asset=True)
+        ssa.save_project_as(str(project))
+        _wait_file(project)
         ssa.wait_for_computation()
-        if not project.is_file():
-            produced = sorted(directory.glob("*.ssa"))
-            if not produced:
-                raise RuntimeError("Sampler created no project file")
-            project = produced[0]
     except BaseException:
         remove_tree(directory)
         raise
@@ -436,11 +592,7 @@ def _save_as(ssa, root, args) -> dict:
     target = directory / f"{name}.ssa"
     try:
         ssa.save_project_as(str(target))
-        if not target.is_file():
-            produced = sorted(directory.glob("*.ssa"))
-            if not produced:
-                raise RuntimeError("Sampler saved no project file")
-            target = produced[0]
+        _wait_file(target)
     except BaseException:
         remove_tree(directory)
         raise
@@ -456,7 +608,29 @@ def _create_asset(ssa, root, args) -> dict:
     path = _open(ssa, root, args.get("project"))
     if path is None:
         raise ValueError("project is required for action=create")
-    asset = ssa.create_asset(name, select_asset=True)
+    model_name = args.get("model") or "asm"
+    if model_name not in ("asm", "openpbr"):
+        raise ValueError("model must be asm or openpbr")
+    model = getattr(ssa.MaterialModel, model_name)
+    preset_name = args.get("preset")
+    if preset_name is not None:
+        preset_name = _resource_label(preset_name, "preset")
+    if preset_name is None:
+        asset = ssa.create_asset(name, model, ssa.PredefinedPreset.base_material,
+                                 select_asset=True)
+    else:
+        predefined = getattr(
+            ssa.PredefinedPreset,
+            preset_name.strip().lower().replace(" ", "_").replace("-", "_"),
+            None,
+        )
+        if predefined is not None:
+            asset = ssa.create_asset(name, model, predefined, select_asset=True)
+        else:
+            custom = ssa.get_preset(model, preset_name)
+            if custom is None:
+                raise ValueError(f"Preset {preset_name!r} not found")
+            asset = ssa.create_asset(name, custom, select_asset=True)
     ssa.wait_for_computation()
     _save(ssa)
     return {
@@ -590,10 +764,127 @@ def _insert_material(ssa, root, args) -> dict:
     }
 
 
+def _set_parameters(ssa, root, args) -> dict:
+    values = args.get("parameters")
+    if not isinstance(values, dict) or not values or len(values) > 64:
+        raise ValueError("parameters must be a non-empty object with at most 64 entries")
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=set_parameters")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    applied, changed = {}, False
+    for identifier, value in values.items():
+        parameter = _parameter(layer, identifier)
+        converted = _parameter_value(parameter, value)
+        if _jsonable(_get(parameter, "value")) != _jsonable(converted):
+            parameter.value = converted
+            changed = True
+        applied[_get(parameter, "identifier")] = _jsonable(converted)
+    ssa.wait_for_computation()
+    if changed:
+        _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "layer": _jsonable(_get(layer, "name")),
+        "parameters": applied,
+        "changed": changed,
+        "saved": changed,
+    }
+
+
+def _apply_preset(ssa, root, args) -> dict:
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    preset = _resource_label(args.get("preset"), "preset")
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=apply_preset")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    presets = _get(layer, "presets", []) or []
+    if preset not in presets:
+        raise ValueError(
+            f"Preset {preset!r} not found on layer; presets: {', '.join(map(str, presets[:64]))}"
+        )
+    changed = bool(layer.apply_preset(preset))
+    ssa.wait_for_computation()
+    if changed:
+        _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "layer": _layer(layer),
+        "preset": preset,
+        "changed": changed,
+        "saved": changed,
+    }
+
+
+def _remove_layer(ssa, root, args) -> dict:
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=remove_layer")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    index = _get(layer, "position")
+    if type(index) is not int:
+        layers = list(asset.get_layers())
+        index = next(
+            (number for number, item in enumerate(layers)
+             if _get(item, "name") == layer_name
+             and (position is None or _get(item, "position") == position)),
+            None,
+        )
+    if index is None:
+        raise RuntimeError(f"Sampler did not locate layer {layer_name!r}")
+    asset.remove_layer(index)
+    ssa.wait_for_computation()
+    _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "removed": layer_name,
+        "position": index,
+        "saved": True,
+    }
+
+
+def _import_resource(ssa, root, args) -> dict:
+    path = _input(root, args.get("path"), RESOURCE_FILES)
+    resources = ssa.import_resources(str(path))
+    return {
+        "path": _rel(root, path),
+        "resources": [
+            {"name": _resource_name(item), "label": _jsonable(_get(item, "label"))}
+            for item in resources
+        ],
+    }
+
+
 def _export(ssa, root, args) -> dict:
     fmt = args.get("format", "sbsar")
     if fmt not in FORMATS:
         raise ValueError(f"format must be one of: {', '.join(FORMATS)}")
+    target_name = args.get("target")
+    if target_name is not None:
+        targets.target(target_name)
+        if fmt in ("sbsar", "sbs"):
+            raise ValueError("target exports textures; use png, tga, tif or exr")
     material_type = args.get("material_type", "standard")
     if material_type not in MATERIAL_TYPES:
         raise ValueError(f"material_type must be one of: {', '.join(MATERIAL_TYPES)}")
@@ -610,6 +901,8 @@ def _export(ssa, root, args) -> dict:
     preset_name = args.get("preset")
     if preset_name is not None:
         preset_name = _resource_label(preset_name, "preset")
+    elif target_name is not None:
+        preset_name = targets.preset_for(target_name)
     asset_name = args.get("asset")
     asset_name = _name(asset_name, "asset") if asset_name else None
     project = _open(ssa, root, args.get("project"))
@@ -629,6 +922,7 @@ def _export(ssa, root, args) -> dict:
         "asset": _jsonable(_get(asset, "name")),
         "directory": directory_name,
         "format": fmt,
+        "target": target_name,
         "material_type": material_type,
         "preset": preset_name,
         "channels": channels,
@@ -656,10 +950,7 @@ def _export(ssa, root, args) -> dict:
             options["h_resolution"] = resolution
         asset.export_material(**options)
         controller.wait()
-        files = sorted(
-            item for item in destination.rglob("*")
-            if item.is_file() and not item.is_symlink() and item.stat().st_size
-        )
+        files = _wait_files(destination)
         if not files:
             raise RuntimeError("Sampler exported no files")
     except BaseException:
@@ -669,6 +960,161 @@ def _export(ssa, root, args) -> dict:
         **plan,
         "directory": _rel(root, destination),
         "files": [_rel(root, item) for item in files],
+    }
+
+
+def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dict:
+    base = (job_dir / step.get("directory", "exports")).resolve()
+    if base != job_dir and not base.is_relative_to(job_dir):
+        raise ValueError("export directory must stay inside the job directory")
+    base.mkdir(parents=True, exist_ok=True)
+    if step.get("asset"):
+        names = [step["asset"]]
+    elif step.get("assets"):
+        names = list(dict.fromkeys(step["assets"]))
+    elif step.get("all_assets"):
+        names = [
+            _get(item, "name") for item in ssa.get_project_assets() if item.get_layers()
+        ]
+    else:
+        raise ValueError("export needs asset, assets or all_assets")
+    if not names:
+        raise ValueError("export selected no assets")
+    target_name = step.get("target", "generic")
+    targets.target(target_name)
+    preset = step.get("preset")
+    if preset is None:
+        preset = targets.preset_for(target_name)
+    slugs = {}
+    for name in names:
+        slug = _slug(name)
+        if slug in slugs:
+            raise ValueError(f"Assets {slugs[slug]!r} and {name!r} share export directory {slug!r}")
+        slugs[slug] = name
+    rows = []
+    for name in names:
+        asset_dir = base / slugs[name]
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        for kind in step.get("outputs") or ["sbsar", "textures"]:
+            directory = _rel(root, asset_dir / kind)
+            if kind == "sbsar":
+                result = _export(ssa, root, {
+                    "project": project, "asset": name, "directory": directory,
+                    "format": "sbsar", "dry_run": False,
+                })
+            else:
+                values = {
+                    "project": project, "asset": name, "directory": directory,
+                    "format": step.get("texture_format", "png"), "target": target_name,
+                    "dry_run": False,
+                }
+                if preset is not None:
+                    values["preset"] = preset
+                if step.get("channels"):
+                    values["channels"] = step["channels"]
+                if step.get("resolution"):
+                    values["resolution"] = step["resolution"]
+                result = _export(ssa, root, values)
+            rows.append({"kind": kind, **result})
+    return {
+        "target": target_name, "preset": preset, "assets": names, "outputs": rows,
+    }
+
+
+def _summary(result):
+    if not isinstance(result, dict):
+        return result
+    compact = {key: value for key, value in result.items() if key not in ("assets", "layers")}
+    layer = result.get("layer")
+    if isinstance(layer, dict):
+        compact["layer"] = {
+            key: layer.get(key) for key in
+            ("name", "type", "position", "output_usages", "parameters")
+        }
+    asset = result.get("asset")
+    if isinstance(asset, dict):
+        compact["asset"] = {
+            key: asset.get(key) for key in
+            ("name", "type", "material_model", "resolution", "layer_count")
+        }
+    outputs = result.get("outputs")
+    if isinstance(outputs, list):
+        compact["outputs"] = [
+            {
+                "kind": item.get("kind"),
+                "asset": item.get("asset"),
+                "directory": item.get("directory"),
+                "files": item.get("files", []),
+            }
+            for item in outputs if isinstance(item, dict)
+        ]
+    return compact
+
+
+def execute_job(job: dict, workspace_path: str) -> dict:
+    import substance_sampler as ssa
+
+    if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
+        raise TypeError("Job must be an object with steps")
+    root = _root(workspace_path)
+    job_dir = (root / str(job.get("directory", ""))).resolve()
+    if job_dir == root or not job_dir.is_relative_to(root) or not job_dir.is_dir():
+        raise ValueError("job directory must be an existing directory inside the workspace")
+    project_spec = job.get("project") or {}
+    project_name = _name(project_spec.get("name"), "project name")
+    project_path = job_dir / f"{project_name}.ssa"
+    _BATCH["active"] = True
+    _CURRENT["path"] = project_path.resolve()
+    try:
+        ssa.create_project(project_name, str(project_path))
+        project = _rel(root, project_path)
+        created = project_spec.get("asset")
+        if created is not None:
+            _create_asset(ssa, root, {
+                "project": project, "name": created.get("name"),
+                "model": created.get("model", "asm"), "preset": created.get("preset"),
+            })
+        results = []
+        for index, step in enumerate(job["steps"]):
+            if not isinstance(step, dict):
+                raise TypeError(f"Step {index} must be an object")
+            action = step.get("action")
+            arguments = {key: value for key, value in step.items() if key != "action"}
+            arguments["project"] = project
+            if action == "import_images":
+                result = _import_images(ssa, root, arguments)
+            elif action == "import_textures":
+                result = _import_textures(ssa, root, arguments)
+            elif action == "create_asset":
+                result = _create_asset(ssa, root, arguments)
+            elif action == "insert_filter":
+                result = _insert_filter(ssa, root, arguments)
+            elif action == "insert_material":
+                result = _insert_material(ssa, root, arguments)
+            elif action == "set_parameters":
+                result = _set_parameters(ssa, root, arguments)
+            elif action == "apply_preset":
+                result = _apply_preset(ssa, root, arguments)
+            elif action == "remove_layer":
+                result = _remove_layer(ssa, root, arguments)
+            elif action == "import_resource":
+                result = _import_resource(ssa, root, arguments)
+            elif action == "export":
+                result = _job_export(ssa, root, job_dir, project, step)
+            else:
+                raise ValueError(f"Unknown step action: {action}")
+            results.append({"index": index, "action": action, "result": _summary(result)})
+        ssa.wait_for_computation()
+        ssa.save_project_as(str(project_path))
+        _wait_file(project_path)
+    finally:
+        _BATCH["active"] = False
+        _CURRENT["path"] = None
+    return {
+        "directory": _rel(root, job_dir),
+        "project": project,
+        "assets": [_asset(item) for item in ssa.get_project_assets()],
+        "steps": results,
     }
 
 
@@ -690,6 +1136,10 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str) -> 
         "import_textures": _import_textures,
         "insert_filter": _insert_filter,
         "insert_material": _insert_material,
+        "set_parameters": _set_parameters,
+        "apply_preset": _apply_preset,
+        "remove_layer": _remove_layer,
+        "import_resource": _import_resource,
         "export": _export,
     }
     try:

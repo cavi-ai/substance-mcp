@@ -93,6 +93,28 @@ def scripts_dir() -> Path:
 
 
 def running() -> bool | None:
+    target = _normal_path(installation().executable)
+    if target is None:
+        return False
+    if sys.platform.startswith("linux"):
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if _normal_path((entry / "exe").resolve()) == target:
+                    return True
+            except OSError:
+                continue
+        return False
+    if sys.platform == "win32":
+        try:
+            output = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {target.name}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, check=True, timeout=10,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return target.name.lower() in output.lower()
     if sys.platform != "darwin":
         return None
     try:
@@ -102,7 +124,6 @@ def running() -> bool | None:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
-    target = _normal_path(installation().executable)
     return any(_normal_path(Path(line.strip())) == target for line in output.splitlines())
 
 

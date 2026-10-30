@@ -203,8 +203,9 @@ Designer and, for baking, Blender.
 ## Sampler
 
 `cavi-substance-sampler-mcp` is a third stdio server. It launches Sampler with
-`--run-script-silent` for one script job per tool call. Sampler must be fully quit:
-a running instance receives the arguments but does not run startup scripts.
+`--run-script-silent` for one script per tool call or one complete batch job.
+Sampler must be fully quit: a running instance receives the arguments but does not
+run startup scripts.
 
 ```json
 {"mcpServers": {"substance-sampler": {"command": "cavi-substance-sampler-mcp"}}}
@@ -220,22 +221,84 @@ a running instance receives the arguments but does not run startup scripts.
 | Tool | Actions / inputs |
 | --- | --- |
 | `sampler_status` | executable, version, scripts folder, workspace, running state |
-| `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators and export presets |
+| `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators, export presets and engine targets |
 | `sampler_project` | `create` `name` + new `directory`; `save_as` `project` + new `directory` |
-| `sampler_asset` | `create`, `delete`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
-| `sampler_export` | `project`, new `directory`, `format`, optional `preset`, `channels`, `resolution`; `dry_run` defaults to true |
+| `sampler_asset` | `create` with `model`/`preset`, `delete`, `import_resource`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
+| `sampler_layer` | `set_parameters`, `apply_preset`, `remove`; removal needs `confirm=true` |
+| `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`; `dry_run` defaults to true |
+| `sampler_build` | workspace `.json` job file; `dry_run` validates without launching |
+
+### Engine targets
+
+`sampler_export` and batch jobs share one target registry. Only the target changes:
+
+| Target | Default preset | Texture output |
+| --- | --- | --- |
+| `unreal` | Unreal Engine 4 | basecolor, normal, packed ORM |
+| `unity` | Unity HD Render Pipeline Standard | basecolor, normal, mask map |
+| `blender` | Blender Cycles/Eevee | basecolor, normal, roughness, metallic |
+| `generic` | none | caller-selected channels |
+
+`preset` overrides a target default. When `target` is set on `sampler_export`, a
+sbsar format falls back to `png`.
+
+### Batch jobs
+
+A job runs every step in one Sampler launch and writes one atomic directory:
+
+```sh
+cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
+cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
+cavi-substance-sampler-mcp schema
+cavi-substance-sampler-mcp doctor
+```
+
+```json
+{
+  "schema": 1,
+  "directory": "jobs/photo-to-pbr",
+  "project": {"name": "Photo PBR",
+              "asset": {"name": "PhotoPBR", "model": "openpbr",
+                        "preset": "base_material"}},
+  "steps": [
+    {"action": "import_images", "asset": "PhotoPBR",
+     "images": ["photos/albedo.png"], "import_option": "image_to_material_B2M"},
+    {"action": "insert_filter", "asset": "PhotoPBR", "filter": "Tiling", "position": 1},
+    {"action": "set_parameters", "asset": "PhotoPBR", "layer": "Tiling",
+     "parameters": {"Threshold": 0.1}},
+    {"action": "export", "asset": "PhotoPBR", "target": "unreal", "resolution": 2048}
+  ]
+}
+```
+
+- Steps: `create_asset`, `import_resource`, `import_images`, `import_textures`,
+  `insert_filter`, `insert_material`, `set_parameters`, `apply_preset`,
+  `remove_layer`, `export`.
+- The job directory must be new. It contains `job.json`, the project, exports and
+  `manifest.json`; on failure it is removed unless `--keep-on-failure`.
+- The manifest records the app version, job and input hashes, step results, output
+  sizes and SHA-256 hashes.
+- Concurrent jobs serialize on a workspace lock. `--wait-for-app` waits for a user
+  Sampler window to close; otherwise the job fails fast.
+- Exit codes: `0` success, `2` invalid job, `3` app unavailable, `4` app running or
+  lock conflict, `5` operation failure, `6` timeout.
+
+See `examples/sampler/photo-to-pbr/` for a complete job.
 
 Limitations:
 
 - Sampler exposes startup scripts and plugins, not remote control.
 - No UI automation, environment assets, bakes, masks or project closing.
-- Export handles one asset at a time. `sbsar`, `sbs`, `png`, `jpg`, `tga`, `tif` and
-  `exr` are passed through to Sampler.
+- Image parameters are not settable by batch jobs; scalar, vector, integer and
+  string parameters are supported.
 - `sampler_status` reports `running: null` where process inspection is unavailable.
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.
-- The launch path is validated by simulated transport tests; native use requires a
-  licensed Sampler installation and a closed application.
+- Native project creation, layer parameter edits, preset application, layer removal,
+  image import, Unreal-target `.sbsar`/PNG export and manifest generation were checked
+  with Sampler 6.0.4 on macOS. Unity and Blender targets are covered by simulated
+  evals and still need native confirmation.
+- Native use requires a licensed Sampler installation and a closed application.
 
 ```sh
 npm run eval:sampler-protocol
