@@ -159,6 +159,7 @@ def main():
     (output / "outside").mkdir()
     (output / "outside/input.spp").write_bytes(b"outside-project")
     (output / "outside/input.obj").write_bytes(b"outside-mesh")
+    (output / "outside/external.png").write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82')
     (workspace / "escape").symlink_to(output / "outside", target_is_directory=True)
     for path, content in {
         "existing.blend": b"preserve-project",
@@ -168,6 +169,7 @@ def main():
         "input.obj": b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
     }.items():
         (workspace / path).write_bytes(content)
+    (workspace / "color.png").write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC'))
     (workspace / "existing").mkdir()
     env = dict(os.environ)
     env.update(

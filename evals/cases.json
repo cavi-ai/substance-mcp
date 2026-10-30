@@ -972,5 +972,52 @@
     ],
     "without_lease": true,
     "error": "lease_id"
+  },
+  {
+    "id": "texture-material-success",
+    "tool": "create_texture_fill",
+    "arguments": {
+      "texture_set": "Body",
+      "name": "EvalCeramic",
+      "base_color_texture": "color.png",
+      "roughness": 0.3,
+      "metallic": 0.1
+    },
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "equals": {
+      "/color_space": "sRGB",
+      "/base_color_texture/width": 1
+    },
+    "setup": "open"
+  },
+  {
+    "id": "texture-material-missing-arguments",
+    "tool": "create_texture_fill",
+    "arguments": {},
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "error": "validation"
+  },
+  {
+    "id": "texture-material-escape",
+    "tool": "create_texture_fill",
+    "arguments": {
+      "texture_set": "Body",
+      "name": "EscapeTexture",
+      "base_color_texture": "escape/external.png",
+      "roughness": 0.3,
+      "metallic": 0.1
+    },
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "error": "inside the workspace"
   }
 ]

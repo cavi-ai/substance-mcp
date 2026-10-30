@@ -53,6 +53,7 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 - `texture_sets`, `export_presets`: inspect the current project and predefined presets.
 - `layer_stack`: inspect root layers in a named Texture Set's default stack.
 - `create_fill_layer`: add a uniquely named root fill with sRGB base color, roughness, and metallic values from 0 to 1. Only those three channels are enabled. Existing layers are preserved; a failed source assignment removes the new layer.
+- `create_texture_fill`: embed a workspace PNG as sRGB Base Color with raw uniform roughness and metallic. Inputs are bounded to 16 MiB and 4096 pixels per side. Existing layers are preserved. A failed binding removes the new layer and reports any retained project resource; inspect before retrying. This does not bake maps or paint strokes.
 - `save_project_copy`: save a new copy without changing the open project's location.
 - `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied. Results include `omitted_files` for maps Painter planned but did not emit; check these against the asset's required channels.
 

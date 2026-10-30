@@ -15,6 +15,7 @@ OPERATIONS = frozenset(
         "texture_sets",
         "layer_stack",
         "create_fill_layer",
+        "create_texture_fill",
         "export_presets",
         "save_copy",
         "export_textures",

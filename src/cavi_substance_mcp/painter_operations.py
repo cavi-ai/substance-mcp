@@ -4,8 +4,11 @@ import hashlib
 import math
 import os
 import secrets
+import struct
+import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -112,6 +115,21 @@ def input_file(workspace: Path, name: str, extensions: set[str]) -> Path:
     return path
 
 
+def color_texture(workspace, name):
+    path = input_file(workspace, name, {".png"})
+    with path.open("rb") as stream:
+        data = stream.read(16 * 1024 * 1024 + 1)
+    if len(data) > 16 * 1024 * 1024:
+        raise ValueError("PNG exceeds 16 MiB")
+    if len(data) < 29 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[8:16] != b"\0\0\0\rIHDR":
+        raise ValueError("Expected a PNG color texture")
+    width, height = struct.unpack(">II", data[16:24])
+    if not 1 <= width <= 4096 or not 1 <= height <= 4096:
+        raise ValueError("PNG dimensions must be 1 to 4096 pixels")
+    return {"path": str(path), "width": width, "height": height,
+            "sha256": hashlib.sha256(data).hexdigest()}, data
+
+
 def execute(operation: str, params: dict, workspace: str) -> dict:
     import substance_painter
     from substance_painter import project
@@ -178,7 +196,7 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         return {"closed": not project.is_open()}
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
-    if operation in {"layer_stack", "create_fill_layer"}:
+    if operation in {"layer_stack", "create_fill_layer", "create_texture_fill"}:
         from substance_painter import colormanagement, layerstack
 
         stack = textureset.Stack.from_name(params["texture_set"])
@@ -191,7 +209,7 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
             raise ValueError("Layer name must be nonempty and at most 63 characters")
         if any(n.get_name() == name for n in nodes):
             raise ValueError("A root layer with this name already exists")
-        color = params["base_color"]
+        color = params.get("base_color", [1, 1, 1])
         if not isinstance(color, (list, tuple)) or len(color) != 3:
             raise ValueError("Base color must contain three values between 0 and 1")
         color = [unit_value(value) for value in color]
@@ -201,20 +219,56 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         active = {channels.BaseColor, channels.Roughness, channels.Metallic}
         if not active.issubset(stack.all_channels()):
             raise ValueError("Texture Set must have BaseColor, Roughness and Metallic channels")
-        position = layerstack.InsertPosition.from_textureset_stack(stack)
-        with layerstack.ScopedModification(f"Create fill layer {name}"):
-            node = layerstack.insert_fill(position)
-            try:
+        bitmap, imported = None, None
+        if operation == "create_texture_fill":
+            from substance_painter import resource
+
+            bitmap, payload = color_texture(root, params["base_color_texture"])
+            with tempfile.TemporaryDirectory(prefix=".cavi-bitmap-", dir=root) as folder:
+                snapshot = Path(folder) / "color.png"
+                snapshot.write_bytes(payload)
+                imported = resource.import_project_resource(
+                    str(snapshot), resource.Usage.TEXTURE, name="cavi_color_" + uuid.uuid4().hex
+                ).identifier()
+        node = None
+        try:
+            position = layerstack.InsertPosition.from_textureset_stack(stack)
+            with layerstack.ScopedModification(f"Create fill layer {name}"):
+                node = layerstack.insert_fill(position)
                 node.set_name(name)
                 node.active_channels = active
-                node.set_source(channels.BaseColor, colormanagement.Color(
-                    *color, colormanagement.GenericColorSpace.sRGB))
                 for channel, value in [(channels.Roughness, roughness), (channels.Metallic, metallic)]:
                     node.set_source(channel, colormanagement.Color(
                         value, value, value, colormanagement.GenericColorSpace.Raw))
-            except Exception:
-                layerstack.delete_node(node)
-                raise
+                # Bind color last: Painter 12.2 otherwise exposes the most recent
+                # scalar channel's data color spaces for the bitmap source.
+                if imported:
+                    source = node.set_source(channels.BaseColor, imported)
+                    source.set_color_space(colormanagement.GenericColorSpace.sRGB)
+                else:
+                    node.set_source(channels.BaseColor, colormanagement.Color(
+                        *color, colormanagement.GenericColorSpace.sRGB))
+        except Exception as exc:
+            cleanup = "no layer created"
+            if node is not None:
+                try:
+                    with layerstack.ScopedModification("Remove failed fill"):
+                        layerstack.delete_node(node)
+                    cleanup = "new layer removed"
+                except Exception as cleanup_error:  # noqa: BLE001 -- preserve native partial-effect details
+                    cleanup = f"layer cleanup failed ({cleanup_error}); inspect the layer stack"
+            if imported:
+                raise RuntimeError(
+                    f"Texture fill failed ({type(exc).__name__}: {exc}); {cleanup}. "
+                    "Imported resource remains: " + imported.url() + ". Inspect before retrying."
+                ) from exc
+            if node is not None and cleanup.startswith("layer cleanup failed"):
+                raise RuntimeError(f"Fill failed ({exc}); {cleanup}") from exc
+            raise
+        if bitmap:
+            return {"name": node.get_name(), "uid": node.uid(), "texture_set": params["texture_set"],
+                    "base_color_texture": bitmap, "resource_url": imported.url(), "color_space": "sRGB",
+                    "roughness": roughness, "metallic": metallic}
         return {
             "name": node.get_name(), "uid": node.uid(), "texture_set": params["texture_set"],
             "base_color": list(node.get_source(channels.BaseColor).get_color().value),
@@ -222,7 +276,9 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
             "metallic": node.get_source(channels.Metallic).get_color().value[0],
         }
     if operation == "texture_sets":
-        return {"texture_sets": [{"name": item.name()} for item in textureset.all_texture_sets()]}
+        return {"texture_sets": [{"name": item.name(), "channels": {
+            channel.name: value.format().name for channel, value in textureset.Stack.from_name(item.name()).all_channels().items()
+        }} for item in textureset.all_texture_sets()]}
     if operation == "export_presets":
         return {
             "presets": [
