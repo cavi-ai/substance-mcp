@@ -5,15 +5,15 @@
       "id": "discovery-budget",
       "probe": "discovery-cost",
       "access": "read_only",
-      "max_tools": 12,
-      "max_schema_bytes": 10000
+      "max_tools": 6,
+      "max_schema_bytes": 7000
     },
     {
       "id": "token-budget",
       "probe": "token-cost",
       "access": "read_only",
-      "max_total_tokens": 2500,
-      "max_tool_tokens": 700
+      "max_total_tokens": 1800,
+      "max_tool_tokens": 500
     },
     {
       "id": "catalog-pagination",
@@ -48,32 +48,40 @@
       "arguments": {}
     },
     {
-      "id": "texture_sets-schema-guessability",
+      "id": "inspect-texture_sets-schema-guessability",
       "probe": "schema-guessability",
-      "tool": "texture_sets",
+      "tool": "inspect",
       "access": "read_only",
-      "arguments": {}
+      "arguments": {
+        "action": "texture_sets"
+      }
     },
     {
-      "id": "texture_sets-output-schema",
+      "id": "inspect-texture_sets-output-schema",
       "probe": "output-schema",
-      "tool": "texture_sets",
+      "tool": "inspect",
       "access": "read_only",
-      "arguments": {}
+      "arguments": {
+        "action": "texture_sets"
+      }
     },
     {
-      "id": "export_presets-schema-guessability",
+      "id": "inspect-export_presets-schema-guessability",
       "probe": "schema-guessability",
-      "tool": "export_presets",
+      "tool": "inspect",
       "access": "read_only",
-      "arguments": {}
+      "arguments": {
+        "action": "export_presets"
+      }
     },
     {
-      "id": "export_presets-output-schema",
+      "id": "inspect-export_presets-output-schema",
       "probe": "output-schema",
-      "tool": "export_presets",
+      "tool": "inspect",
       "access": "read_only",
-      "arguments": {}
+      "arguments": {
+        "action": "export_presets"
+      }
     },
     {
       "id": "status-repeat",

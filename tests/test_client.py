@@ -90,7 +90,7 @@ class RemoteTests(unittest.TestCase):
                 captured.append((self.path, body))
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(json.dumps({"open": False}).encode())
+                self.wfile.write(json.dumps({"ok": True, "result": {"open": False}}).encode())
 
         server = HTTPServer(("127.0.0.1", 0), Handler)
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -110,24 +110,28 @@ class RemoteTests(unittest.TestCase):
             worker.join()
 
     def test_data_cannot_inject_python(self):
-        from cavi_substance_mcp.client import expression_for
+        import sys
+        from types import ModuleType
+
+        from cavi_substance_mcp.client import SOURCE_KEY, bootstrap_expression, full_expression
 
         malicious = "'); __import__('os').system('false'); #"
-        expression = expression_for("open_project", {"path": malicious}, Path("/tmp/work"))
         captured = []
-        import builtins
-
-        original = builtins.exec
-
-        def run_source(source, namespace):
-            namespace["execute"] = lambda op, params, workspace: captured.append(params) or {}
-
-        builtins.exec = run_source
+        module = ModuleType("substance_painter")
+        module._cavi_mcp_payloads = {
+            SOURCE_KEY: lambda op, params, workspace: captured.append(params) or {}
+        }
+        previous = sys.modules.get("substance_painter")
+        sys.modules["substance_painter"] = module
         try:
-            eval(expression, {"__builtins__": {"__import__": __import__}})
+            eval(bootstrap_expression("open_project", {"path": malicious}, Path("/tmp/work")))
         finally:
-            builtins.exec = original
+            if previous is None:
+                sys.modules.pop("substance_painter")
+            else:
+                sys.modules["substance_painter"] = previous
         self.assertEqual(captured, [{"path": malicious}])
+        compile(full_expression("open_project", {"path": malicious}, Path("/tmp/w")), "x", "eval")
 
     def test_export_folder_must_be_new_and_inside_workspace(self):
         from cavi_substance_mcp.painter_operations import export_destination

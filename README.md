@@ -4,7 +4,7 @@ Typed MCP tools for Adobe Substance 3D Painter project inspection and texture ex
 
 ## Application support
 
-This version targets Painter's documented Python remote scripting API. It supports project operations, root-layer inspection, uniform fill-layer creation, and texture export. It does not control Substance Designer or provide brush strokes, baking, masks, or smart-material authoring tools.
+This version targets Painter's documented Python remote scripting API. It supports project operations, root-layer inspection, uniform and bitmap fill layers, and texture export. It does not control Substance Designer or provide brush strokes, baking, masks, or smart-material authoring tools.
 
 Native project creation, texture-set and preset inspection, uniform fill creation, texture export, save-copy/reopen, and guarded closing have been checked with Painter 12.2.0 on macOS. Exported color, roughness, and metallic pixel values were checked against the fill inputs. Automated transport and path tests use an explicitly simulated API and do not establish compatibility with other Painter versions.
 
@@ -42,24 +42,36 @@ Register the stdio server in your MCP client:
 {"mcpServers":{"substance":{"command":"/path/to/substance-mcp/.venv/bin/cavi-substance-mcp"}}}
 ```
 
-Call `painter_status` first. Project opening and creation are asynchronous: inspect status before further operations.
+Call `painter_status` first. After `open`/`create`, call `project` with `action="wait_ready"` before editing.
 
 ## Tools
 
-- `session_control`: inspect, claim, renew, or release application edit ownership.
-- `painter_status`: connectivity and project state.
-- `open_project`, `create_project`: open a workspace project or import a workspace mesh, only when no project is already open.
-- `close_project`: close only the project matching the inspected file path. Unsaved changes are refused unless `discard_unsaved=true` is explicit; use `expected_file=null` for an unsaved project.
-- `texture_sets`, `export_presets`: inspect the current project and predefined presets.
-- `layer_stack`: inspect root layers in a named Texture Set's default stack. Split fill layers include bound bitmap resource URLs, color spaces, and raw uniform color/scalar values.
-- `create_fill_layer`: add a uniquely named root fill with sRGB base color, roughness, and metallic values from 0 to 1. Only those three channels are enabled. Existing layers are preserved; a failed source assignment removes the new layer.
-- `create_texture_fill`: embed a workspace PNG as sRGB Base Color with raw uniform roughness and metallic. Inputs are bounded to 16 MiB and 4096 pixels per side. Existing layers are preserved. A failed binding removes the new layer and reports any retained project resource; inspect before retrying. This does not bake maps or paint strokes.
-- `save_project_copy`: save a new copy without changing the open project's location.
-- `export_textures`: preview output paths by default; export only when `dry_run=false` is explicitly supplied. Results include `omitted_files` for maps Painter planned but did not emit; check these against the asset's required channels.
+Six tools. Mutations need `lease_id` from `session_control` claim.
+
+| Tool | Actions | Parameters |
+|---|---|---|
+| `painter_status` | — | none; returns `connected`, `open`, `file`, `needs_saving`, `busy`, `edition_state`, `workspace`, `workspace_exists` |
+| `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
+| `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready` | `path` (open), `mesh_path`, `normal_map_format` (`OpenGL`/`DirectX`), `default_texture_resolution` (256–8192, power of two) (create), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready, 1–300, default 60), `lease_id` |
+| `inspect` | `texture_sets`, `layer_stack`, `export_presets` | `texture_set` (layer_stack) |
+| `layer_edit` | `fill`, `texture_fill` | `texture_set`, `name`, `base_color` (fill), `base_color_texture` (texture_fill), `roughness`, `metallic`, `lease_id` |
+| `export_textures` | — | `directory`, `preset`, `dry_run` (default true), `lease_id` |
+
+- `open`/`create` run only with no project open; loading is asynchronous.
+- `close` targets the inspected `expected_file` (null for unsaved) and refuses unsaved edits unless `discard_unsaved=true`.
+- `save` overwrites the project's existing workspace file; never-saved or out-of-workspace projects are refused.
+- `save_copy` writes `project.spp` into a new directory without moving the open project.
+- `wait_ready` polls status until `open && !busy && edition_state` or the timeout; read-only.
+- `texture_sets` includes each set's resolution and channel formats; `layer_stack` includes split-fill bitmap URLs, color spaces and uniform values.
+- `fill` adds a uniquely named root fill (sRGB color, raw roughness/metallic); a failed assignment removes the new layer.
+- `texture_fill` embeds a workspace PNG (≤16 MiB, ≤4096 px) as sRGB base color. On failure the layer and temporary `.cavi-bitmap-*` files are removed; the imported resource stays (Painter has no removal API) and anything not removed is reported.
+- `export_textures` previews by default; only `dry_run=false` writes. `omitted_files` lists planned maps Painter did not emit.
+
+Timeouts: 60 s per call, 600 s for save, save_copy and export. A timeout means the outcome is unknown; check `painter_status` before retrying. A refused connection means Painter is not reachable.
 
 `CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/CaviGameArt`. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. Use the same workspace for your Blender exports to pass meshes between applications.
 
-`CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript.
+`CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript. The operation payload is sent once and cached in Painter by SHA-256; later calls send a small bootstrap.
 
 There are no automatic retries, external uploads, telemetry or account logins. Application launch is explicit through the CLI. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
 
@@ -72,14 +84,16 @@ returned `project_id` with `action="claim"`, an `owner` label, and that exact
 mutations. Read-only inspection remains available without ownership.
 
 Claims last 30–3600 seconds, default 600. Renew with `action="renew"` and release
-with `action="release"`, both supplying the same `lease_id`. Release and expiry
+with `action="release"`, both supplying the same `lease_id`. `action="break"` with
+`expected_project` clears a lease unused for at least 300 seconds and returns `previous_owner`. Release and expiry
 never save, close, or discard a project. Conflicting claims and missing, foreign,
 expired, or project-mismatched edit tokens are refused. An owned operation holds
 its exclusive section until it finishes. A successful owned save or project
 transition updates the claim's binding.
 
 Claims coordinate participating MCP clients, not direct human edits or arbitrary
-scripts. Upgrade every participating client. Keep lease IDs out of asset receipts
+scripts. Upgrade every participating client. The lease object is versioned; a newer
+client migrates an older client's lease state instead of reusing its code. Keep lease IDs out of asset receipts
 and handoff documents; a new agent inspects and claims its own session.
 
 Project identity includes Painter's process, project UUID, and file path, so
@@ -108,6 +122,6 @@ npm run eval:core
 
 The evaluator is pinned to `@cavi-ai/mcp-eval` 0.8.0. Both commands run in CI and retain JSON reports under `.tmp/evals/`. The protocol manifest checks discovery size, catalog token budgets, pagination, surface listing, and protocol negotiation. The core manifest adds schema, structured output, repeated reads, and contention checks.
 
-The corpus exercises all ten tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. Layer cases cover duplicate names, bounded colors, assignment rollback, and project readiness. No-argument read tools have no tool-specific invalid inputs.
+The corpus exercises all six tools through real stdio MCP calls and the real loopback transport. The core adapter explicitly simulates Painter's Python API while executing the production operation source. Cases check returned fields, project replacement refusal, busy/closed state, input and output containment, symlink escapes, existing-directory refusal, copy preservation, dry-run defaults, strict export flags, invalid presets, partial failures, and empty texture output. Layer cases cover duplicate names, bounded colors, assignment rollback, and project readiness. No-argument read tools have no tool-specific invalid inputs.
 
 Simulated reports identify their evidence mode and cannot establish installation, API, licensing, or application compatibility. Protocol checks use an isolated unavailable endpoint and never contact a user's Painter session. Native export checks establish file generation, not painted-asset quality or destination-game material compatibility. MCP Eval is deterministic and does not invoke a model; no model-based quality claim is made. Designer remains unsupported.

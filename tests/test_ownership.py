@@ -14,7 +14,9 @@ class OwnershipTests(unittest.TestCase):
             simulator.setup("dirty-unsaved")
             namespace = {}
             exec(Path(painter_operations.__file__).read_text(), namespace)  # noqa: S102 -- trusted payload in simulator
-            result = namespace["execute"]("status", {}, folder)
+            reply = namespace["execute"]("status", {}, folder)
+            self.assertTrue(reply["ok"])
+            result = reply["result"]
             self.assertTrue(result["connected"])
             self.assertTrue(result["needs_saving"])
             self.assertTrue(result["open"])

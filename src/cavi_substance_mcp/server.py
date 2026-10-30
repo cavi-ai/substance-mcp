@@ -11,202 +11,151 @@ from .client import PainterClient
 mcp = FastMCP(
     "cavi-substance-mcp",
     instructions=(
-        "Painter must be installed, licensed, and running with remote scripting enabled. "
-        "If disconnected, use cavi-substance-mcp runtime start on macOS to launch Painter. "
-        "Inspect status first; claim session_control ownership and pass lease_id on edits. Export dry runs are the default; use a new output directory. "
-        "Designer is not supported. Never retry uncertain mutations automatically."
+        "Requires licensed Painter with remote scripting; `cavi-substance-mcp runtime start` "
+        "launches it on macOS. Call painter_status first. Claim session_control and pass "
+        "lease_id on edits. After open/create, use project wait_ready. Exports default to "
+        "dry runs into a new directory. Never retry uncertain mutations automatically."
     ),
 )
-MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
-CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
-PathInput = Annotated[
-    str, Field(description="Existing input file relative to the configured workspace.")
-]
-NewDirectory = Annotated[
-    str,
-    Field(description="New directory relative to the workspace; existing directories are refused."),
-]
-
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
+MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+LeaseId = Annotated[str | None, Field(max_length=128, description="From session_control claim.")]
+WorkspaceFile = Annotated[str | None, Field(description="Existing file relative to the workspace.")]
+NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
 UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
+def need(value, name, action):
+    if value is None:
+        raise ValueError(f"{name} is required for action={action}")
+    return value
+
+
 @mcp.tool(annotations=READ_ONLY)
 def painter_status() -> dict[str, Any]:
-    """Check connectivity, project state and output workspace without changing a project."""
+    """Connectivity, project, busy and edition state; never changes anything."""
     try:
         return PainterClient().call("status")
-    except ConnectionError as exc:
+    except (ConnectionError, TimeoutError) as exc:
         return {"connected": False, "reason": str(exc)}
 
 
 @mcp.tool(annotations=MUTATING)
-def open_project(
-    path: PathInput,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
-    ] = None,
+def session_control(
+    action: Literal["inspect", "claim", "renew", "release", "break"],
+    owner: Annotated[str | None, Field(max_length=128)] = None,
+    expected_project: Annotated[str | None, Field(description="project_id from inspect.")] = None,
+    lease_id: LeaseId = None,
+    ttl_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 600,
 ) -> dict[str, Any]:
-    """Open a workspace .spp only if Painter currently has no project open."""
-    return PainterClient().call("open_project", {"path": path}, lease_id=lease_id)
-
-
-@mcp.tool(annotations=MUTATING)
-def create_project(
-    mesh_path: PathInput,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
-    ] = None,
-) -> dict[str, Any]:
-    """Create a project from a workspace mesh only if no project is already open."""
-    return PainterClient().call("create_project", {"path": mesh_path}, lease_id=lease_id)
-
-
-@mcp.tool(annotations=READ_ONLY)
-def texture_sets() -> dict[str, Any]:
-    """List the current project's texture sets."""
-    return PainterClient().call("texture_sets")
-
-
-@mcp.tool(annotations=READ_ONLY)
-def layer_stack(texture_set: TextureSetName) -> dict[str, Any]:
-    """Inspect root layer names, IDs and types in the named Texture Set's default stack."""
-    return PainterClient().call("layer_stack", {"texture_set": texture_set})
-
-
-@mcp.tool(annotations=MUTATING)
-def create_fill_layer(
-    texture_set: TextureSetName,
-    name: Annotated[str, Field(min_length=1, max_length=63)],
-    base_color: Annotated[
-        tuple[UnitValue, UnitValue, UnitValue], Field(description="sRGB RGB, 0–1.")
-    ],
-    roughness: UnitValue = 0.5,
-    metallic: UnitValue = 0.0,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
-    ] = None,
-) -> dict[str, Any]:
-    """Add a named root fill for color, roughness and metallic; refuse duplicate names."""
-    return PainterClient().call(
-        "create_fill_layer",
-        {
-            "texture_set": texture_set,
-            "name": name,
-            "base_color": base_color,
-            "roughness": roughness,
-            "metallic": metallic,
-        },
-        lease_id=lease_id,
-    )
-
-
-@mcp.tool(annotations=MUTATING)
-def create_texture_fill(
-    texture_set: TextureSetName,
-    name: Annotated[str, Field(min_length=1, max_length=63)],
-    base_color_texture: PathInput,
-    roughness: UnitValue = .5,
-    metallic: UnitValue = 0,
-    lease_id: str | None = None,
-) -> dict[str, Any]:
-    """Create an sRGB bitmap color fill with raw roughness and metallic; embed the PNG in the project."""
-    return PainterClient().call("create_texture_fill", {
-        "texture_set": texture_set, "name": name, "base_color_texture": base_color_texture,
-        "roughness": roughness, "metallic": metallic,
-    }, lease_id=lease_id)
+    """Edit lease. claim needs owner+expected_project; renew/release need lease_id.
+    break needs expected_project and a lease idle >= 300 s. Nothing is saved or closed."""
+    return PainterClient().call("session_control", {
+        "action": action, "owner": owner, "expected_project": expected_project,
+        "lease_id": lease_id, "ttl_seconds": ttl_seconds,
+    })
 
 
 @mcp.tool(annotations=CLOSING)
-def close_project(
+def project(
+    action: Literal["open", "create", "close", "save", "save_copy", "wait_ready"],
+    path: Annotated[WorkspaceFile, Field(description="open: workspace .spp.")] = None,
+    mesh_path: Annotated[WorkspaceFile, Field(description="create: workspace mesh.")] = None,
+    normal_map_format: Literal["OpenGL", "DirectX"] = "OpenGL",
+    default_texture_resolution: Literal[256, 512, 1024, 2048, 4096, 8192] | None = None,
     expected_file: Annotated[
-        str | None,
-        Field(description="Exact file from painter_status; null for an unsaved project."),
-    ],
-    discard_unsaved: Annotated[
-        StrictBool,
-        Field(description="Explicit true permits discarding the inspected project's edits."),
-    ] = False,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
+        str | None, Field(description="close: file from painter_status; null if unsaved.")
     ] = None,
+    discard_unsaved: StrictBool = False,
+    directory: Annotated[str | None, Field(description="save_copy: new workspace directory.")] = None,
+    timeout_seconds: Annotated[StrictInt, Field(ge=1, le=300)] = 60,
+    lease_id: LeaseId = None,
 ) -> dict[str, Any]:
-    """Close the inspected project; refuse unsaved edits unless explicitly discarded."""
-    return PainterClient().call(
-        "close_project",
-        {"expected_file": expected_file, "discard_unsaved": discard_unsaved},
-        lease_id=lease_id,
+    """open/create only with no project open; close refuses unsaved edits unless
+    discard_unsaved; save overwrites the workspace file; wait_ready polls until editable."""
+    client = PainterClient()
+    if action == "wait_ready":
+        return client.wait_ready(timeout_seconds)
+    if action == "open":
+        return client.call("open_project", {"path": need(path, "path", action)}, lease_id=lease_id)
+    if action == "create":
+        return client.call("create_project", {
+            "path": need(mesh_path, "mesh_path", action),
+            "normal_map_format": normal_map_format,
+            "default_texture_resolution": default_texture_resolution,
+        }, lease_id=lease_id)
+    if action == "close":
+        return client.call("close_project", {
+            "expected_file": expected_file, "discard_unsaved": discard_unsaved,
+        }, lease_id=lease_id)
+    if action == "save":
+        return client.call("save", lease_id=lease_id)
+    return client.call(
+        "save_copy", {"directory": need(directory, "directory", action)}, lease_id=lease_id
     )
 
 
 @mcp.tool(annotations=READ_ONLY)
-def export_presets() -> dict[str, Any]:
-    """List Painter's predefined texture export presets and their URLs."""
-    return PainterClient().call("export_presets")
+def inspect(
+    action: Literal["texture_sets", "layer_stack", "export_presets"],
+    texture_set: Annotated[TextureSetName | None, Field(description="layer_stack only.")] = None,
+) -> dict[str, Any]:
+    """List texture sets with channels and resolution, a set's root layers, or export presets."""
+    if action == "layer_stack":
+        return PainterClient().call(
+            "layer_stack", {"texture_set": need(texture_set, "texture_set", action)}
+        )
+    return PainterClient().call(action)
 
 
 @mcp.tool(annotations=MUTATING)
-def save_project_copy(
-    directory: NewDirectory,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
+def layer_edit(
+    action: Literal["fill", "texture_fill"],
+    texture_set: TextureSetName,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
+    base_color: Annotated[
+        tuple[UnitValue, UnitValue, UnitValue] | None, Field(description="fill: sRGB 0-1.")
     ] = None,
+    base_color_texture: Annotated[
+        WorkspaceFile, Field(description="texture_fill: workspace PNG, embedded as sRGB.")
+    ] = None,
+    roughness: UnitValue = 0.5,
+    metallic: UnitValue = 0.0,
+    lease_id: LeaseId = None,
 ) -> dict[str, Any]:
-    """Save project.spp in a new workspace directory, preserving the open project's location."""
-    return PainterClient().call("save_copy", {"directory": directory}, lease_id=lease_id)
+    """Add a uniquely named root fill layer; failures remove the new layer."""
+    if action == "fill":
+        if base_color_texture is not None:
+            raise ValueError("base_color_texture is only valid for action=texture_fill")
+        operation = "create_fill_layer"
+        extra = {"base_color": need(base_color, "base_color", action)}
+    else:
+        if base_color is not None:
+            raise ValueError("base_color is only valid for action=fill")
+        operation = "create_texture_fill"
+        extra = {"base_color_texture": need(base_color_texture, "base_color_texture", action)}
+    return PainterClient().call(operation, {
+        "texture_set": texture_set, "name": name, "roughness": roughness,
+        "metallic": metallic, **extra,
+    }, lease_id=lease_id)
 
 
 @mcp.tool(annotations=MUTATING)
 def export_textures(
     directory: NewDirectory,
-    preset: Annotated[
-        str, Field(description="Exact predefined preset URL returned by export_presets.")
-    ],
-    dry_run: Annotated[
-        StrictBool,
-        Field(
-            description="True previews paths without writing; only explicit false exports textures."
-        ),
-    ] = True,
-    lease_id: Annotated[
-        str | None, Field(description="Edit lease from session_control claim.")
-    ] = None,
+    preset: Annotated[str, Field(description="Preset URL from inspect export_presets.")],
+    dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
+    lease_id: LeaseId = None,
 ) -> dict[str, Any]:
-    """Preview or export textures to a new workspace directory using a listed preset URL."""
+    """Preview or export all texture sets into a new workspace directory."""
     return PainterClient().call(
         "export_textures",
         {"directory": directory, "preset": preset, "dry_run": dry_run},
         lease_id=lease_id,
-    )
-
-
-@mcp.tool(annotations=MUTATING)
-def session_control(
-    action: Literal["inspect", "claim", "renew", "release"],
-    owner: Annotated[str | None, Field(max_length=128)] = None,
-    expected_project: Annotated[
-        str | None, Field(description="Exact project_id from inspect.")
-    ] = None,
-    lease_id: Annotated[str | None, Field(max_length=128)] = None,
-    ttl_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 600,
-) -> dict[str, Any]:
-    """Inspect ownership or claim, renew or release an application edit lease.
-
-    Claim returns a private lease_id. Supply it on every edit. Expiry never closes
-    a project. Release does not save or discard changes.
-    """
-    return PainterClient().call(
-        "session_control",
-        {
-            "action": action,
-            "owner": owner,
-            "expected_project": expected_project,
-            "lease_id": lease_id,
-            "ttl_seconds": ttl_seconds,
-        },
     )
 
 
