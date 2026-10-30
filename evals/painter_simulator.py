@@ -21,6 +21,7 @@ class PainterSimulator:
         self.state = "open"
         self.opened = True
         self.project_id = "simulated-project-A"
+        self.loading = 0
 
     def setup(self, state):
         self.state = state
@@ -29,7 +30,7 @@ class PainterSimulator:
         self.resources = []
         self.modifying = False
         self.last_channel = None
-
+        self.loading = 3 if state == "loading" else 0
 
     def __enter__(self):
         module = ModuleType("substance_painter")
@@ -65,6 +66,10 @@ class PainterSimulator:
 
         def import_resource(path, usage, name=None):
             assert usage == "texture" and Path(path).is_file()
+            if self.state == "import-failure":
+                raise RuntimeError("simulated import failure")
+            if self.state == "locked-bitmap-failure":
+                Path(path).parent.chmod(0o500)
             identifier = Identifier(name)
             self.resources.append(identifier)
             return SimpleNamespace(identifier=lambda: identifier)
@@ -92,7 +97,8 @@ class PainterSimulator:
                 self_simulator.last_channel = channel
                 if self_simulator.state == "fill-failure" and channel.name == "Roughness":
                     raise RuntimeError("simulated source assignment failure")
-                if self_simulator.state == "bitmap-failure" and isinstance(color, Identifier):
+                if (self_simulator.state in {"bitmap-failure", "locked-bitmap-failure"}
+                        and isinstance(color, Identifier)):
                     raise RuntimeError("simulated bitmap assignment failure")
                 source = Bitmap(color) if isinstance(color, Identifier) else color
                 self.sources[channel] = source
@@ -157,23 +163,58 @@ class PainterSimulator:
         def close_project():
             self.opened = False
 
+        def create_project(mesh_file_path, settings):
+            assert isinstance(settings, Settings)
+            self.created_settings = settings
+            open_project()
+
         def save_copy(path, mode):
             Path(path).write_bytes(b"simulated-spp")
+
+        def file_path():
+            if self.state == "dirty-unsaved":
+                return None
+            if self.state.startswith("workspace"):
+                return str(self.workspace.resolve() / "input.spp")
+            return "simulated-original.spp"
+
+        def save():
+            assert self.state != "busy" and file_path()
+            Path(file_path()).write_bytes(b"simulated-saved-spp")
+            if self.state == "workspace-dirty":
+                self.state = "workspace-saved"
+
+        def busy():
+            if self.loading:
+                self.loading -= 1
+                return True
+            return self.state == "busy"
+
+        class Settings:
+            def __init__(self, normal_map_format=None, default_texture_resolution=None):
+                self.normal_map_format = normal_map_format
+                self.default_texture_resolution = default_texture_resolution
 
         module.project = SimpleNamespace(
             is_open=lambda: self.opened,
             get_uuid=lambda: self.project_id,
-            is_busy=lambda: self.state == "busy",
-            file_path=lambda: None if self.state == "dirty-unsaved" else "simulated-original.spp",
-            needs_saving=lambda: self.state in {"dirty", "dirty-unsaved"},
+            is_busy=busy,
+            is_in_edition_state=lambda: self.opened and not self.loading,
+            file_path=file_path,
+            needs_saving=lambda: self.state in {"dirty", "dirty-unsaved", "workspace-dirty"},
             open=open_project,
-            create=open_project,
+            create=create_project,
             close=close_project,
+            save=save,
             save_as_copy=save_copy,
+            Settings=Settings,
+            NormalMapFormat=SimpleNamespace(OpenGL="OpenGL", DirectX="DirectX"),
             ProjectSaveMode=SimpleNamespace(Full="Full"),
         )
         module.textureset = SimpleNamespace(
-            all_texture_sets=lambda: [SimpleNamespace(name=lambda: "Body")],
+            all_texture_sets=lambda: [SimpleNamespace(
+                name=lambda: "Body",
+                get_resolution=lambda: SimpleNamespace(width=2048, height=2048))],
             Stack=SimpleNamespace(from_name=from_name),
             ChannelType=channels,
         )
@@ -229,10 +270,11 @@ class PainterSimulator:
                 assert self.path == "/run.json"
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 expression = base64.b64decode(request["python"], validate=True).decode()
+                self.server.requests.append(len(expression))
                 try:
                     result = eval(expression)
                 except Exception as exc:  # noqa: BLE001 -- mirror the remote scripting error boundary
-                    result = {"error": f"{type(exc).__name__}: {exc}"}
+                    result = {"error": {"description": f"{type(exc).__name__}: {exc}"}}
                 body = json.dumps(result).encode()
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
@@ -240,6 +282,7 @@ class PainterSimulator:
                 self.wfile.write(body)
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.server.requests = self.requests = []
         self.port = self.server.server_port
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

@@ -1,10 +1,6 @@
-"""Expose the self-contained Painter payload's ownership controller.
+"""Expose the self-contained Painter payload's ownership controller."""
 
-The package guard also keeps this file harmless when an already-running MCP
-client still prepends it to the remote payload.
-"""
-
-__all__ = ["Lease", "time"]
+__all__ = ["BREAK_IDLE_SECONDS", "LEASE_ATTR", "Lease", "shared_lease", "time"]
 
 if globals().get("__package__"):
-    from .painter_operations import Lease, time
+    from .painter_operations import BREAK_IDLE_SECONDS, LEASE_ATTR, Lease, shared_lease, time

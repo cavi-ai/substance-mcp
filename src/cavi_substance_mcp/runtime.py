@@ -12,7 +12,7 @@ from .client import PainterClient
 def runtime_status():
     try:
         return PainterClient().call("status")
-    except ConnectionError as exc:
+    except (ConnectionError, TimeoutError) as exc:
         return {"connected": False, "reason": str(exc)}
 
 
