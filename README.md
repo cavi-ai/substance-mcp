@@ -16,7 +16,25 @@ Requires Python 3.11+, uv, and a separately installed and licensed Substance 3D 
 uv sync --locked
 ```
 
-Launch Painter with `--enable-remote-scripting`. Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
+Launch the installed Painter application with remote scripting enabled:
+
+```sh
+cavi-substance-mcp runtime start
+cavi-substance-mcp runtime status
+```
+
+Automatic launch currently supports macOS. It finds the standard Adobe installation,
+or the app bundle selected by `CAVI_PAINTER_APP`, and supplies `--enable-remote-scripting`.
+A connected session is reused. An open app without a reachable scripting connection
+is left untouched; save and quit that app before launching it again. The launcher does
+not install software, sign in, accept terms, or dismiss license prompts.
+
+`start` reports that launch was requested; it does not claim Painter is ready. Require
+`connected=true` from `status` or the actual `painter_status` MCP tool before project work.
+Commands print JSON and exit nonzero on failure. Running `cavi-substance-mcp` without
+arguments continues to serve MCP over stdio.
+
+Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
 
 Register the stdio server in your MCP client:
 
@@ -38,7 +56,7 @@ Call `painter_status` first. Project opening and creation are asynchronous: insp
 
 `CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript.
 
-There are no automatic retries, external uploads, telemetry, application launches or account logins. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
+There are no automatic retries, external uploads, telemetry or account logins. Application launch is explicit through the CLI. A timed-out export may have written partial files; inspect its destination before proceeding. Export cancellation and warnings are reported as incomplete rather than success.
 
 ## Validation
 

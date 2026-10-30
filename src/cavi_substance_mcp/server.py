@@ -11,7 +11,8 @@ from .client import PainterClient
 mcp = FastMCP(
     "cavi-substance-mcp",
     instructions=(
-        "Painter must be installed, licensed, and started by the user with remote scripting enabled. "
+        "Painter must be installed, licensed, and running with remote scripting enabled. "
+        "If disconnected, use cavi-substance-mcp runtime start on macOS to launch Painter. "
         "Inspect status first. Export dry runs are the default; use a new output directory. "
         "Designer is not supported. Never retry uncertain mutations automatically."
     ),
@@ -89,6 +90,12 @@ def export_textures(
 
 
 def main():
+    import sys
+
+    if len(sys.argv) > 1:
+        from .cli import main as cli_main
+
+        raise SystemExit(cli_main())
     mcp.run(transport="stdio")
 
 
