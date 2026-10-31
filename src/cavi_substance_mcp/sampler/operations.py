@@ -19,38 +19,23 @@ from .. import receipts
 from ..core.workspace import existing, input_file, new_output_directory, rel
 from . import names as filenames
 from . import targets
+from .names import (
+    BLEND_MODES,
+    EXPORT_FORMATS,
+    IMPORT_OPTIONS,
+    MATERIAL_TYPES,
+    PROJECT,
+    RESOURCE,
+    USAGE,
+)
 
-PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
 RESOURCE_FILES = {".sbsar", ".sbs"}
-USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
-RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
-FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
-MATERIAL_TYPES = ("standard", "decal", "atlas")
-IMPORT_OPTIONS = (
-    "image_to_material_B2M",
-    "image_to_material_AI_powered",
-    "multiangle_to_material",
-    "use_as_bitmap",
-    "as_channels",
-    "HDR_merge",
-    "use_as_environment",
-)
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
 # The installed Sampler's version, supplied by the host with each request.
 _APP = {"version": None}
-BLEND_MODES = (
-    "blend_ao",
-    "blend_color_id",
-    "blend_curvature",
-    "blend_custom_mask",
-    "blend_opacity",
-    "blend_height",
-    "blend_normal",
-    "blend_per_channel",
-)
 def _wait_file(path: Path, timeout: float = 120) -> Path:
     deadline = time.monotonic() + timeout
     while not path.is_file() and time.monotonic() < deadline:
@@ -1304,8 +1289,8 @@ def _export(ssa, root, args) -> dict:
     wait_seconds = args.get("wait_seconds", 600)
     if type(wait_seconds) not in (int, float) or not 1 <= wait_seconds <= 3600:
         raise ValueError("wait_seconds must be between 1 and 3600")
-    if fmt not in FORMATS:
-        raise ValueError(f"format must be one of: {', '.join(FORMATS)}")
+    if fmt not in EXPORT_FORMATS:
+        raise ValueError(f"format must be one of: {', '.join(EXPORT_FORMATS)}")
     target_name = args.get("target")
     if target_name is not None:
         targets.target(target_name)
