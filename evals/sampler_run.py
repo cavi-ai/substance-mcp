@@ -175,6 +175,11 @@ def fixtures(output: Path) -> Path:
     bad_schema["steps"] = [step for step in bad_schema["steps"]
                            if step["action"] != "export"]
     (workspace / "jobs/bad-schema.json").write_text(json.dumps(bad_schema))
+    shadow = build("jobs/shadow", "generic")
+    shadow["steps"][-1]["directory"] = "manifest.json"
+    (workspace / "jobs/shadow.json").write_text(json.dumps(shadow))
+    bad_name = build("jobs/bad-name", "generic", asset="A:B")
+    (workspace / "jobs/bad-name.json").write_text(json.dumps(bad_name))
     missing_filter = build("jobs/missing-filter", "generic")
     missing_filter["steps"].insert(-1, {
         "action": "insert_filter", "asset": "Rock", "filter": "Missing Filter",

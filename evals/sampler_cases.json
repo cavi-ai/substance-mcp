@@ -979,6 +979,40 @@
     "error": "at least one export"
   },
   {
+    "id": "build-export-directory-shadows-job-file",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/shadow.json",
+      "dry_run": true
+    },
+    "error": "collides with a job file",
+    "absent": [
+      "jobs/shadow"
+    ]
+  },
+  {
+    "id": "build-invalid-asset-name",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/bad-name.json",
+      "dry_run": true
+    },
+    "error": "plain file name",
+    "absent": [
+      "jobs/bad-name"
+    ]
+  },
+  {
     "id": "build-existing",
     "tool": "sampler_build",
     "kind": "safety",

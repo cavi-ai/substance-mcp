@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .. import receipts
 from ..painter_operations import export_destination, input_file, remove_tree
+from . import names as filenames
 from . import runner, targets
 from .errors import AppRunning
 from .lock import WorkspaceLock
@@ -24,7 +25,6 @@ IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bm
 RESOURCE_FILES = {".sbsar", ".sbs"}
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
-NAME = re.compile(r"^[^/\\<>:\"|?*\x00-\x1f\x7f]{1,96}$")
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
 FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
 MATERIAL_TYPES = ("standard", "decal", "atlas")
@@ -438,10 +438,10 @@ def _new_directory(root: Path, name: str) -> Path:
 def _name(value, label: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string")
-    value = value.strip()
-    if not NAME.fullmatch(value) or value in (".", "..") or value.endswith("."):
-        raise ValueError(f"{label} must be a plain file name")
-    return value
+    try:
+        return filenames.plain_name(value)
+    except ValueError:
+        raise ValueError(f"{label} must be a plain file name") from None
 
 
 def _resource_label(value, label: str) -> str:
