@@ -1,11 +1,39 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "cavi-substance-mcp"
 version = "0.6.0"
-description = "MCP tools for Substance Painter and Substance 3D Designer"
+description = "MCP servers for Adobe Substance 3D Painter, Designer and Sampler"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "CAVI AI" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "substance-painter",
+    "substance-designer",
+    "substance-sampler",
+    "pbr",
+    "texturing",
+    "game-art",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.12,<2",
@@ -13,6 +41,12 @@ dependencies = [
     "pillow>=11.0,<13",
     "pydantic>=2.11,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/cavi-ai/substance-mcp#readme"
+Repository = "https://github.com/cavi-ai/substance-mcp"
+Issues = "https://github.com/cavi-ai/substance-mcp/issues"
+Changelog = "https://github.com/cavi-ai/substance-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
 cavi-substance-mcp = "cavi_substance_mcp.server:main"
@@ -24,6 +58,18 @@ dev = ["ruff>=0.14,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cavi_substance_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/evals",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100
