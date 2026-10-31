@@ -668,7 +668,9 @@
     "required": [
       "outputs",
       "steps",
-      "steps/0/seconds"
+      "steps/0/seconds",
+      "app_name",
+      "operation"
     ]
   },
   {
@@ -1187,6 +1189,9 @@
     "files": [
       "packed/rock/Mask.png",
       "packed/rock/Base.png"
+    ],
+    "required": [
+      "manifest"
     ]
   },
   {

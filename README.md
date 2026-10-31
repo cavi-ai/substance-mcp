@@ -116,6 +116,28 @@ asynchronous; inspect loading completion before continuing. If that changes the
 binding after the call returns, release and claim the inspected new project.
 The existing unsaved-close guard remains in force.
 
+## Receipts
+
+Every file-producing operation writes `manifest.json` into its new output directory.
+The receipt records the app, operation, parameters, input files and output files with
+sizes and SHA-256 hashes.
+
+```json
+{"schema": 1, "app": "designer", "operation": "cook",
+ "inputs": [{"path": "source.sbs", "size": 10, "sha256": "..."}],
+ "outputs": [{"path": "cooked/source.sbsar", "size": 20, "sha256": "..."}],
+ "parameters": {"source": "templates/..."}}
+```
+
+- Designer: `cook`, `render`, `pack`, `bake`.
+- Painter: `export_textures`, `save_copy`; `sbsar_fill` results record the imported
+  `.sbsar` as `source`.
+- Sampler: job manifests use `app_name` (`app` already holds the installation);
+  `sampler_pack` output uses the shared fields.
+
+A downstream stage verifies its input hash against the previous manifest. See
+`examples/pipeline/designer-to-painter/` for a complete handoff.
+
 ## Validation
 
 ```sh

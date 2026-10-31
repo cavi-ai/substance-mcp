@@ -2,9 +2,10 @@
 
 import asyncio
 import re
+import time
 from pathlib import Path
 
-from .. import packing
+from .. import packing, receipts
 from ..painter_operations import export_destination, input_file, remove_tree
 from . import operations
 
@@ -29,6 +30,7 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
                 "Input must be a supported file inside the workspace"
             ) from exc
     packing.check_spec(spec)
+    started = time.monotonic()
     candidate = (root / directory).resolve()
     if candidate == root or not candidate.is_relative_to(root):
         raise ValueError("Output must remain inside the workspace")
@@ -37,6 +39,13 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
     destination.mkdir()
     try:
         result = packing.pack(spec, files, destination)
+        manifest = receipts.build(
+            "sampler", "pack", root, inputs=list(files.values()),
+            outputs=[item["path"] for item in result["maps"]],
+            parameters={"pack": spec.model_dump(mode="json")},
+            seconds=time.monotonic() - started,
+        )
+        manifest_path = receipts.write(destination, manifest)
     except BaseException:
         remove_tree(destination)
         raise
@@ -47,6 +56,7 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
             for item in result["maps"]
         ],
         "sources": result["sources"],
+        "manifest": manifest_path.relative_to(root).as_posix(),
     }
 
 
