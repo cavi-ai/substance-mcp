@@ -1,0 +1,11 @@
+# Repository CI-equivalent deterministic lanes.
+uv sync --locked --dev
+uv run --locked python -m unittest discover -s tests
+uv run --locked ruff check .
+npm ci
+npm run eval:protocol
+npm run eval:core
+npm run eval:designer-protocol
+npm run eval:designer-core
+npm run eval:sampler-protocol
+npm run eval:sampler-core
