@@ -109,7 +109,9 @@ async def project(
         str | None, Field(description="close: file from painter_status; null if unsaved.")
     ] = None,
     discard_unsaved: StrictBool = False,
-    directory: Annotated[str | None, Field(description="save_copy: new workspace directory.")] = None,
+    directory: Annotated[
+        str | None, Field(description="save_copy: new workspace directory.")
+    ] = None,
     timeout_seconds: Annotated[StrictInt, Field(ge=1, le=300)] = 60,
     lease_id: LeaseId = None,
 ) -> dict[str, Any]:
@@ -264,8 +266,10 @@ async def export_textures(
     preset: Annotated[str | None, Field(description="URL from inspect export_presets.")] = None,
     source_manifest: Annotated[WorkspaceFile, Field(description="Receipt for source_file.")] = None,
     source_file: Annotated[WorkspaceFile, Field(description="Source .sbsar.")] = None,
-    maps: Annotated[list[OutputMap] | None, Field(max_length=16,
-                                                  description="Channel packing; not with preset.")] = None,
+    maps: Annotated[
+        list[OutputMap] | None,
+        Field(max_length=16, description="Channel packing; not with preset."),
+    ] = None,
     resolution: Literal[128, 256, 512, 1024, 2048, 4096, 8192] | None = None,
     file_format: Literal["png", "tga", "tiff", "exr", "jpeg"] | None = None,
     bit_depth: Literal[8, 16, "16f", "32f"] | None = None,

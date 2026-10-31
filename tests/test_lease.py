@@ -22,7 +22,8 @@ class LeaseTests(unittest.TestCase):
     def test_foreign_or_missing_token_cannot_edit_and_inspection_hides_token(self):
         token = self.claim()
         for value in (None, "foreign-token"):
-            with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(value, lambda: self.project):
+            with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(
+                    value, lambda: self.project):
                 self.fail("An unowned edit ran")
         public = self.session.control({"action": "inspect"}, self.project)
         self.assertEqual(public["owner"], "agent-A")
@@ -52,7 +53,8 @@ class LeaseTests(unittest.TestCase):
     def test_expiry_blocks_old_edits_and_allows_new_claim_without_app_actions(self):
         token = self.claim()
         self.now.return_value = 161.0
-        with self.assertRaisesRegex(RuntimeError, "expired"), self.session.edit(token, lambda: self.project):
+        with self.assertRaisesRegex(RuntimeError, "expired"), self.session.edit(
+                token, lambda: self.project):
             self.fail("Expired edit ran")
         replacement = self.claim("agent-B")
         self.assertNotEqual(replacement, token)
@@ -61,7 +63,8 @@ class LeaseTests(unittest.TestCase):
     def test_project_switch_refuses_edit_and_renewal(self):
         token = self.claim()
         self.project = "project-B"
-        with self.assertRaisesRegex(RuntimeError, "project changed"), self.session.edit(token, lambda: self.project):
+        with self.assertRaisesRegex(RuntimeError, "project changed"), self.session.edit(
+                token, lambda: self.project):
             self.fail("Edit targeted another project")
         with self.assertRaisesRegex(RuntimeError, "project changed"):
             self.session.control({"action": "renew", "lease_id": token}, self.project)
@@ -75,7 +78,8 @@ class LeaseTests(unittest.TestCase):
         with self.assertRaises(ValueError), self.session.edit(token, lambda: self.project):
             self.project = "uncertain-project"
             raise ValueError("operation failed")
-        with self.assertRaisesRegex(RuntimeError, "project changed"), self.session.edit(token, lambda: self.project):
+        with self.assertRaisesRegex(RuntimeError, "project changed"), self.session.edit(
+                token, lambda: self.project):
             self.fail("Continued after partial project change")
 
     def test_stale_inspection_and_invalid_ttl_cannot_claim(self):

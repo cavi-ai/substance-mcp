@@ -65,7 +65,8 @@ DOCUMENT_MAPS = {
 MESH_MAPS = {"ambient_occlusion": False, "curvature": False, "thickness": False, "id": True,
              "position": True, "world_space_normals": True, "normal_base": True,
              "bent_normals": True}
-VIRTUAL_MAPS = {"normal_opengl": ("Normal_OpenGL", True), "normal_directx": ("Normal_DirectX", True),
+VIRTUAL_MAPS = {"normal_opengl": ("Normal_OpenGL", True),
+                "normal_directx": ("Normal_DirectX", True),
                 "ao_mixed": ("AO_Mixed", False)}
 EXPORT_FORMATS = {"png": ("8", "16"), "tga": ("8",), "tiff": ("8", "16", "32f"),
                   "exr": ("16f", "32f"), "jpeg": ("8",)}
@@ -1139,7 +1140,8 @@ def uniform_color(colormanagement, stack, channel, value):
     else:
         rgb = [unit_value(value)] * 3
     srgb = stack.all_channels()[channel].format().name.startswith("sRGB")
-    space = colormanagement.GenericColorSpace.sRGB if srgb else colormanagement.GenericColorSpace.Raw
+    generic = colormanagement.GenericColorSpace
+    space = generic.sRGB if srgb else generic.Raw
     return colormanagement.Color(*rgb, space)
 
 
@@ -1272,7 +1274,8 @@ def _layers(operation, params, root):
         except Exception as exc:
             left = remove_tree(folder)
             note = f"; could not remove: {', '.join(left)}" if left else ""
-            raise RuntimeError(f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
+            raise RuntimeError(
+                f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
         # Painter embeds the bitmap on import.
         leftovers = remove_tree(folder)
     node = None
@@ -1757,7 +1760,8 @@ def _bake_settings(params):
             "enabled": bake_params.is_textureset_enabled(),
             "maps": [labels.get(usage, usage.name) for usage in bake_params.get_enabled_bakers()],
             "curvature_method": bake_params.get_curvature_method().name,
-            "common": {key: plain(prop.value()) for key, prop in sorted(bake_params.common().items())},
+            "common": {key: plain(prop.value())
+                       for key, prop in sorted(bake_params.common().items())},
             "mesh_maps": found[item.name()],
         })
     return {"texture_sets": result}

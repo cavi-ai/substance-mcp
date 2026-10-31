@@ -179,7 +179,8 @@ class BreakTests(unittest.TestCase):
         result = self.brk()
         self.assertEqual(result["previous_owner"], "agent-A")
         self.assertFalse(result["active"])
-        with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(self.token, lambda: "P"):
+        with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(
+                self.token, lambda: "P"):
             self.fail("Broken lease still edits")
         with self.assertRaisesRegex(RuntimeError, "No active lease"):
             self.brk()
@@ -206,7 +207,8 @@ class ProjectTests(unittest.TestCase):
     def test_missing_expected_file_is_a_validation_error(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             client = OwnedPainterClient(port=simulator.port, workspace=Path(folder))
-            with self.assertRaisesRegex(RuntimeError, "ValueError: Missing required.*expected_file"):
+            with self.assertRaisesRegex(
+                    RuntimeError, "ValueError: Missing required.*expected_file"):
                 client.call("close_project", {})
             self.assertTrue(client.call("status")["open"])
 
