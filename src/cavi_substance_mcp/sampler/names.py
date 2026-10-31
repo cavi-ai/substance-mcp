@@ -40,3 +40,30 @@ def output_directory(value: str) -> str:
                 "(no < > : \" | ? *, trailing dot or Windows device names such as CON)"
             ) from None
     return value
+
+
+# Vocabularies shared by the job model and server (host) and the operations (in Sampler).
+PROJECT = frozenset({".ssa"})
+RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
+USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+EXPORT_FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
+MATERIAL_TYPES = ("standard", "decal", "atlas")
+IMPORT_OPTIONS = (
+    "image_to_material_B2M",
+    "image_to_material_AI_powered",
+    "multiangle_to_material",
+    "use_as_bitmap",
+    "as_channels",
+    "HDR_merge",
+    "use_as_environment",
+)
+BLEND_MODES = (
+    "blend_ao",
+    "blend_color_id",
+    "blend_curvature",
+    "blend_custom_mask",
+    "blend_opacity",
+    "blend_height",
+    "blend_normal",
+    "blend_per_channel",
+)

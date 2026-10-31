@@ -41,6 +41,7 @@ class PainterLaunchTests(unittest.TestCase):
                 patch(f"{RUNTIME}.sys.platform", "darwin"),
                 patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
                 patch(f"{RUNTIME}.subprocess.run", side_effect=run),
+                patch(f"{RUNTIME}.discovery.running", return_value=False),
             ):
                 result = start_painter()
         self.assertTrue(result["launch_requested"])

@@ -88,7 +88,7 @@ class FakeDesignerTests(unittest.TestCase):
     def test_resources_are_beside_the_tools(self):
         with patch.dict(os.environ, {designer_fake_cli.ENV: str(self.bin_dir)}):
             found = designer_runner.installation()
-        self.assertEqual(found.resources, (self.bin_dir.parent / "resources").resolve())
+        self.assertTrue(found.resources.samefile((self.bin_dir.parent / "resources").resolve()))
 
     def test_the_install_does_not_depend_on_a_macos_bundle(self):
         self.assertFalse(any(part.endswith(".app") for part in self.bin_dir.parts))

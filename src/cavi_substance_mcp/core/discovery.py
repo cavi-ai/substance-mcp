@@ -17,7 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 from . import proc
@@ -65,7 +65,9 @@ def default_location(key: str) -> Path:
     table = DEFAULTS[key]
     text = table.get(platform_name(), table["linux"])
     programs = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-    return Path(text.format(programs=programs))
+    text = text.format(programs=programs)
+    # A macOS or Linux location keeps forward slashes even when built on Windows.
+    return Path(text) if text.startswith(programs) or os.sep == "/" else PurePosixPath(text)
 
 
 def bundle_of(path) -> Path | None:
@@ -246,6 +248,11 @@ def pattern_for(path: Path) -> str:
     forms = {str(path)}
     with contextlib.suppress(OSError):
         forms.add(str(path.resolve()))
+        if path.is_symlink():
+            # The target as written, without resolving its directories: macOS temp and
+            # home folders sit behind /var and /private links, so the fully resolved form
+            # can differ from the path the process was started with.
+            forms.add(str(path.parent / os.readlink(path)))
     alternatives = "|".join(_ere(form) for form in sorted(forms))
     return f"(^|[[:space:]])({alternatives})([[:space:]]|$)"
 

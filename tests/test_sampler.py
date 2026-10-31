@@ -205,6 +205,15 @@ class SamplerTests(unittest.TestCase):
             self.call("import_resource", project="projects/Rock.ssa",
                       path="assets/custom.sbsar", expected_sha256="0" * 64)
 
+    def test_a_resource_replaced_during_import_is_refused(self):
+        self.create_project()
+        resource = self.workspace / "assets/custom.sbsar"
+        expected = receipts.sha256_file(resource)
+        (self.workspace / "assets/custom.sbsar.swap").write_bytes(b"swapped")
+        with self.assertRaisesRegex(ValueError, "changed while"):
+            self.call("import_resource", project="projects/Rock.ssa",
+                      path="assets/custom.sbsar", expected_sha256=expected)
+
     def test_export_wait_seconds(self):
         self.create_project()
         with self.assertRaisesRegex(ValueError, "wait_seconds"):

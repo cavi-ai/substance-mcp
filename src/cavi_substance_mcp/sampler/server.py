@@ -17,6 +17,8 @@ from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_fore
 from ..packing import USAGE, PackSpec
 from . import batch, launch
 from . import pack as packer
+from .names import BLEND_MODES, EXPORT_FORMATS, IMPORT_OPTIONS, MATERIAL_TYPES
+from .targets import TARGETS
 
 mcp = Server(
     "cavi-substance-sampler-mcp",
@@ -33,17 +35,11 @@ NewDirectory = Annotated[str, Field(description="New directory relative to the w
 AssetName = Annotated[str, Field(min_length=1, max_length=128)]
 PlainName = Annotated[str, Field(min_length=1, max_length=96)]
 Query = Annotated[str, Field(max_length=128)]
-ImportOption = Literal[
-    "image_to_material_B2M", "image_to_material_AI_powered", "multiangle_to_material",
-    "use_as_bitmap", "as_channels", "HDR_merge", "use_as_environment",
-]
-BlendMode = Literal[
-    "blend_ao", "blend_color_id", "blend_curvature", "blend_custom_mask", "blend_opacity",
-    "blend_height", "blend_normal", "blend_per_channel",
-]
-ExportFormat = Literal["sbsar", "sbs", "png", "jpg", "tga", "tif", "exr"]
-MaterialType = Literal["standard", "decal", "atlas"]
-TargetName = Literal["unreal", "unity", "blender", "generic"]
+ImportOption = Literal[IMPORT_OPTIONS]
+BlendMode = Literal[BLEND_MODES]
+ExportFormat = Literal[EXPORT_FORMATS]
+MaterialType = Literal[MATERIAL_TYPES]
+TargetName = Literal[tuple(TARGETS)]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
 JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
 ChannelName = Annotated[str, Field(min_length=1, max_length=64)]

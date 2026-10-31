@@ -86,7 +86,7 @@ def input_file(workspace, name, extensions) -> Path:
     of the workspace is refused. ``extensions`` holds lower-case suffixes with the dot.
     """
     base = existing(workspace)
-    if not isinstance(name, str):
+    if not isinstance(name, str) or "\x00" in name:
         raise ValueError(INPUT_MESSAGE)
     try:
         path = (base / name).resolve(strict=True)
@@ -105,7 +105,7 @@ def output_path(workspace, name, *, parents: bool = False) -> Path:
     are created.
     """
     base = existing(workspace)
-    if not isinstance(name, str):
+    if not isinstance(name, str) or "\x00" in name:
         raise ValueError(OUTPUT_MESSAGE)
     try:
         path = (base / name).resolve()

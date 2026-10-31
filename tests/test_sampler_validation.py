@@ -168,3 +168,18 @@ class AssetStepTests(unittest.TestCase):
             if field is not None and field.is_required():
                 with self.subTest(step=model.__name__):
                     self.assertTrue(issubclass(model, jobs.AssetStep))
+
+
+class PreflightTests(unittest.TestCase):
+    def test_duplicate_asset_names_are_ambiguous_in_preflight(self):
+        from types import SimpleNamespace
+
+        from cavi_substance_mcp.sampler import operations
+
+        rock = [SimpleNamespace(name="Rock"), SimpleNamespace(name="Rock")]
+        ssa = SimpleNamespace(get_project_assets=lambda: rock)
+        check = operations._Preflight(ssa, {"steps": []})
+        check.check(0, {"action": "set_metadata", "asset": "Rock"})
+        self.assertEqual(check.problems,
+                         ["step 0 (set_metadata): asset 'Rock' is ambiguous; "
+                          "rename one of the duplicates"])

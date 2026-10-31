@@ -85,3 +85,23 @@ class PackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PackBudgetTests(unittest.TestCase):
+    def test_a_pack_over_the_decoded_size_limit_is_refused_before_decoding(self):
+        from unittest.mock import patch
+
+        from PIL import Image
+
+        from cavi_substance_mcp import packing
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "r.png"
+            Image.new("L", (64, 64)).save(source)
+            spec = packing.PackSpec.model_validate(
+                {"maps": [{"name": "M", "channels": {"R": "roughness", "G": "0", "B": "0"}}]})
+            with patch.object(packing, "MAX_DECODED_BYTES", 64 * 64 * 16 - 1), \
+                    patch.object(packing, "load") as load, \
+                    self.assertRaisesRegex(ValueError, "decoded; the limit"):
+                packing.pack(spec, {"roughness": source}, Path(folder))
+            load.assert_not_called()
