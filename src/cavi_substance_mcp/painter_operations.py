@@ -1374,10 +1374,10 @@ def _set_properties(params, node, stack, layerstack, textureset):
         changes["opacity"] = unit_value(changes["opacity"])
     if "blend_mode" in changes:
         mode = changes["blend_mode"]
-        if not isinstance(mode, str) or mode.startswith("_") or not hasattr(
-                layerstack.BlendingMode, mode):
+        members = layerstack.BlendingMode.__members__
+        if not isinstance(mode, str) or mode not in members:
             raise ValueError("Unknown blend_mode; e.g. Normal, Multiply, Overlay, Screen")
-        changes["blend_mode"] = getattr(layerstack.BlendingMode, mode)
+        changes["blend_mode"] = members[mode]
     channels = [None]
     if {"blend_mode", "opacity"} & set(changes):
         if not node.has_blending():
