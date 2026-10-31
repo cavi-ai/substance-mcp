@@ -439,162 +439,215 @@ def dispatch(operation: str, params: dict, workspace: str) -> dict:
         return _execute(operation, params, workspace)
 
 
+def _status(operation, params, workspace, root):
+    import substance_painter
+    from substance_painter import project
+
+    opened = project.is_open()
+    busy = project.is_busy()
+    reload = vars(substance_painter).get(RELOAD_ATTR) or {}
+    bake = vars(substance_painter).get(BAKE_ATTR) or {}
+    return {
+        "connected": True,
+        "api_version": str(substance_painter.__version__),
+        "open": opened,
+        "file": project.file_path() if opened else None,
+        "needs_saving": project.needs_saving() if opened else False,
+        "busy": busy,
+        "edition_state": bool(project.is_in_edition_state()) if opened else False,
+        "baking": bool(bake.get("running")) and reconcile_bake(bake, busy),
+        "mesh_reload": {key: reload.get(key) for key in ("pending", "status", "path")}
+        if reload else None,
+        "workspace": str(Path(workspace)),
+        "workspace_exists": Path(workspace).is_dir(),
+    }
+
+
+def _open_or_create(operation, params, workspace, root):
+    import substance_painter
+    from substance_painter import project
+
+    if project.is_open():
+        raise RuntimeError("A project is already open; close it in Painter before replacing it")
+    # A mesh reload result describes the previous project.
+    vars(substance_painter).pop(RELOAD_ATTR, None)
+    if operation == "open_project":
+        path = input_file(root(), required(params, "path"), {".spp"})
+        project.open(str(path))
+        return {"requested": operation, "path": str(path), "loading_may_be_pending": True}
+    path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
+    normal = params.get("normal_map_format", "OpenGL")
+    if normal not in NORMAL_MAP_FORMATS:
+        raise ValueError("normal_map_format must be OpenGL or DirectX")
+    resolution = texture_resolution(params.get("default_texture_resolution"))
+    udim = flag(params, "udim", False)
+    per_fragment = flag(params, "tangent_space_per_fragment", False)
+    template = params.get("template")
+    template = None if template is None else input_file(root(), template, {".spt"})
+    settings = project.Settings(
+        normal_map_format=getattr(project.NormalMapFormat, normal),
+        default_texture_resolution=resolution,
+        project_workflow=project.ProjectWorkflow.UVTile if udim else None,
+        tangent_space_mode=project.TangentSpace.PerFragment if per_fragment else None,
+    )
+    project.create(mesh_file_path=str(path), settings=settings,
+                   template_file_path=None if template is None else str(template))
+    return {"requested": operation, "path": str(path), "loading_may_be_pending": True,
+            "normal_map_format": normal, "default_texture_resolution": resolution,
+            "udim": udim, "tangent_space_per_fragment": per_fragment,
+            "template": None if template is None else str(template)}
+
+
+def _close(operation, params, workspace, root):
+    import substance_painter
+    from substance_painter import project
+
+    if not project.is_open():
+        return {"closed": True, "already_closed": True}
+    if project.is_busy():
+        raise RuntimeError("Painter must be idle before closing a project")
+    if project.file_path() != required(params, "expected_file", (str, type(None))):
+        raise RuntimeError("The open project changed; inspect status before closing it")
+    discard = params.get("discard_unsaved", False)
+    if type(discard) is not bool:
+        raise ValueError("discard_unsaved must be a boolean")
+    if project.needs_saving() and not discard:
+        raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
+    project.close()
+    vars(substance_painter).pop(RELOAD_ATTR, None)
+    return {"closed": not project.is_open()}
+
+
+def _reload_mesh(operation, params, workspace, root):
+    import substance_painter
+    from substance_painter import project
+
+    path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
+    preserve = flag(params, "preserve_strokes", True)
+    state = shared(substance_painter, RELOAD_ATTR)
+
+    def loaded(status, state=state):
+        state.update(pending=False, status=getattr(status, "name", str(status)))
+
+    state.update(pending=True, status=None, path=str(path))
+    try:
+        project.reload_mesh(str(path), project.MeshReloadingSettings(preserve_strokes=preserve),
+                            loaded)
+    except Exception:
+        state.update(pending=False, status="NOT_STARTED")
+        raise
+    return {"requested": operation, "path": str(path), "preserve_strokes": preserve,
+            "loading_may_be_pending": True,
+            "next": "project wait_ready, then painter_status mesh_reload"}
+
+
+def _texture_sets(operation, params, workspace, root):
+    from substance_painter import textureset
+
+    sets = []
+    for item in textureset.all_texture_sets():
+        resolution = item.get_resolution()
+        sets.append({
+            "name": item.name(),
+            "resolution": {"width": resolution.width, "height": resolution.height},
+            "uv_tiles": [[tile.u, tile.v] for tile in item.all_uv_tiles()]
+            if item.has_uv_tiles() else None,
+            "channels": {
+                channel.name: value.format().name for channel, value
+                in textureset.Stack.from_name(item.name()).all_channels().items()
+            },
+        })
+    return {"texture_sets": sets}
+
+
+def _export_presets(operation, params, workspace, root):
+    from substance_painter import export
+
+    return {"presets": [{"name": item.name, "url": item.url}
+                        for item in export.list_predefined_export_presets()]}
+
+
+def _save(operation, params, workspace, root):
+    from substance_painter import project
+
+    path = project.file_path()
+    if not path:
+        raise RuntimeError("Project was never saved; use save_copy or save it in Painter")
+    if not Path(path).resolve().is_relative_to(root()):
+        raise RuntimeError("Project file is outside the workspace; save it in Painter")
+    project.save()
+    return {"saved": True, "file": project.file_path(), "needs_saving": project.needs_saving()}
+
+
+def _save_copy(operation, params, workspace, root):
+    from substance_painter import project
+
+    folder = export_destination(root(), required(params, "directory"))
+    started = time.monotonic()
+    with new_output_directory(folder):
+        path = folder / "project.spp"
+        project.save_as_copy(str(path), project.ProjectSaveMode.Full)
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError("Painter did not produce a saved project copy")
+        manifest = receipts.build(
+            "painter", "save_copy", root(), outputs=[path],
+            parameters={"directory": required(params, "directory")},
+            seconds=time.monotonic() - started, version=_painter_version(),
+        )
+        manifest_path = receipts.write(folder, manifest)
+    return {"path": str(path), "bytes": path.stat().st_size, "manifest": str(manifest_path)}
+
+
+def _cancel_bake(operation, params, workspace, root):
+    import substance_painter
+    from substance_painter import project
+
+    return _bake_cancel(substance_painter, project)
+
+
+# Operations that run in any Painter state, and those that need an open, idle project.
+_ANY_STATE = {
+    "status": _status,
+    "bake_status": lambda op, params, ws, root: _bake_status(__import__("substance_painter")),
+    "bake_cancel": _cancel_bake,
+    "shelf": lambda op, params, ws, root: _shelf(params),
+    "open_project": _open_or_create,
+    "create_project": _open_or_create,
+    "close_project": _close,
+}
+_OPEN_AND_IDLE = {
+    "layer_stack": lambda op, params, ws, root: _layers(op, params, root),
+    "create_fill_layer": lambda op, params, ws, root: _layers(op, params, root),
+    "create_texture_fill": lambda op, params, ws, root: _layers(op, params, root),
+    "layer_edit": lambda op, params, ws, root: _layer_edit(params, root),
+    "bake": lambda op, params, ws, root: _bake(params, root),
+    "bake_settings": lambda op, params, ws, root: _bake_settings(params),
+    "reload_mesh": _reload_mesh,
+    "texture_sets": _texture_sets,
+    "export_presets": _export_presets,
+    "save": _save,
+    "save_copy": _save_copy,
+    "export_textures": lambda op, params, ws, root: _export(params, root),
+}
+
+
 def _execute(operation: str, params: dict, workspace: str) -> dict:
     import substance_painter
-    from substance_painter import export, project, textureset
+    from substance_painter import project
 
     def root():
         return Path(workspace).resolve(strict=True)
 
-    if operation == "status":
-        opened = project.is_open()
-        busy = project.is_busy()
-        reload = vars(substance_painter).get(RELOAD_ATTR) or {}
-        bake = vars(substance_painter).get(BAKE_ATTR) or {}
-        return {
-            "connected": True,
-            "api_version": str(substance_painter.__version__),
-            "open": opened,
-            "file": project.file_path() if opened else None,
-            "needs_saving": project.needs_saving() if opened else False,
-            "busy": busy,
-            "edition_state": bool(project.is_in_edition_state()) if opened else False,
-            "baking": bool(bake.get("running")) and reconcile_bake(bake, busy),
-            "mesh_reload": {key: reload.get(key) for key in ("pending", "status", "path")}
-            if reload else None,
-            "workspace": str(Path(workspace)),
-            "workspace_exists": Path(workspace).is_dir(),
-        }
-    if operation == "bake_status":
-        return _bake_status(substance_painter)
-    if operation == "bake_cancel":
-        return _bake_cancel(substance_painter, project)
-    if operation == "shelf":
-        return _shelf(params)
-    if operation in {"open_project", "create_project"}:
-        if project.is_open():
-            raise RuntimeError("A project is already open; close it in Painter before replacing it")
-        # A mesh reload result describes the previous project.
-        vars(substance_painter).pop(RELOAD_ATTR, None)
-        if operation == "open_project":
-            path = input_file(root(), required(params, "path"), {".spp"})
-            project.open(str(path))
-            return {"requested": operation, "path": str(path), "loading_may_be_pending": True}
-        path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
-        normal = params.get("normal_map_format", "OpenGL")
-        if normal not in NORMAL_MAP_FORMATS:
-            raise ValueError("normal_map_format must be OpenGL or DirectX")
-        resolution = texture_resolution(params.get("default_texture_resolution"))
-        udim = flag(params, "udim", False)
-        per_fragment = flag(params, "tangent_space_per_fragment", False)
-        template = params.get("template")
-        template = None if template is None else input_file(root(), template, {".spt"})
-        settings = project.Settings(
-            normal_map_format=getattr(project.NormalMapFormat, normal),
-            default_texture_resolution=resolution,
-            project_workflow=project.ProjectWorkflow.UVTile if udim else None,
-            tangent_space_mode=project.TangentSpace.PerFragment if per_fragment else None,
-        )
-        project.create(mesh_file_path=str(path), settings=settings,
-                       template_file_path=None if template is None else str(template))
-        return {"requested": operation, "path": str(path), "loading_may_be_pending": True,
-                "normal_map_format": normal, "default_texture_resolution": resolution,
-                "udim": udim, "tangent_space_per_fragment": per_fragment,
-                "template": None if template is None else str(template)}
-    if operation == "close_project":
-        if not project.is_open():
-            return {"closed": True, "already_closed": True}
-        if project.is_busy():
-            raise RuntimeError("Painter must be idle before closing a project")
-        if project.file_path() != required(params, "expected_file", (str, type(None))):
-            raise RuntimeError("The open project changed; inspect status before closing it")
-        discard = params.get("discard_unsaved", False)
-        if type(discard) is not bool:
-            raise ValueError("discard_unsaved must be a boolean")
-        if project.needs_saving() and not discard:
-            raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
-        project.close()
-        vars(substance_painter).pop(RELOAD_ATTR, None)
-        return {"closed": not project.is_open()}
-    if baking_now(substance_painter, project):
-        raise RuntimeError("Painter is baking and not idle; poll bake action=status")
-    if not project.is_open() or project.is_busy():
-        raise RuntimeError("Painter must have an open project and be idle")
-    if operation in {"layer_stack", "create_fill_layer", "create_texture_fill"}:
-        return _layers(operation, params, root)
-    if operation == "layer_edit":
-        return _layer_edit(params, root)
-    if operation == "bake":
-        return _bake(params, root)
-    if operation == "bake_settings":
-        return _bake_settings(params)
-    if operation == "reload_mesh":
-        path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
-        preserve = flag(params, "preserve_strokes", True)
-        state = shared(substance_painter, RELOAD_ATTR)
-
-        def loaded(status, state=state):
-            state.update(pending=False, status=getattr(status, "name", str(status)))
-
-        state.update(pending=True, status=None, path=str(path))
-        try:
-            project.reload_mesh(str(path), project.MeshReloadingSettings(preserve_strokes=preserve),
-                                loaded)
-        except Exception:
-            state.update(pending=False, status="NOT_STARTED")
-            raise
-        return {"requested": operation, "path": str(path), "preserve_strokes": preserve,
-                "loading_may_be_pending": True,
-                "next": "project wait_ready, then painter_status mesh_reload"}
-    if operation == "texture_sets":
-        sets = []
-        for item in textureset.all_texture_sets():
-            resolution = item.get_resolution()
-            sets.append({
-                "name": item.name(),
-                "resolution": {"width": resolution.width, "height": resolution.height},
-                "uv_tiles": [[tile.u, tile.v] for tile in item.all_uv_tiles()]
-                if item.has_uv_tiles() else None,
-                "channels": {
-                    channel.name: value.format().name for channel, value
-                    in textureset.Stack.from_name(item.name()).all_channels().items()
-                },
-            })
-        return {"texture_sets": sets}
-    if operation == "export_presets":
-        return {
-            "presets": [
-                {"name": item.name, "url": item.url}
-                for item in export.list_predefined_export_presets()
-            ]
-        }
-    if operation == "save":
-        path = project.file_path()
-        if not path:
-            raise RuntimeError("Project was never saved; use save_copy or save it in Painter")
-        if not Path(path).resolve().is_relative_to(root()):
-            raise RuntimeError("Project file is outside the workspace; save it in Painter")
-        project.save()
-        return {"saved": True, "file": project.file_path(), "needs_saving": project.needs_saving()}
-    if operation == "save_copy":
-        folder = export_destination(root(), required(params, "directory"))
-        started = time.monotonic()
-        with new_output_directory(folder):
-            path = folder / "project.spp"
-            project.save_as_copy(str(path), project.ProjectSaveMode.Full)
-            if not path.is_file() or path.stat().st_size == 0:
-                raise RuntimeError("Painter did not produce a saved project copy")
-            manifest = receipts.build(
-                "painter", "save_copy", root(), outputs=[path],
-                parameters={"directory": required(params, "directory")},
-                seconds=time.monotonic() - started, version=_painter_version(),
-            )
-            manifest_path = receipts.write(folder, manifest)
-        return {"path": str(path), "bytes": path.stat().st_size,
-                "manifest": str(manifest_path)}
-    if operation == "export_textures":
-        return _export(params, root)
-    raise ValueError(f"Unknown operation: {operation}")
+    handler = _ANY_STATE.get(operation)
+    if handler is None:
+        if baking_now(substance_painter, project):
+            raise RuntimeError("Painter is baking and not idle; poll bake action=status")
+        if not project.is_open() or project.is_busy():
+            raise RuntimeError("Painter must have an open project and be idle")
+        handler = _OPEN_AND_IDLE.get(operation)
+        if handler is None:
+            raise ValueError(f"Unknown operation: {operation}")
+    return handler(operation, params, workspace, root)
 
 
 def texture_sets_named(textureset, names):
