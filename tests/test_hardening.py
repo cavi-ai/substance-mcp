@@ -1,5 +1,6 @@
 import base64
 import json
+import shutil
 import socket
 import tempfile
 import threading
@@ -267,15 +268,21 @@ class TextureCleanupTests(unittest.TestCase):
             self.assertEqual(simulator.resources, [])
 
     def test_unremovable_temp_is_reported(self):
+        real = shutil.rmtree
+
+        def stuck(path, *args, **kwargs):
+            # With ignore_errors, an undeletable directory is silently left behind.
+            if not Path(path).name.startswith(".cavi-bitmap-"):
+                real(path, *args, **kwargs)
+
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
-            simulator.setup("locked-bitmap-failure")
-            try:
-                with self.assertRaisesRegex(RuntimeError, r"temporary files kept.*\.cavi-bitmap-"):
-                    self.fill(folder, simulator)
-                self.assertEqual(len(list(Path(folder).glob(".cavi-bitmap-*"))), 1)
-            finally:
-                for path in Path(folder).glob(".cavi-bitmap-*"):
-                    path.chmod(0o700)
+            simulator.setup("bitmap-failure")
+            with (
+                patch("shutil.rmtree", stuck),
+                self.assertRaisesRegex(RuntimeError, r"temporary files kept.*\.cavi-bitmap-"),
+            ):
+                self.fill(folder, simulator)
+            self.assertEqual(len(list(Path(folder).glob(".cavi-bitmap-*"))), 1)
 
 
 if __name__ == "__main__":

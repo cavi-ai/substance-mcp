@@ -286,8 +286,6 @@ class PainterSimulator:
             assert usage in (Usage.TEXTURE, Usage.BASE_MATERIAL) and Path(path).is_file()
             if self.state == "import-failure":
                 raise RuntimeError("simulated import failure")
-            if self.state == "locked-bitmap-failure":
-                Path(path).parent.chmod(0o500)
             name = name or Path(path).stem
             if usage == Usage.TEXTURE:
                 item = Resource("project", name, [usage], ResourceType.IMAGE)
@@ -536,8 +534,7 @@ class PainterSimulator:
                     raise RuntimeError("EditionContextException: channel not active")
                 if self_simulator.state == "fill-failure" and channel == ChannelType.Roughness:
                     raise RuntimeError("simulated source assignment failure")
-                if (self_simulator.state in {"bitmap-failure", "locked-bitmap-failure"}
-                        and isinstance(color, ResourceID)):
+                if self_simulator.state == "bitmap-failure" and isinstance(color, ResourceID):
                     raise RuntimeError("simulated bitmap assignment failure")
                 source = Bitmap(color) if isinstance(color, ResourceID) else color
                 self.sources[channel] = source
