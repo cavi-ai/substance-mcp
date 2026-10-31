@@ -12,6 +12,53 @@ import unittest
 from cavi_substance_mcp.client import PainterClient, PainterTimeout, PainterUnavailable
 
 
+def raw_server(respond):
+    """Serve each connection with respond(connection); the reply bytes are fully scripted."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    listener.settimeout(0.1)
+    stop = threading.Event()
+
+    def serve():
+        while not stop.is_set():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                continue
+            try:
+                connection.settimeout(5)
+                buffer = b""
+                while b"\r\n\r\n" not in buffer:
+                    chunk = connection.recv(65536)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                head, _, body = buffer.partition(b"\r\n\r\n")
+                length = 0
+                for line in head.split(b"\r\n")[1:]:
+                    name, _, value = line.partition(b":")
+                    if name.strip().lower() == b"content-length":
+                        length = int(value)
+                while len(body) < length:
+                    body += connection.recv(65536)
+                respond(connection)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+
+    def close():
+        stop.set()
+        worker.join()
+        listener.close()
+
+    return listener.getsockname()[1], close
+
+
 class PayloadSourceTests(unittest.TestCase):
     def test_payload_source_is_read_as_utf8(self):
         script = textwrap.dedent("""
@@ -33,6 +80,25 @@ class PayloadSourceTests(unittest.TestCase):
                               check=True)
         reads = dict(json.loads(done.stdout.splitlines()[-1]))
         self.assertEqual(reads["painter_operations.py"], "utf-8")
+
+
+class MalformedReplyTests(unittest.TestCase):
+    def reply(self, data):
+        port, close = raw_server(lambda connection: connection.sendall(data))
+        self.addCleanup(close)
+        return PainterClient(port=port)
+
+    def test_bad_status_line_is_unavailable_not_a_raw_http_error(self):
+        client = self.reply(b"THIS IS NOT HTTP\r\n\r\n")
+        with self.assertRaisesRegex(PainterUnavailable, "outcome unknown"):
+            client.call("status")
+
+    def test_truncated_chunked_body_is_unavailable_not_a_raw_http_error(self):
+        client = self.reply(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n20\r\nonly-part-of-the-chunk"
+        )
+        with self.assertRaisesRegex(PainterUnavailable, "outcome unknown"):
+            client.call("status")
 
 
 if __name__ == "__main__":

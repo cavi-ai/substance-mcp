@@ -173,7 +173,7 @@ class PainterClient:
                 data = response.read(RESPONSE_LIMIT + 1)
             except TimeoutError as exc:
                 raise PainterTimeout(TIMEOUT_MESSAGE) from exc
-            except OSError as exc:
+            except (OSError, http.client.HTTPException) as exc:
                 raise PainterUnavailable(
                     "Painter not reachable or dropped the connection; outcome unknown, "
                     "check painter_status before retrying"
