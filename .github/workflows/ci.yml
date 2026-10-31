@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+      - run: uv sync --locked --dev
+      - run: uv run --locked ruff check .
+
+  unit:
+    name: unit · ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    # Windows is experimental: the fake Painter, Designer and Sampler CLIs the tests drive
+    # are shebang scripts, which Windows cannot execute. Promote the leg once they are ported.
+    continue-on-error: ${{ matrix.experimental }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11", experimental: false }
+          - { os: ubuntu-latest, python: "3.12", experimental: false }
+          - { os: ubuntu-latest, python: "3.13", experimental: false }
+          - { os: macos-latest, python: "3.11", experimental: false }
+          - { os: macos-latest, python: "3.13", experimental: false }
+          - { os: windows-latest, python: "3.13", experimental: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked --dev
+      - run: uv run --locked python -m unittest discover -s tests
+
+  lowest-direct:
+    name: unit · lowest direct dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+      # Resolves every direct dependency at the lowest version pyproject.toml allows, in a
+      # throwaway environment, so a bound that is lower than the code needs fails here.
+      # Python 3.11 because numpy 2.0.0, the floor, ships no wheel for 3.13 and would build
+      # from source.
+      - run: uv run --isolated --no-dev --python 3.11 --resolution lowest-direct python -m unittest discover -s tests
+
+  evals:
+    name: evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: uv sync --locked --dev
+      - run: npm ci
+      - run: npm run eval:protocol
+      - run: npm run eval:core
+      - run: npm run eval:designer-protocol
+      - run: npm run eval:designer-core
+      - run: npm run eval:sampler-protocol
+      - run: npm run eval:sampler-core
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mcp-eval-reports
+          path: |
+            .tmp/evals/*/cases.json
+            .tmp/evals/*/mcpeval.json
+          if-no-files-found: error
+
+  package:
+    name: package · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    # The Windows leg is experimental until it has run once on a real runner.
+    continue-on-error: ${{ matrix.experimental }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, experimental: false }
+          - { os: macos-latest, experimental: false }
+          - { os: windows-latest, experimental: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+      - run: uv run --locked python scripts/package_smoke.py
