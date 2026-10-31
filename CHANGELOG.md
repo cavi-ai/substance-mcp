@@ -40,6 +40,10 @@
   pre-release format pass).
 - `.gitignore` covers local plans, worktrees, editor state, logs, build output and Substance
   `.ssa` and `.spt` files.
+- Receipt verification is its own command, `cavi-substance-receipts verify` and `chain`
+  (module `cavi_substance_mcp.receipts_cli`), shared by all three servers. It replaces
+  `cavi-substance-mcp receipts ...`, which is removed; the arguments, output and exit codes
+  are unchanged. `npm run verify:package` runs it from the installed wheel.
 
 ### Changed (breaking)
 

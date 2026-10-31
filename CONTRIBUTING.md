@@ -42,8 +42,7 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
 
 - Painter server: `src/cavi_substance_mcp/server.py` holds the MCP tool schemas,
   `painter_operations.py` the operations that run inside Painter's Python interpreter,
-  and `client.py` the loopback transport. `runtime.py` and `cli.py` hold the launcher and
-  the `receipts` commands.
+  and `client.py` the loopback transport. `runtime.py` and `cli.py` hold the launcher.
 - Designer server: `src/cavi_substance_mcp/designer/`. `server.py` holds the tools,
   `operations.py` the workspace-confined operations and `runner.py` the tool lookup and
   report parsing; subprocesses run through `core/proc.py`.
@@ -54,7 +53,8 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
 - Shared code: `core/` for what every server uses (`workspace.py` holds the workspace
   root and path rules, `proc.py` the bounded subprocess runner, `discovery.py` how the
   Adobe executables are found, versioned and checked for a running process), `receipts.py` for
-  receipts and `packing.py` for channel packing.
+  receipts, `receipts_cli.py` for the `cavi-substance-receipts` command that verifies them
+  and `packing.py` for channel packing.
 - Code that runs inside an application (`painter_operations.py`, and `receipts.py`,
   `core/workspace.py`, `sampler/operations.py`, `sampler/names.py` and
   `sampler/targets.py` inside Sampler) is standard library only and never imports a

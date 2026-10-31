@@ -19,7 +19,7 @@ from painter_simulator import PainterSimulator
 from sampler_fake_cli import ENV as SAMPLER_ENV
 from sampler_fake_cli import install as install_sampler
 
-from cavi_substance_mcp import cli, painter_operations, receipts
+from cavi_substance_mcp import painter_operations, receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
 from cavi_substance_mcp.sampler import launch as sampler
 
@@ -59,13 +59,13 @@ class ReceiptTests(unittest.TestCase):
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(self.root)}):
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", "verify", "manifest.json", "--json"])
+                code = receipts_cli.main(["verify", "manifest.json", "--json"])
             self.assertEqual(code, 0)
             self.assertTrue(json.loads(stream.getvalue())["ok"])
             output.write_text("xxxxxx")
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", "verify", "manifest.json", "--json"])
+                code = receipts_cli.main(["verify", "manifest.json", "--json"])
             self.assertEqual(code, 1)
             result = json.loads(stream.getvalue())
             self.assertFalse(result["ok"])
@@ -129,8 +129,8 @@ class ReceiptTests(unittest.TestCase):
             with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
                 stream = io.StringIO()
                 with contextlib.redirect_stdout(stream):
-                    code = cli.main([
-                        "receipts", "chain", exported["manifest"], "--json",
+                    code = receipts_cli.main([
+                        "chain", exported["manifest"], "--json",
                     ])
                 self.assertEqual(code, 0)
                 self.assertEqual([step["app"] for step in

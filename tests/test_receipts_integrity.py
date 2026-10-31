@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install as install_designer
 
-from cavi_substance_mcp import cli, painter_operations, receipts
+from cavi_substance_mcp import painter_operations, receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
 
 
@@ -54,7 +54,7 @@ class Workspace(unittest.TestCase):
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(root or self.root)}):
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", *argv, "--json"])
+                code = receipts_cli.main([*argv, "--json"])
         return code, json.loads(stream.getvalue())
 
 
