@@ -71,7 +71,7 @@ INSPECT_PARAMS = {
 ASSET_PARAMS = {
     "create": {"project", "name", "model", "preset", "empty"},
     "delete": {"project", "asset"},
-    "import_resource": {"project", "path", "resources"},
+    "import_resource": {"project", "path", "resources", "source_manifest", "expected_sha256"},
     "set_metadata": {"project", "asset", "metadata"},
     "activate_channels": {"project", "asset", "channels"},
     "deactivate_channels": {"project", "asset", "channels"},
@@ -161,6 +161,8 @@ async def sampler_asset(
     metadata: AssetMetadata | None = None,
     channels: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
     path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
+    source_manifest: str | None = None,
+    expected_sha256: str | None = None,
     resources: Annotated[list[ResourceNameArg] | None, Field(min_length=1, max_length=64)] = None,
     images: list[str] | dict[str, str] | None = None,
     position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
@@ -175,6 +177,7 @@ async def sampler_asset(
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
         "empty": empty, "metadata": metadata, "channels": channels, "path": path,
+        "source_manifest": source_manifest, "expected_sha256": expected_sha256,
         "resources": resources, "images": images, "position": position,
         "import_option": import_option,
         "insert_above": insert_above, "filter": filter, "material": material,
@@ -231,6 +234,10 @@ async def sampler_asset(
         arguments["path"] = path
         if resources is not None:
             arguments["resources"] = resources
+        if source_manifest is not None:
+            arguments["source_manifest"] = source_manifest
+        if expected_sha256 is not None:
+            arguments["expected_sha256"] = expected_sha256
     if action == "set_metadata":
         arguments.update(metadata.model_dump(exclude_none=True))
     if action in ("activate_channels", "deactivate_channels"):

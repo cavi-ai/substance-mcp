@@ -24,11 +24,18 @@ plus `verified: true`. A mismatch fails before Painter imports the resource.
 3. Export textures from Painter:
 
 ```json
-{"directory": "handoff/painter", "preset": "resource://...", "dry_run": false}
+{"directory": "handoff/painter", "preset": "resource://...",
+ "source_manifest": "handoff/designer/manifest.json",
+ "source_file": "handoff/designer/01_02_pbr_metallic_roughness.sbsar",
+ "dry_run": false}
 ```
 
-The export directory contains `manifest.json` with output hashes. Compare the Painter
-`source.sha256` with the Designer `outputs[].sha256` to verify the handoff.
+The export directory contains `manifest.json` with output hashes and a `provenance`
+link to the Designer manifest and `.sbsar`. Verify the complete chain:
+
+```sh
+cavi-substance-mcp receipts chain handoff/painter/manifest.json
+```
 
 A Sampler job that exports `.sbsar` can feed the same Painter step; compare the
 Sampler manifest output hash with the Painter `source.sha256`.

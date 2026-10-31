@@ -36,6 +36,18 @@ def _validate(manifest: dict) -> dict:
                 key in row for key in ("path", "size", "sha256")
             ):
                 raise ReceiptError(f"Receipt {role} entry is incomplete")
+    provenance = manifest.get("provenance", [])
+    if not isinstance(provenance, list):
+        raise ReceiptError("Receipt provenance must be a list")
+    for link in provenance:
+        if not isinstance(link, dict):
+            raise ReceiptError("Receipt provenance entry must be an object")
+        for key in ("manifest", "file"):
+            entry = link.get(key)
+            if not isinstance(entry, dict) or not all(
+                field in entry for field in ("path", "size", "sha256")
+            ):
+                raise ReceiptError(f"Receipt provenance {key} entry is incomplete")
     return manifest
 
 
@@ -67,7 +79,7 @@ def records(paths, root: Path) -> list[dict]:
 
 def build(app: str, operation: str, root: Path, inputs=(), outputs=(),
           parameters=None, started=None, seconds=None, version=None,
-          warnings=None) -> dict:
+          warnings=None, provenance=None) -> dict:
     return {
         "schema": SCHEMA,
         "app": app,
@@ -79,6 +91,7 @@ def build(app: str, operation: str, root: Path, inputs=(), outputs=(),
         "inputs": records(inputs, root),
         "outputs": records(outputs, root),
         "warnings": list(warnings or []),
+        "provenance": list(provenance or []),
     }
 
 
@@ -100,20 +113,23 @@ def _path(entry: dict, root: Path) -> Path:
     return (path if path.is_absolute() else Path(root) / path).resolve()
 
 
+def _verify_entry(path: Path, entry: dict, label: str) -> None:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise ReceiptError(f"Missing {label} file {path}: {exc}") from exc
+    if size != entry["size"]:
+        raise ReceiptError(f"Size mismatch for {path}: {size} != {entry['size']}")
+    if _sha256(path) != entry["sha256"]:
+        raise ReceiptError(f"SHA-256 mismatch for {path}")
+
+
 def verify(manifest: dict, root: Path, roles=("inputs", "outputs")) -> dict:
     _validate(manifest)
     root = Path(root).resolve()
     for role in roles:
         for entry in manifest.get(role, []):
-            path = _path(entry, root)
-            try:
-                size = path.stat().st_size
-            except OSError as exc:
-                raise ReceiptError(f"Missing {role} file {path}: {exc}") from exc
-            if size != entry["size"]:
-                raise ReceiptError(f"Size mismatch for {path}: {size} != {entry['size']}")
-            if _sha256(path) != entry["sha256"]:
-                raise ReceiptError(f"SHA-256 mismatch for {path}")
+            _verify_entry(_path(entry, root), entry, role)
     return manifest
 
 
@@ -130,13 +146,52 @@ def find(manifest: dict, root: Path, path: Path, role: str = "outputs") -> dict:
 def verify_file(manifest: dict, root: Path, path: Path,
                 role: str = "outputs") -> dict:
     entry = find(manifest, root, path, role)
-    target = Path(path).resolve()
-    size = target.stat().st_size
-    if size != entry["size"]:
-        raise ReceiptError(f"Size mismatch for {target}: {size} != {entry['size']}")
-    if _sha256(target) != entry["sha256"]:
-        raise ReceiptError(f"SHA-256 mismatch for {target}")
+    _verify_entry(Path(path).resolve(), entry, role)
     return entry
+
+
+def chain(path: Path, root: Path) -> list[dict]:
+    root = Path(root).resolve()
+    seen, active, found = set(), set(), []
+
+    def visit(manifest_path: Path):
+        key = Path(manifest_path).resolve()
+        if key in active:
+            raise ReceiptError(f"Provenance cycle at {key}")
+        if key in seen:
+            return
+        active.add(key)
+        manifest = load(key)
+        verify(manifest, root)
+        found.append({
+            "path": _display(key, root),
+            "app": manifest.get("app"),
+            "operation": manifest.get("operation"),
+            "inputs": len(manifest.get("inputs", [])),
+            "outputs": len(manifest.get("outputs", [])),
+        })
+        for link in manifest.get("provenance", []):
+            linked = _path(link["manifest"], root)
+            _verify_entry(linked, link["manifest"], "provenance manifest")
+            output = find(load(linked), root, _path(link["file"], root), "outputs")
+            if (output["size"], output["sha256"]) != (
+                link["file"]["size"], link["file"]["sha256"]
+            ):
+                raise ReceiptError(f"Provenance file does not match {linked}")
+            _verify_entry(_path(link["file"], root), link["file"], "provenance file")
+            visit(linked)
+        active.remove(key)
+        seen.add(key)
+
+    visit(Path(path))
+    return found
+
+
+def _display(path: Path, root: Path) -> str:
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def load_and_verify(path: Path, root: Path, roles=("inputs", "outputs")) -> dict:

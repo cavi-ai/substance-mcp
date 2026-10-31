@@ -229,6 +229,8 @@ class OutputMap(BaseModel):
 def export_textures(
     directory: NewDirectory,
     preset: Annotated[str | None, Field(description="URL from inspect export_presets.")] = None,
+    source_manifest: Annotated[WorkspaceFile, Field(description="Receipt for source_file.")] = None,
+    source_file: Annotated[WorkspaceFile, Field(description="Source .sbsar.")] = None,
     maps: Annotated[list[OutputMap] | None, Field(max_length=16,
                                                   description="Channel packing; not with preset.")] = None,
     resolution: Literal[128, 256, 512, 1024, 2048, 4096, 8192] | None = None,
@@ -243,8 +245,11 @@ def export_textures(
     lease_id: LeaseId = None,
 ) -> dict[str, Any]:
     """Preview or export texture sets into a new workspace directory."""
+    if (source_manifest is None) != (source_file is None):
+        raise ValueError("source_manifest and source_file must be provided together")
     return PainterClient().call("export_textures", {
         "directory": directory, "preset": preset,
+        "source_manifest": source_manifest, "source_file": source_file,
         "maps": None if maps is None else [m.model_dump(exclude_none=True) for m in maps],
         "resolution": resolution, "file_format": file_format, "bit_depth": bit_depth,
         "texture_sets": texture_sets,
