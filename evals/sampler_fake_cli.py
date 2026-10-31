@@ -7,7 +7,7 @@ import types
 from pathlib import Path
 
 VERSION = "0.0.0-fake"
-FILTERS = ["Equalize", "Tiling", "Brightness/Contrast", "Grain"]
+FILTERS = ["Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile", "Delighter (AI Powered)"]
 MATERIALS = ["Brick", "Fabric", "Metal"]
 GENERATORS = ["Noise", "Gradient", "Cells"]
 PRESETS = ["Unreal Engine 4", "Blender Cycles/Eevee", "Unity HD Render Pipeline Standard"]

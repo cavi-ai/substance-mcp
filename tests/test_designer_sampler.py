@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_sampler_fake import install
 
-from cavi_substance_mcp.designer import packing, sampler, server
+from cavi_substance_mcp import packing
+from cavi_substance_mcp.designer import sampler, server
 
 HDRP = {"maps": [
     {"name": "T_MaskMap", "channels": {"R": "metallic", "G": "ambientOcclusion", "B": "0",

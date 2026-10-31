@@ -6,9 +6,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
+from ..packing import USAGE, PackSpec
 from . import operations
 from . import sampler as sampler_jobs
-from .packing import USAGE, PackSpec
 
 mcp = FastMCP(
     "cavi-substance-designer-mcp",
@@ -145,7 +145,7 @@ async def sampler(
     save_project: StrictBool = False,
     timeout_seconds: Timeout = 900,
 ) -> dict[str, Any]:
-    """Sampler batch: images -> PBR maps (+pack, .ssa), or export an .ssa. Quit Sampler first."""
+    """Deprecated: use cavi-substance-sampler-mcp for batch jobs. One-shot compatibility helper."""
     values = {key: value for key, value in locals().items() if key != "action"}
     given = {key for key, value in values.items()
              if key in SAMPLER_PARAMS["image_to_material"] | SAMPLER_PARAMS["export_project"]

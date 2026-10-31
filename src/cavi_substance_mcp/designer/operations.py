@@ -7,8 +7,9 @@ import re
 import time
 from pathlib import Path
 
+from .. import packing
 from ..painter_operations import export_destination, input_file, remove_tree
-from . import packing, runner
+from . import runner
 
 GRAPH = re.compile(r"^pkg://[A-Za-z0-9_./-]{1,128}$")
 PRESET = re.compile(r"^[^@\-\x00-\x1f\x7f][^@\x00-\x1f\x7f]{0,127}$")

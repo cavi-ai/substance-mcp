@@ -4,9 +4,18 @@ from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+)
 
+from ..packing import USAGE, PackSpec
 from . import batch, operations
+from . import pack as packer
 
 mcp = FastMCP(
     "cavi-substance-sampler-mcp",
@@ -41,6 +50,7 @@ TargetName = Literal["unreal", "unity", "blender", "generic"]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
 JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
 ChannelName = Annotated[str, Field(min_length=1, max_length=64)]
+PackUsage = Annotated[str, StringConstraints(pattern=f"^{USAGE}$")]
 ResourceNameArg = Annotated[str, Field(min_length=1, max_length=128)]
 
 
@@ -361,6 +371,16 @@ async def sampler_build(
             return {**await batch.validate_with_sampler_async(job, root), "dry_run": True}
         return {**batch.validate_job_file(job, root), "dry_run": True}
     return await batch.run_job_file_async(job, root, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
+async def sampler_pack(
+    directory: NewDirectory,
+    sources: Annotated[dict[PackUsage, str], Field(min_length=1, max_length=32)],
+    pack: Annotated[PackSpec, Field(description="Channel packing spec.")],
+) -> dict[str, Any]:
+    """Pack workspace maps into a new directory using a channel spec."""
+    return await packer.pack(directory, sources, pack)
 
 
 def main():
