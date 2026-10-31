@@ -61,6 +61,19 @@
     "error": "project is required"
   },
   {
+    "id": "inspect-project-requires-project",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project"
+    },
+    "error": "project is required for action=project"
+  },
+  {
     "id": "inspect-project-extra-parameter",
     "tool": "sampler_inspect",
     "kind": "invalid",

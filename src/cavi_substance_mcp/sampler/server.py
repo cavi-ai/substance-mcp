@@ -117,8 +117,9 @@ async def sampler_inspect(
     unexpected = extras(action, given, INSPECT_PARAMS)
     if unexpected:
         raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
-    if action == "asset":
+    if action in ("project", "asset"):
         need(project, "project", action)
+    if action == "asset":
         need(asset, "asset", action)
     arguments = {key: value for key, value in given.items() if value is not None}
     operation = {"project": "inspect_project", "asset": "inspect_asset",

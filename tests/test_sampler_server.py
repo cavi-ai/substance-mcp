@@ -70,6 +70,22 @@ class ServerContractTests(unittest.TestCase):
             self.run_tool(server.sampler_build, job="jobs/rock.json", dry_run=False,
                           check_sampler=True)
 
+    def project(self):
+        asyncio.run(server.sampler_project(
+            action="create", directory="projects", name="Rock", timeout_seconds=TIMEOUT))
+        return "projects/Rock.ssa"
+
+    def test_inspect_project_requires_a_project(self):
+        with self.assertRaisesRegex(ValueError, "project is required for action=project"):
+            self.run_tool(server.sampler_inspect, action="project")
+        with self.assertRaisesRegex(ValueError, "project is required for action=asset"):
+            self.run_tool(server.sampler_inspect, action="asset", asset="Rock")
+        listed = self.run_tool(
+            server.sampler_inspect, action="project", project=self.project())
+        self.assertEqual(listed["assets"][0]["name"], "Rock")
+        self.assertEqual(self.run_tool(server.sampler_inspect, action="catalog")["filters"][:1],
+                         ["Brightness/Contrast"])
+
 
 if __name__ == "__main__":
     unittest.main()
