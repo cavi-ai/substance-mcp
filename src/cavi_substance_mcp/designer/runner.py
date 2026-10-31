@@ -1,21 +1,13 @@
 """Designer binary discovery and output parsing."""
 
+import asyncio
 import json
-import os
-import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import proc
+from ..core import discovery, proc
 
 TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
-MAC_APP = Path("/Applications/Adobe Substance 3D Designer/Adobe Substance 3D Designer.app")
-DEFAULT_DIRS = {
-    "darwin": MAC_APP / "Contents/MacOS",
-    "win32": Path(r"C:\Program Files\Adobe\Adobe Substance 3D Designer"),
-    "linux": Path("/opt/Adobe/Adobe_Substance_3D_Designer"),
-}
 
 
 @dataclass
@@ -24,8 +16,7 @@ class Installation:
     source: str
 
     def binary(self, name: str) -> Path | None:
-        path = self.bin_dir / (name + (".exe" if sys.platform == "win32" else ""))
-        return path if path.is_file() and os.access(path, os.X_OK) else None
+        return discovery.tool(self.bin_dir, name)
 
     def require(self, name: str) -> Path:
         path = self.binary(name)
@@ -45,15 +36,9 @@ class Installation:
 
 
 def installation() -> Installation:
-    if os.environ.get("CAVI_DESIGNER_BIN_DIR"):
-        return Installation(Path(os.environ["CAVI_DESIGNER_BIN_DIR"]).expanduser(),
-                            "CAVI_DESIGNER_BIN_DIR")
-    if os.environ.get("CAVI_DESIGNER_APP"):
-        app = Path(os.environ["CAVI_DESIGNER_APP"]).expanduser()
-        macos = app / "Contents/MacOS"
-        return Installation(macos if macos.is_dir() else app, "CAVI_DESIGNER_APP")
-    platform = "linux" if sys.platform.startswith("linux") else sys.platform
-    return Installation(DEFAULT_DIRS.get(platform, DEFAULT_DIRS["linux"]), "default")
+    found = discovery.find_directory(
+        "designer", "sbsrender", "CAVI_DESIGNER_BIN_DIR", "CAVI_DESIGNER_APP")
+    return Installation(found.path, found.source)
 
 
 def failure(result: proc.Result, name: str) -> str:
@@ -71,14 +56,7 @@ def parsed_stdout(result: proc.Result, name: str) -> str:
 
 
 async def version(path: Path | None) -> str | None:
-    if path is None:
-        return None
-    try:
-        result = await proc.run([path, "--version"], 20)
-    except (OSError, TimeoutError):
-        return None
-    match = re.search(r"version\s+(\S+)", result.stdout + result.stderr)
-    return match.group(1) if match else None
+    return await asyncio.to_thread(discovery.version, path)
 
 
 def parse_info(text: str) -> list[dict]:

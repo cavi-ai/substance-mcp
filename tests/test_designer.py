@@ -14,9 +14,10 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import install, sbsar
+from launcher import write_launcher
 
 from cavi_substance_mcp import packing
-from cavi_substance_mcp.core import proc
+from cavi_substance_mcp.core import discovery, proc
 from cavi_substance_mcp.designer import operations, runner
 
 HDRP = {"maps": [
@@ -61,12 +62,38 @@ class InstallationTests(unittest.TestCase):
     def test_platform_defaults(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
         with patch.dict(os.environ, env, clear=True):
-            with patch.object(runner.sys, "platform", "win32"):
+            # shutil.which cannot run as another platform, and nothing is installed anyway.
+            with patch.object(discovery.sys, "platform", "win32"), \
+                    patch.object(discovery.shutil, "which", return_value=None):
                 found = runner.installation()
-                self.assertEqual(found.bin_dir, runner.DEFAULT_DIRS["win32"])
-            with patch.object(runner.sys, "platform", "linux"):
+                self.assertEqual(found.bin_dir, Path(
+                    r"C:\Program Files\Adobe\Adobe Substance 3D Designer"))
+            with patch.object(discovery.sys, "platform", "linux"), \
+                    patch.object(discovery.shutil, "which", return_value=None):
                 self.assertEqual(runner.installation().bin_dir,
                                  Path("/opt/Adobe/Adobe_Substance_3D_Designer"))
+
+    def test_path_is_searched_after_the_defaults(self):
+        with tempfile.TemporaryDirectory() as folder:
+            tools = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["PATH"] = str(tools)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                    discovery, "default_location", return_value=Path(folder) / "nowhere"):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("PATH", tools.resolve()))
+            self.assertTrue(found.binary("sbsrender"))
+
+    def test_an_existing_default_beats_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            default = write_launcher(Path(folder) / "default", "sbsrender", "print(1)\n").parent
+            other = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["PATH"] = str(other)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                    discovery, "default_location", return_value=default):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("default", default))
 
     def test_app_resources(self):
         with tempfile.TemporaryDirectory() as folder:

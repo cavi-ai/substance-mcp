@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -13,6 +12,7 @@ from home import isolate_home
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from launcher import write_launcher
 from sampler_fake_cli import install
 
 from cavi_substance_mcp import receipts
@@ -55,7 +55,7 @@ class SamplerTests(unittest.TestCase):
     def test_status(self):
         status = launch.status()
         self.assertTrue(status["available"])
-        self.assertEqual(status["version"], "0.0.0")
+        self.assertEqual(status["version"], "0.0.0-fake")
         self.assertFalse(status["running"])
         self.assertEqual(status["workspace"], str(self.workspace.resolve()))
 
@@ -72,7 +72,7 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual((created_receipt["app"], created_receipt["operation"]),
                          ("sampler", "create_project"))
         # The host reads the installed version; the script inside Sampler only records it.
-        self.assertEqual(created_receipt["version"], "0.0.0")
+        self.assertEqual(created_receipt["version"], "0.0.0-fake")
         self.assertEqual(created_receipt["outputs"][0]["path"], "projects/Rock.ssa")
         copied = self.call("save_as", project="projects/Rock.ssa", directory="copy",
                            name="RockCopy")
@@ -416,31 +416,39 @@ class SamplerRunnerTests(unittest.TestCase):
             ):
                 found = runner.installation()
                 self.assertTrue(found.executable.is_file())
-                self.assertEqual(found.version, "0.0.0")
+                self.assertEqual(found.version, "0.0.0-fake")
 
-    @staticmethod
-    def _windows_executable():
-        return runner.Installation(
-            Path("/fake/Adobe Substance 3D Sampler.exe"), "test"
-        )
-
-    def test_running_windows(self):
+    def test_running_asks_discovery_about_the_installed_executable(self):
+        installed = runner.Installation(Path("/fake/Adobe Substance 3D Sampler"), "test")
         with (
-            patch.object(runner.sys, "platform", "win32"),
-            patch.object(runner, "installation", return_value=self._windows_executable()),
-            patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess(
-                [], 0, '"Adobe Substance 3D Sampler.exe","1234"\n', ""
-            )),
+            patch.object(runner, "installation", return_value=installed),
+            patch.object(runner.discovery, "running", return_value=True) as ask,
         ):
             self.assertTrue(runner.running())
-        with (
-            patch.object(runner.sys, "platform", "win32"),
-            patch.object(runner, "installation", return_value=self._windows_executable()),
-            patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess(
-                [], 0, "INFO: No tasks are running\n", ""
-            )),
-        ):
-            self.assertFalse(runner.running())
+        ask.assert_called_once_with(installed.executable)
+
+    def test_script_folder_override_has_the_cavi_prefix(self):
+        with patch.dict(os.environ, {"CAVI_SAMPLER_SCRIPT_PATH": "/x/scripts",
+                                     "SAMPLER_SCRIPT_PATH": "/adobe/other"}):
+            self.assertEqual(runner.scripts_dir(), Path("/x/scripts"))
+        env = {k: v for k, v in os.environ.items() if k != "CAVI_SAMPLER_SCRIPT_PATH"}
+        env["SAMPLER_SCRIPT_PATH"] = "/adobe/other"
+        with patch.dict(os.environ, env, clear=True):
+            self.assertNotEqual(runner.scripts_dir(), Path("/adobe/other"))
+            self.assertEqual(runner.scripts_dir().name, "scripts")
+
+    def test_the_launched_sampler_gets_adobes_own_script_variable(self):
+        # SAMPLER_SCRIPT_PATH is Adobe's variable (Sampler 4.0 and later reads it at
+        # startup), so the launch keeps setting it even though our override is CAVI_ prefixed.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            program = write_launcher(
+                root, "sampler",
+                "import os\nprint('script_path=' + os.environ.get('SAMPLER_SCRIPT_PATH', ''))\n")
+            with patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(program),
+                                         "SAMPLER_SCRIPT_PATH": "/user/set/this"}):
+                result = asyncio.run(runner.run_script(root / "run.py", 30, root))
+            self.assertEqual(result.stdout.strip(), f"script_path={root}")
 
     def test_installation_override(self):
         with tempfile.TemporaryDirectory() as folder:

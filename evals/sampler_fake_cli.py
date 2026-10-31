@@ -598,7 +598,7 @@ def install(root: Path) -> Path:
         '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
         '<plist version="1.0"><dict>'
         '<key>CFBundleExecutable</key><string>Adobe Substance 3D Sampler</string>'
-        '<key>CFBundleShortVersionString</key><string>0.0.0</string>'
+        '<key>CFBundleShortVersionString</key><string>0.0.0-fake</string>'
         '</dict></plist>'
     )
     executable = macos / "Adobe Substance 3D Sampler"

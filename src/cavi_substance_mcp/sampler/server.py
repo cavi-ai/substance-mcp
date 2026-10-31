@@ -1,5 +1,6 @@
 """Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
 
+import asyncio
 from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
@@ -102,7 +103,7 @@ def extras(action: str, values: dict, params: dict) -> list[str]:
 @mcp.tool(annotations=READ_ONLY)
 async def sampler_status() -> dict[str, Any]:
     """Sampler executable, version, scripts folder, workspace and running state."""
-    return launch.status()
+    return await asyncio.to_thread(launch.status)
 
 
 @mcp.tool(annotations=READ_ONLY)

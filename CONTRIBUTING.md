@@ -45,7 +45,8 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   the host side that starts Sampler and reads the response, `job.py` the batch job model,
   `batch.py` and `cli.py` the batch runner, and `targets.py` the engine targets.
 - Shared code: `core/` for what every server uses (`workspace.py` holds the workspace
-  root and path rules, `proc.py` the bounded subprocess runner), `receipts.py` for
+  root and path rules, `proc.py` the bounded subprocess runner, `discovery.py` how the
+  Adobe executables are found, versioned and checked for a running process), `receipts.py` for
   receipts and `packing.py` for channel packing.
 - Code that runs inside an application (`painter_operations.py`, and `receipts.py`,
   `core/workspace.py`, `sampler/operations.py`, `sampler/names.py` and

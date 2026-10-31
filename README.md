@@ -195,7 +195,8 @@ headless CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or
 ```
 
 - Binaries: `CAVI_DESIGNER_BIN_DIR`, else `CAVI_DESIGNER_APP` (`.app` path), else the
-  standard install dir for macOS, Windows or Linux.
+  standard install dir for macOS, Windows or Linux, else `sbsrender` on `PATH`. An
+  override is final: a wrong one is reported as not found, not replaced.
 - Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories only.
   Failed calls remove the directory they created.
 
@@ -253,7 +254,12 @@ run startup scripts.
 ```
 
 - Executable: `CAVI_SAMPLER_BIN` (exact path), else `CAVI_SAMPLER_APP` (`.app` path),
-  else the standard install path for macOS, Windows or Linux.
+  else the standard install path for macOS, Windows or Linux, else the executable on
+  `PATH`. The version is read from the bundle's `Info.plist` on macOS and from
+  `--version` elsewhere.
+- `CAVI_SAMPLER_SCRIPT_PATH` overrides the startup-scripts folder that `sampler_status`
+  reports (default: Sampler's per-user scripts folder). Each launch also sets Adobe's own
+  `SAMPLER_SCRIPT_PATH` for the Sampler it starts; that variable is Adobe's, not ours.
 - Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories.
   Failed calls remove the directory they created.
 - Each call starts Sampler, opens the project if supplied, runs one operation, saves
@@ -450,7 +456,8 @@ Limitations:
 - Project-aware preflight is limited to source-project jobs. Use `--check-build` to
   validate new-project layers and parameters; it skips exports and refuses
   `import_resource` jobs.
-- `sampler_status` reports `running: null` where process inspection is unavailable.
+- `sampler_status` reports `running: null` where process inspection is unavailable
+  (`pgrep` on macOS and Linux, `tasklist` on Windows).
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.
 - Native project creation, source-project copies, source-project preflight, metadata,
