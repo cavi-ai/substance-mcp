@@ -1581,9 +1581,9 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
     elif step.get("assets"):
         names = list(dict.fromkeys(step["assets"]))
     elif step.get("all_assets"):
-        names = [
+        names = list(dict.fromkeys(
             _get(item, "name") for item in ssa.get_project_assets() if item.get_layers()
-        ]
+        ))
     else:
         raise ValueError("export needs asset, assets or all_assets")
     if not names:
@@ -1593,15 +1593,19 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
     preset = step.get("preset")
     if preset is None:
         preset = targets.preset_for(target_name)
-    slugs = {}
+    directories, owners = {}, {}
     for name in names:
         slug = _slug(name)
-        if slug in slugs:
-            raise ValueError(f"Assets {slugs[slug]!r} and {name!r} share export directory {slug!r}")
-        slugs[slug] = name
+        # Compare case-insensitively: macOS and Windows volumes would merge the folders.
+        owner = owners.setdefault(slug.casefold(), name)
+        if owner != name:
+            raise ValueError(
+                f"Assets {owner!r} and {name!r} share export directory {slug!r}"
+            )
+        directories[name] = slug
     rows = []
     for name in names:
-        asset_dir = base / slugs[name]
+        asset_dir = base / directories[name]
         asset_dir.mkdir(parents=True, exist_ok=True)
         for kind in step.get("outputs") or ["sbsar", "textures"]:
             directory = _rel(root, asset_dir / kind)

@@ -653,6 +653,48 @@ class BatchTests(unittest.TestCase):
         self.assertTrue(plan["preflight_skip_resources"])
         self.assertIn("preflight_warnings", plan)
 
+    def slug_job(self, directory, names, exports):
+        steps = []
+        for name in names:
+            steps.append({"action": "create_asset", "name": name})
+            steps.append({"action": "insert_filter", "asset": name, "filter": "Tiling",
+                          "position": 0})
+        return {
+            "schema": 1,
+            "directory": directory,
+            "project": {"name": "Slugs"},
+            "steps": steps + exports,
+        }
+
+    def test_export_names_that_change_when_slugged(self):
+        names = ["Rock 01", "Photo PBR", "Mossy (rock) #2", "Caf\u00e9 Stone"]
+        slugs = ["Rock_01", "Photo_PBR", "Mossy_rock_2", "Caf_Stone"]
+        data = self.slug_job("jobs/slugs", names, [
+            {"action": "export", "asset": "Rock 01", "outputs": ["sbsar"],
+             "directory": "single"},
+            {"action": "export", "assets": names, "outputs": ["sbsar"],
+             "directory": "several"},
+            {"action": "export", "all_assets": True, "outputs": ["sbsar"],
+             "directory": "everything"},
+        ])
+        manifest = batch.run_job_file(self.write_job("slugs.json", data), self.workspace)
+        outputs = {row["path"] for row in manifest["outputs"]}
+        self.assertIn("jobs/slugs/single/Rock_01/sbsar/Rock 01.sbsar", outputs)
+        for selector in ("several", "everything"):
+            for name, slug in zip(names, slugs, strict=True):
+                self.assertIn(f"jobs/slugs/{selector}/{slug}/sbsar/{name}.sbsar", outputs)
+
+    def test_export_slug_collisions_are_refused(self):
+        for first, second in (("A B", "A_B"), ("Rock", "rock")):
+            with self.subTest(first=first, second=second):
+                data = self.slug_job(f"jobs/clash-{len(first)}{first[0]}", [first, second], [
+                    {"action": "export", "assets": [first, second], "outputs": ["sbsar"]},
+                ])
+                path = self.write_job(f"clash-{len(first)}{first[0]}.json", data)
+                with self.assertRaisesRegex(ValueError, "share export directory"):
+                    batch.run_job_file(path, self.workspace)
+                self.assertFalse((self.workspace / data["directory"]).exists())
+
     def test_remove_layer(self):
         data = job_data(directory="jobs/remove")
         data["steps"].insert(-1, {"action": "remove_layer", "asset": "Rock",
