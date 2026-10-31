@@ -101,5 +101,42 @@ class MalformedReplyTests(unittest.TestCase):
             client.call("status")
 
 
+class DeadlineTests(unittest.TestCase):
+    def trickle(self, head, seconds=4.0, pause=0.05):
+        def respond(connection):
+            connection.sendall(head)
+            end = time.monotonic() + seconds
+            while time.monotonic() < end:
+                connection.sendall(b" ")
+                time.sleep(pause)
+
+        port, close = raw_server(respond)
+        self.addCleanup(close)
+        return PainterClient(port=port)
+
+    def test_body_trickle_cannot_outlive_the_call_deadline(self):
+        # Each recv() succeeds within the per-socket timeout, so only a wall clock stops this.
+        client = self.trickle(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+        started = time.monotonic()
+        with self.assertRaisesRegex(PainterTimeout, "outcome unknown"):
+            client.call("status", timeout=0.5)
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_header_trickle_cannot_outlive_the_call_deadline(self):
+        client = self.trickle(b"HTTP/1.1 200 OK\r\nX-Slow: ")
+        started = time.monotonic()
+        with self.assertRaisesRegex(PainterTimeout, "outcome unknown"):
+            client.call("status", timeout=0.5)
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_fast_reply_still_succeeds(self):
+        body = json.dumps({"ok": True, "result": {"open": True}}).encode()
+        port, close = raw_server(lambda connection: connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+        ))
+        self.addCleanup(close)
+        self.assertEqual(PainterClient(port=port).call("status", timeout=0.5), {"open": True})
+
+
 if __name__ == "__main__":
     unittest.main()

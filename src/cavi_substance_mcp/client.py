@@ -1,10 +1,13 @@
 """Painter's documented loopback HTTP remote-scripting transport."""
 
 import base64
+import contextlib
 import hashlib
 import http.client
 import json
 import os
+import socket
+import threading
 import time
 from pathlib import Path
 
@@ -157,10 +160,26 @@ class PainterClient:
     def _post(self, expression: str, timeout: float):
         body = json.dumps({"python": base64.b64encode(expression.encode()).decode()})
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+        expired = threading.Event()
+
+        def expire():
+            # Socket timeouts restart on every recv(), so a trickling reply could outlive
+            # them; this watchdog bounds the whole exchange by wall-clock time.
+            expired.set()
+            sock = connection.sock
+            if sock is not None:
+                with contextlib.suppress(OSError):
+                    sock.shutdown(socket.SHUT_RDWR)
+
+        watchdog = threading.Timer(timeout, expire)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             try:
                 connection.connect()
             except OSError as exc:
+                if expired.is_set():
+                    raise PainterTimeout(TIMEOUT_MESSAGE) from exc
                 raise PainterUnavailable(
                     f"Painter not reachable on 127.0.0.1:{self.port}. Start licensed Painter "
                     "with --enable-remote-scripting."
@@ -174,11 +193,14 @@ class PainterClient:
             except TimeoutError as exc:
                 raise PainterTimeout(TIMEOUT_MESSAGE) from exc
             except (OSError, http.client.HTTPException) as exc:
+                if expired.is_set():
+                    raise PainterTimeout(TIMEOUT_MESSAGE) from exc
                 raise PainterUnavailable(
                     "Painter not reachable or dropped the connection; outcome unknown, "
                     "check painter_status before retrying"
                 ) from exc
         finally:
+            watchdog.cancel()
             connection.close()
         if len(data) > RESPONSE_LIMIT:
             raise RuntimeError("Painter response exceeds size limit")
@@ -189,6 +211,9 @@ class PainterClient:
             if isinstance(result, str):
                 result = json.loads(result)
         except (ValueError, UnicodeDecodeError) as exc:
+            if expired.is_set():
+                # The watchdog cut the reply short; a complete reply would have parsed.
+                raise PainterTimeout(TIMEOUT_MESSAGE) from exc
             raise RuntimeError(
                 "Painter returned an invalid response; inspect the application before retrying"
             ) from exc
