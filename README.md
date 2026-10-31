@@ -15,12 +15,38 @@ Designer and Sampler discovery, process checks and process termination are writt
 
 ## Install
 
-Requires Python 3.11+, uv, and a separately installed and licensed Adobe application.
-The MCP does not supply an Adobe license or authenticate accounts.
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a separately installed and
+licensed Adobe application. The MCP does not supply an Adobe license or authenticate
+accounts.
+
+Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Painter),
+`cavi-substance-designer-mcp` and `cavi-substance-sampler-mcp`.
 
 ```sh
-uv sync --locked
+uv tool install git+https://github.com/cavi-ai/substance-mcp
 ```
+
+Upgrade with `uv tool upgrade cavi-substance-mcp`. To work from a checkout instead, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Register the servers you need in your MCP client. Desktop apps that do not inherit your
+shell's `PATH` need absolute paths, which `command -v cavi-substance-mcp` prints.
+
+```json
+{
+  "mcpServers": {
+    "substance-painter": {"command": "cavi-substance-mcp"},
+    "substance-designer": {"command": "cavi-substance-designer-mcp"},
+    "substance-sampler": {"command": "cavi-substance-sampler-mcp"}
+  }
+}
+```
+
+Tools read and write files only inside the workspace (see below). To use a folder other
+than the default, add `"env": {"CAVI_SUBSTANCE_WORKSPACE": "/absolute/path"}` to a server
+entry.
+
+### Painter
 
 Launch the installed Painter application with remote scripting enabled:
 
@@ -41,12 +67,6 @@ Commands print JSON and exit nonzero on failure. Running `cavi-substance-mcp` wi
 arguments continues to serve MCP over stdio.
 
 Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
-
-Register the stdio server in your MCP client:
-
-```json
-{"mcpServers":{"substance":{"command":"/path/to/substance-mcp/.venv/bin/cavi-substance-mcp"}}}
-```
 
 Call `painter_status` first. After `open`/`create`/`reload_mesh`, call `project` with `action="wait_ready"` before editing.
 

@@ -5,9 +5,15 @@
 Install Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and Node.js 22, then:
 
 ```bash
+git clone https://github.com/cavi-ai/substance-mcp.git
+cd substance-mcp
 uv sync --locked --dev
 npm ci
 ```
+
+The servers then run from the checkout as `uv run cavi-substance-mcp`,
+`uv run cavi-substance-designer-mcp` and `uv run cavi-substance-sampler-mcp`. In an MCP
+client, use the absolute paths under `.venv/bin/` (`.venv\Scripts\` on Windows).
 
 No Adobe application is required. The unit tests and evaluations run against a simulated
 Painter API and fake Designer and Sampler executables.
