@@ -3,16 +3,18 @@
 Standard library only: the Sampler operations that run inside Sampler's embedded Python
 import this module, and it must not import anything else from this package.
 
-Painter runs painter_operations.py as a self-contained payload and cannot import this
-package, so that file keeps its own copy of ``input_file``, ``output_path`` and
-``remove_tree``. tests/test_workspace.py checks that the two copies accept and refuse the
-same paths.
+Painter runs painter/operations.py as a self-contained payload and cannot import this
+package, so that file keeps its own copies of ``input_file``, ``remove_tree`` and the
+twin of ``output_path``, which it calls ``export_destination``. tests/test_workspace.py
+checks that the copies accept and refuse the same paths.
 """
 
 import os
 import shutil
 import stat
 import sys
+import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 ENV = "CAVI_SUBSTANCE_WORKSPACE"
@@ -25,7 +27,8 @@ def default_root() -> Path:
 
 
 def root(explicit=None, *, create: bool = False) -> Path:
-    """The resolved workspace root: ``explicit``, else ``$CAVI_SUBSTANCE_WORKSPACE``, else the default.
+    """The resolved workspace root: ``explicit``, else ``$CAVI_SUBSTANCE_WORKSPACE``, else the
+    default.
 
     Nothing is touched unless ``create`` is true, so read-only operations can report a
     workspace that does not exist yet. With ``create`` the default is made on first use,
@@ -172,3 +175,52 @@ def remove_tree(path) -> list[str]:
     except OSError:
         left = []
     return [*left, str(path)]
+
+
+# How many leftover entries an error message names before it counts the rest.
+LEFTOVERS_SHOWN = 10
+
+
+def _listing(left: list[str]) -> str:
+    more = len(left) - LEFTOVERS_SHOWN
+    return ", ".join(left[:LEFTOVERS_SHOWN]) + (f" and {more} more" if more > 0 else "")
+
+
+def remove_scratch(path) -> None:
+    """Remove a scratch or abandoned directory that has no error to carry a report.
+
+    ``remove_tree``, but anything that is still there afterwards is reported as a
+    ``RuntimeWarning`` instead of being dropped.
+    """
+    left = remove_tree(path)
+    if left:
+        warnings.warn(f"could not remove {path}: {_listing(left)}", RuntimeWarning, stacklevel=2)
+
+
+@contextmanager
+def new_output_directory(workspace, name, *, parents: bool = False):
+    """Create the new output directory ``name`` and remove it again if the body raises.
+
+    This is ``new_output_dir`` for an operation that fills the directory: whatever
+    ``BaseException`` ends the body, cancellation included, the directory and everything in
+    it are removed before the error continues. A directory that already existed is never
+    touched, because it is refused before the body runs.
+
+    When something cannot be removed, the leftovers are reported with the error. An
+    ``Exception`` is replaced by a ``RuntimeError`` (chained to the original) whose text
+    names them, because that text is what the tool's caller sees; any other
+    ``BaseException`` is re-raised as it is, with the leftovers as a note.
+    """
+    path = new_output_dir(workspace, name, parents=parents)
+    try:
+        yield path
+    except BaseException as exc:
+        left = remove_tree(path)
+        if not left:
+            raise
+        note = f"could not remove the incomplete output: {_listing(left)}"
+        if not isinstance(exc, Exception):
+            exc.add_note(note)
+            raise
+        reason = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
+        raise RuntimeError(f"{reason}; {note}") from exc

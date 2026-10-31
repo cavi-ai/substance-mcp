@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..core import discovery, proc
 
-TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
+TOOLS = ("sbscooker", "sbsrender", "substance3d_baker")
 
 
 @dataclass
@@ -22,7 +22,8 @@ class Installation:
         path = self.binary(name)
         if path is None:
             raise RuntimeError(
-                f"{name} not found in {self.bin_dir}; set CAVI_DESIGNER_APP or CAVI_DESIGNER_BIN_DIR"
+                f"{name} not found in {self.bin_dir}; "
+                "set CAVI_DESIGNER_APP or CAVI_DESIGNER_BIN_DIR"
             )
         return path
 

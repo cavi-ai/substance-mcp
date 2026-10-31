@@ -3,7 +3,7 @@ import unittest
 
 from clock import Clock
 
-from cavi_substance_mcp import painter_operations as lease
+from cavi_substance_mcp.painter import operations as lease
 
 
 class LeaseTests(unittest.TestCase):

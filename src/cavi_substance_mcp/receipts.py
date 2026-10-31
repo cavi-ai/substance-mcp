@@ -29,6 +29,10 @@ SUPPORTED_SCHEMAS = (SCHEMA, EXTERNAL_SCHEMA)
 EXTERNAL_ROLE = "app-resource"
 MANIFEST = "manifest.json"
 MAX_CHAIN = 128
+# The most a JSON file read from the workspace (a receipt, a job) may hold. They are small
+# by nature; a larger one is refused before it is parsed. painter/operations.py repeats
+# the number, and tests/test_painter_sbsar.py checks that the two agree.
+MAX_JSON_BYTES = 8 * 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
@@ -36,12 +40,28 @@ class ReceiptError(ValueError):
     """A receipt is unreadable, unsupported, or does not match its files."""
 
 
-def _sha256(path: Path) -> str:
+def sha256_file(path) -> str:
+    """The SHA-256 of a file, as lower-case hex, read in 1 MiB blocks."""
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with Path(path).open("rb") as stream:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def read_json(path, limit: int | None = None):
+    """Parse the JSON file ``path``, refusing one larger than ``limit`` (``MAX_JSON_BYTES``).
+
+    The file is never read past the limit, so a huge or growing file costs at most that
+    much memory. Raises ValueError (including JSON and UTF-8 decoding errors) or OSError.
+    """
+    limit = MAX_JSON_BYTES if limit is None else limit
+    with Path(path).open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        size = f"{limit // 2**20} MiB" if limit % 2**20 == 0 else f"{limit} bytes"
+        raise ValueError(f"file is larger than {size}")
+    return json.loads(data.decode("utf-8"))
 
 
 def _relative(value, label: str) -> str:
@@ -122,7 +142,7 @@ def record(path: Path, root: Path) -> dict:
     return {
         "path": display,
         "size": path.stat().st_size,
-        "sha256": _sha256(path),
+        "sha256": sha256_file(path),
     }
 
 
@@ -149,7 +169,7 @@ def app_resource(name: str, path: Path, tool_version: str | None = None) -> dict
     return {
         "role": EXTERNAL_ROLE,
         "name": name,
-        "sha256": _sha256(path),
+        "sha256": sha256_file(path),
         "tool_version": tool_version,
     }
 
@@ -178,7 +198,7 @@ def build(app: str, operation: str, root: Path, inputs=(), outputs=(),
 def load(path: Path) -> dict:
     path = Path(path)
     try:
-        return _validate(json.loads(path.read_text(encoding="utf-8")))
+        return _validate(read_json(path))
     except ReceiptError:
         raise
     except (OSError, ValueError) as exc:
@@ -195,36 +215,56 @@ def _path(entry: dict, root: Path) -> Path:
     return path
 
 
-def _verify_entry(path: Path, entry: dict, label: str) -> None:
-    try:
-        size = path.stat().st_size
-    except OSError as exc:
-        raise ReceiptError(f"Missing {label} file {path}: {exc}") from exc
+def _verify_entry(path: Path, entry: dict, label: str, seen: dict | None = None) -> None:
+    """Check a file against a row. ``seen`` maps paths to the (size, SHA-256) found earlier
+    in the same walk, so a file listed by several receipts is read once."""
+    found = None if seen is None else seen.get(path)
+    if found is None:
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise ReceiptError(f"Missing {label} file {path}: {exc}") from exc
+        digest = None
+    else:
+        size, digest = found
     if size != entry["size"]:
         raise ReceiptError(f"Size mismatch for {path}: {size} != {entry['size']}")
-    if _sha256(path) != entry["sha256"]:
+    if digest is None:
+        digest = sha256_file(path)
+        if seen is not None:
+            seen[path] = (size, digest)
+    if digest != entry["sha256"]:
         raise ReceiptError(f"SHA-256 mismatch for {path}")
 
 
-def verify(manifest: dict, root: Path, roles=("inputs", "outputs")) -> dict:
+def _verify(manifest: dict, root: Path, roles, seen: dict | None) -> dict:
     _validate(manifest)
     root = Path(root).resolve()
     for role in roles:
         for entry in manifest.get(role, []):
             if _is_external(entry):
                 continue  # identified by name and hash; there is no workspace file to check
-            _verify_entry(_path(entry, root), entry, role)
+            _verify_entry(_path(entry, root), entry, role, seen)
     return manifest
 
 
-def find(manifest: dict, root: Path, path: Path, role: str = "outputs") -> dict:
-    _validate(manifest)
+def verify(manifest: dict, root: Path, roles=("inputs", "outputs")) -> dict:
+    return _verify(manifest, root, roles, None)
+
+
+def _find(manifest: dict, root: Path, path: Path, role: str) -> dict:
+    """``find`` for a manifest that has already been validated."""
     target = Path(path).resolve()
     root = Path(root).resolve()
     for entry in manifest.get(role, []):
         if not _is_external(entry) and _path(entry, root) == target:
             return entry
     raise ReceiptError(f"{target} is not listed in receipt {role}")
+
+
+def find(manifest: dict, root: Path, path: Path, role: str = "outputs") -> dict:
+    _validate(manifest)
+    return _find(manifest, root, path, role)
 
 
 def verify_file(manifest: dict, root: Path, path: Path,
@@ -234,18 +274,24 @@ def verify_file(manifest: dict, root: Path, path: Path,
     return entry
 
 
-def _links(manifest: dict, root: Path) -> list[Path]:
-    """Verify each provenance link of a manifest and return the linked manifests."""
+def _links(manifest: dict, root: Path, loaded: dict, seen: dict) -> list[Path]:
+    """Verify each provenance link of a manifest and return the linked manifests.
+
+    ``loaded`` holds the manifests read so far and ``seen`` the files already hashed
+    during this walk; both are filled as it goes.
+    """
     found = []
     for link in manifest.get("provenance", []):
         linked = _path(link["manifest"], root)
-        _verify_entry(linked, link["manifest"], "provenance manifest")
-        output = find(load(linked), root, _path(link["file"], root), "outputs")
+        _verify_entry(linked, link["manifest"], "provenance manifest", seen)
+        if linked not in loaded:
+            loaded[linked] = load(linked)
+        output = _find(loaded[linked], root, _path(link["file"], root), "outputs")
         if (output["size"], output["sha256"]) != (
             link["file"]["size"], link["file"]["sha256"]
         ):
             raise ReceiptError(f"Provenance file does not match {linked}")
-        _verify_entry(_path(link["file"], root), link["file"], "provenance file")
+        _verify_entry(_path(link["file"], root), link["file"], "provenance file", seen)
         found.append(linked)
     return found
 
@@ -254,6 +300,8 @@ def chain(path: Path, root: Path) -> list[dict]:
     """Verify a receipt and every receipt it links to, depth first, without recursion."""
     root = Path(root).resolve()
     seen, active, found = set(), set(), []
+    # Each manifest is read once and each file hashed once, however many receipts name it.
+    loaded, hashed = {}, {}
     # Entries are (manifest path, leaving?). Leaving pops the path off the active set.
     stack = [(Path(path).resolve(), False)]
     while stack:
@@ -269,8 +317,10 @@ def chain(path: Path, root: Path) -> list[dict]:
         if len(found) >= MAX_CHAIN:
             raise ReceiptError(f"Provenance chain has more than {MAX_CHAIN} manifests")
         active.add(key)
-        manifest = load(key)
-        verify(manifest, root)
+        if key not in loaded:
+            loaded[key] = load(key)
+        manifest = loaded[key]
+        _verify(manifest, root, ("inputs", "outputs"), hashed)
         found.append({
             "path": _display(key, root),
             "app": manifest.get("app"),
@@ -279,7 +329,9 @@ def chain(path: Path, root: Path) -> list[dict]:
             "outputs": len(manifest.get("outputs", [])),
         })
         stack.append((key, True))
-        stack.extend((linked, False) for linked in reversed(_links(manifest, root)))
+        stack.extend(
+            (linked, False) for linked in reversed(_links(manifest, root, loaded, hashed))
+        )
     return found
 
 
@@ -290,8 +342,13 @@ def _display(path: Path, root: Path) -> str:
         return str(path)
 
 
-def load_and_verify(path: Path, root: Path, roles=("inputs", "outputs")) -> dict:
-    return verify(load(path), root, roles)
+def write_manifest(directory: Path, app: str, operation: str, root: Path, **fields) -> Path:
+    """Build a receipt with ``build`` and write it as ``directory/manifest.json``.
+
+    ``fields`` are the optional arguments of ``build``. Nothing is written if a listed file
+    is missing or outside the root.
+    """
+    return write(directory, build(app, operation, root, **fields))
 
 
 def write(directory: Path, manifest: dict) -> Path:

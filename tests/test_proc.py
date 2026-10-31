@@ -4,6 +4,7 @@ import os
 import signal
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import warnings
@@ -319,6 +320,32 @@ class SyncTests(unittest.TestCase):
     def test_run_sync_from_plain_code(self):
         result = proc.run_sync(python("print('hi')"), 30)
         self.assertEqual(result.stdout.strip(), "hi")
+
+    def test_run_sync_from_plain_code_starts_no_thread_pool(self):
+        with patch.object(proc.concurrent.futures, "ThreadPoolExecutor",
+                          side_effect=AssertionError("started a thread pool")):
+            result = proc.run_sync(python("print('hi')"), 30)
+        self.assertEqual(result.stdout.strip(), "hi")
+
+    def test_run_sync_from_a_worker_thread_runs_on_that_thread(self):
+        seen = {}
+        real = proc.run
+
+        async def spy(*args, **kwargs):
+            seen["run"] = threading.get_ident()
+            return await real(*args, **kwargs)
+
+        def work():
+            seen["caller"] = threading.get_ident()
+            return proc.run_sync(python("print('hi')"), 30)
+
+        async def scenario():
+            return await asyncio.to_thread(work)
+
+        with patch.object(proc, "run", spy):
+            result = asyncio.run(scenario())
+        self.assertEqual(result.stdout.strip(), "hi")
+        self.assertEqual(seen["run"], seen["caller"])
 
     def test_run_sync_from_inside_a_running_loop(self):
         async def scenario():

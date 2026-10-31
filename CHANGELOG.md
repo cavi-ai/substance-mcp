@@ -36,10 +36,19 @@
   requires `hatchling>=1.27`.
 - The source distribution contains only `src/`, `tests/`, `evals/`, `examples/`, the README,
   `LICENSE`, `CHANGELOG.md` and `pyproject.toml`.
-- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets (line length is enforced after the
-  pre-release format pass).
+- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets, including the 100-character line
+  limit (`E501`).
 - `.gitignore` covers local plans, worktrees, editor state, logs, build output and Substance
   `.ssa` and `.spt` files.
+- Receipt verification is its own command, `cavi-substance-receipts verify` and `chain`
+  (module `cavi_substance_mcp.receipts_cli`), shared by all three servers. It replaces
+  `cavi-substance-mcp receipts ...`, which is removed; the arguments, output and exit codes
+  are unchanged. `npm run verify:package` runs it from the installed wheel.
+- The Painter server lives in the `cavi_substance_mcp.painter` subpackage, like Designer and
+  Sampler: `server`, `client`, `runtime` and `cli` moved there under the same names, and
+  `painter_operations` is now `painter.operations`. `cavi-substance-mcp` runs
+  `cavi_substance_mcp.painter.server:main`, and the module to run with `python -m` is
+  `cavi_substance_mcp.painter.server`. The old import paths are gone; there are no aliases.
 
 ### Changed (breaking)
 
@@ -53,6 +62,9 @@
   starts is still Adobe's own `SAMPLER_SCRIPT_PATH`.
 - The deprecated Designer `sampler` tool is removed, and `designer_status` no longer has a
   `sampler` entry. Use `cavi-substance-sampler-mcp`.
+- `designer_status` no longer lists `sbsupdater`, which no operation uses.
+- Painter no longer adopts edit-lease state left by lease versions that were never released
+  (`_cavi_mcp_lease_v2` and the unversioned attribute).
 - Painter: `bake` gains `action="cancel"`. Deleting a node whose subtree holds layers this
   lease did not create requires `confirm_name`. `layer_edit` times out after 120 seconds.
 - Sampler: `sampler_build` defaults to `dry_run=true`. `sampler_asset action="delete"`
@@ -89,6 +101,12 @@
 - Painter transport errors and HTTP 5xx responses are reported as unavailable, and each
   request has a wall-clock deadline.
 - Sampler batch exports work for asset names that are not already directory-safe.
+- The `--version` probe of a Designer or Sampler program waits at most 5 s instead of 20 s, and a
+  Sampler launch counts it against the call's timeout instead of adding to it.
+- Receipts, batch job files and Painter's `source_manifest` larger than 8 MiB are refused with
+  a message instead of being read whole.
+- When a failed Designer or Sampler operation cannot remove the output directory it created,
+  the error names what is left.
 - A cancelled batch job releases the workspace lock and removes its directory.
 - Every Sampler launch takes the workspace lock.
 - Single Sampler operations edit a copy of the project and replace it only on success.

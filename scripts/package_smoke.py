@@ -2,10 +2,11 @@
 """Build the distributions, install the wheel into a clean venv, and run what a user runs.
 
 The unit tests import the source tree. This proves the artifact: that the wheel
-carries the module `client.py` reads at import time, that neither distribution
+carries the module `painter/client.py` reads at import time, that neither distribution
 ships tests, evals or repository tooling, that both carry the LICENSE, and that
-each installed console script answers an MCP `initialize` and `tools/list` over
-stdio with the package version and the expected tool count.
+each installed server script answers an MCP `initialize` and `tools/list` over
+stdio with the package version and the expected tool count, and that the receipts script
+verifies a manifest.
 
     uv run --locked python scripts/package_smoke.py              # build, then check
     uv run --locked python scripts/package_smoke.py --dist dist  # check what a release built
@@ -42,11 +43,14 @@ SERVERS = {
     "cavi-substance-designer-mcp": 3,
     "cavi-substance-sampler-mcp": 8,
 }
-# The files that run inside Painter and Sampler are loaded from the installed package.
+RECEIPTS_SCRIPT = "cavi-substance-receipts"
+# The files that run inside Painter and Sampler are loaded from the installed package, and
+# receipts_cli.py is the entry point of RECEIPTS_SCRIPT.
 REQUIRED_IN_WHEEL = (
-    "cavi_substance_mcp/painter_operations.py",
+    "cavi_substance_mcp/painter/operations.py",
     "cavi_substance_mcp/core/workspace.py",
     "cavi_substance_mcp/sampler/operations.py",
+    "cavi_substance_mcp/receipts_cli.py",
 )
 FORBIDDEN_IN_WHEEL = ("tests/", "evals/")
 FORBIDDEN_IN_SDIST = (
@@ -336,6 +340,61 @@ def check_runtime_status(script: Path, env: dict, cwd: Path) -> None:
            f"no boolean `connected` in {status!r}")
 
 
+def invoke(script: Path, arguments: list[str], env: dict, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(script), *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TIMEOUT,
+        env=env,
+        cwd=cwd,
+        check=False,
+    )
+
+
+def check_receipts_script(
+        script: Path, python: Path, env: dict, workspace: Path, cwd: Path) -> None:
+    """The receipts script verifies a real manifest and its chain, and rejects a changed file."""
+    seed = (
+        "import sys; from pathlib import Path; from cavi_substance_mcp import receipts;"
+        "root = Path(sys.argv[1]); out = root / 'handoff'; out.mkdir();"
+        "(out / 'a.txt').write_text('smoke');"
+        "receipts.write(out, receipts.build('smoke', 'check', root, outputs=[out / 'a.txt']))"
+    )
+    run([python, "-I", "-c", seed, workspace], cwd=cwd, env=env)
+
+    def receipt(action: str) -> tuple[int, dict]:
+        result = invoke(script, [action, "handoff/manifest.json", "--json"], env, cwd)
+        try:
+            return result.returncode, json.loads(result.stdout)
+        except ValueError:
+            raise Failure(
+                f"{action}: stdout is not JSON: {result.stdout[:200]!r} {result.stderr[-200:]!r}"
+            ) from None
+
+    code, body = receipt("verify")
+    expect(code == 0 and body.get("ok") is True and body.get("outputs") == 1,
+           f"verify exited {code} with {body!r}, want exit 0 and one verified output")
+    code, body = receipt("chain")
+    steps = [step.get("app") for step in body.get("chain", [])]
+    expect(code == 0 and body.get("ok") is True and steps == ["smoke"],
+           f"chain exited {code} with {body!r}, want exit 0 and the one smoke manifest")
+    (workspace / "handoff" / "a.txt").write_text("changed")
+    code, body = receipt("verify")
+    expect(code == 1 and body.get("ok") is False and body.get("error"),
+           f"verify of a changed file exited {code} with {body!r}, want exit 1 and an error")
+
+
+def check_no_painter_receipts_subcommand(script: Path, env: dict, cwd: Path) -> None:
+    """Receipts moved to their own script; the Painter script must refuse the old subcommand."""
+    result = invoke(script, ["receipts", "verify", "handoff/manifest.json"], env, cwd)
+    expect(result.returncode == 2 and "invalid choice" in result.stderr,
+           f"exited {result.returncode}, want an argparse refusal (2): "
+           f"{result.stderr.strip()[-300:]}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -391,6 +450,12 @@ def main(argv: list[str] | None = None) -> int:
         report.run("cavi-substance-mcp runtime status prints JSON offline",
                    lambda: check_runtime_status(venv_executable(venv, "cavi-substance-mcp"),
                                                 env, outside))
+        report.run("cavi-substance-mcp no longer has a receipts subcommand",
+                   lambda: check_no_painter_receipts_subcommand(
+                       venv_executable(venv, "cavi-substance-mcp"), env, outside))
+        report.run(f"{RECEIPTS_SCRIPT}: verify and chain a manifest, reject a changed file",
+                   lambda: check_receipts_script(venv_executable(venv, RECEIPTS_SCRIPT), python,
+                                                 env, workspace, outside))
     return finish(report, work, outside)
 
 

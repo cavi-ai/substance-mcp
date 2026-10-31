@@ -37,8 +37,9 @@ def rel(path: Path) -> str:
     return workspace.rel(workspace.root(), path)
 
 
-def new_directory(name: str) -> Path:
-    return workspace.new_output_dir(workspace.root(create=True), name)
+def new_directory(name: str):
+    """A context manager that makes the new output directory and removes it on failure."""
+    return workspace.new_output_directory(workspace.root(create=True), name)
 
 
 def source(name: str, extensions: set[str]) -> Path:
@@ -102,9 +103,8 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
         raise ValueError("cook needs exactly one of path or builtin")
     sbs = builtin_file(builtin) if builtin else source(path, {".sbs"})
     tool = runner.installation().require("sbscooker")
-    dest = new_directory(directory)
-    started = time.monotonic()
-    try:
+    with new_directory(directory) as dest:
+        started = time.monotonic()
         result = await proc.run([
             tool, "--inputs", sbs, "--output-path", dest,
             "--expose-output-size", "1" if expose_output_size else "0",
@@ -119,8 +119,8 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
         version = await runner.version(tool)
         # A built-in template lives in the Designer install, not the workspace: record
         # its name and hash instead of an absolute path that breaks on other machines.
-        manifest = receipts.build(
-            "designer", "cook", workspace.root(),
+        manifest_path = receipts.write_manifest(
+            dest, "designer", "cook", workspace.root(),
             inputs=[] if builtin else [sbs], outputs=[sbsar],
             external=[receipts.app_resource(builtin, sbs, version)] if builtin else [],
             parameters={"source": builtin or rel(sbs),
@@ -128,10 +128,6 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
                         "expose_random_seed": expose_random_seed},
             seconds=time.monotonic() - started, version=version,
         )
-        manifest_path = receipts.write(dest, manifest)
-    except BaseException:
-        workspace.remove_tree(dest)
-        raise
     return {"sbsar": rel(sbsar), "source": builtin or rel(sbs), "graphs": graphs,
             "manifest": rel(manifest_path)}
 
@@ -213,9 +209,8 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
                              + ", ".join(sorted(output_ids)[:64]))
         args += ["--input-graph-output", output]
     tool = runner.installation().require("sbsrender")
-    dest = new_directory(directory)
-    started = time.monotonic()
-    try:
+    with new_directory(directory) as dest:
+        started = time.monotonic()
         result = await proc.run([tool, *args, "--output-path", dest], timeout)
         if result.returncode:
             raise RuntimeError(runner.failure(result, "sbsrender render"))
@@ -242,19 +237,15 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
             packed = await asyncio.to_thread(packing.pack, spec, maps, dest / "packed")
             packed_paths = [item["path"] for item in packed["maps"]]
             reply["packed"] = _packed(packed)
-        manifest = receipts.build(
-            "designer", "render", workspace.root(), inputs=[path],
+        manifest_path = receipts.write_manifest(
+            dest, "designer", "render", workspace.root(), inputs=[path],
             outputs=[*maps.values(), *packed_paths],
             parameters={"graph": selected["url"], "values": values,
                         "resolution": resolution, "seed": seed, "preset": preset,
                         "outputs": outputs, "format": fmt, "bit_depth": bit_depth},
             seconds=time.monotonic() - started, version=await runner.version(tool),
         )
-        manifest_path = receipts.write(dest, manifest)
         reply["manifest"] = rel(manifest_path)
-    except BaseException:
-        workspace.remove_tree(dest)
-        raise
     reply["seconds"] = round(time.monotonic() - started, 3)
     return reply
 
@@ -272,20 +263,15 @@ async def pack(sources: dict[str, str], spec, directory: str) -> dict:
             raise ValueError(f"Invalid usage name: {usage}")
         files[usage] = source(name, packing.READABLE)
     packing.check_spec(spec)
-    dest = new_directory(directory)
-    started = time.monotonic()
-    try:
+    with new_directory(directory) as dest:
+        started = time.monotonic()
         result = await asyncio.to_thread(packing.pack, spec, files, dest)
-        manifest = receipts.build(
-            "designer", "pack", workspace.root(), inputs=list(files.values()),
+        manifest_path = receipts.write_manifest(
+            dest, "designer", "pack", workspace.root(), inputs=list(files.values()),
             outputs=[item["path"] for item in result["maps"]],
             parameters={"pack": spec.model_dump(mode="json")},
             seconds=time.monotonic() - started,
         )
-        manifest_path = receipts.write(dest, manifest)
-    except BaseException:
-        workspace.remove_tree(dest)
-        raise
     return {"directory": rel(dest), "packed": _packed(result), "sources": result["sources"],
             "manifest": rel(manifest_path)}
 
@@ -326,10 +312,9 @@ async def bake(low, high, cage, maps, directory, options, timeout):
     high_path = source(high, MESHES) if high else None
     cage_path = source(cage, MESHES) if cage else None
     tool = runner.installation().require("substance3d_baker")
-    dest = new_directory(directory)
     files, timings = {}, {}
-    started_at = time.monotonic()
-    try:
+    with new_directory(directory) as dest:
+        started_at = time.monotonic()
         for name in maps:
             started = time.monotonic()
             args = bake_args(name, low_path, high_path, cage_path, dest, options)
@@ -342,17 +327,13 @@ async def bake(low, high, cage, maps, directory, options, timeout):
                                    + proc.diagnostics(result))
             files[name] = rel(target)
             timings[name] = round(time.monotonic() - started, 3)
-        manifest = receipts.build(
-            "designer", "bake", workspace.root(),
+        manifest_path = receipts.write_manifest(
+            dest, "designer", "bake", workspace.root(),
             inputs=[path for path in (low_path, high_path, cage_path) if path is not None],
             outputs=[dest / f"{name}.{options['format']}" for name in maps],
             parameters=options, seconds=time.monotonic() - started_at,
             version=await runner.version(tool),
         )
-        manifest_path = receipts.write(dest, manifest)
-    except BaseException:
-        workspace.remove_tree(dest)
-        raise
     return {"directory": rel(dest), "maps": files,
             "commands": {name: BAKERS[name] for name in maps}, "seconds": timings,
             "high_used": {name: bool(high_path) and name not in LOW_ONLY for name in maps},

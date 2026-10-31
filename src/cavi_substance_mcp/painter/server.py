@@ -5,11 +5,10 @@ import time
 from typing import Annotated, Any, Literal
 
 import anyio.to_thread
-from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from .client import PainterClient
-from .core.mcp import Server
 
 mcp = Server(
     "cavi-substance-mcp",
@@ -21,11 +20,6 @@ mcp = Server(
         "retry uncertain mutations automatically."
     ),
 )
-READ_ONLY = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-)
-MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
-CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 LeaseId = Annotated[
     str | None,
     Field(max_length=128, pattern=r"^[A-Za-z0-9_-]+$", description="From session_control claim."),
@@ -34,12 +28,6 @@ WorkspaceFile = Annotated[str | None, Field(description="Workspace file.")]
 NewDirectory = Annotated[str, Field(description="New workspace directory.")]
 UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
-
-
-def need(value, name, action):
-    if value is None:
-        raise ValueError(f"{name} is required for action={action}")
-    return value
 
 
 async def painter(operation, params=None, *, lease_id=None):
@@ -82,7 +70,7 @@ async def painter_status() -> dict[str, Any]:
         return {"connected": False, "reason": str(exc)}
 
 
-@mcp.tool(annotations=MUTATING)
+@mcp.tool(annotations=WRITES)
 async def session_control(
     action: Literal["inspect", "claim", "renew", "release", "break"],
     owner: Annotated[str | None, Field(max_length=128)] = None,
@@ -98,7 +86,7 @@ async def session_control(
     })
 
 
-@mcp.tool(annotations=CLOSING)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def project(
     action: Literal["open", "create", "close", "save", "save_copy", "wait_ready", "reload_mesh"],
     path: Annotated[WorkspaceFile, Field(description="open: workspace .spp.")] = None,
@@ -180,7 +168,7 @@ Uid = Annotated[StrictInt | None, Field(ge=0)]
 LAYER_ACTIONS = {"fill": "create_fill_layer", "texture_fill": "create_texture_fill"}
 
 
-@mcp.tool(annotations=CLOSING)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def layer_edit(
     action: Literal["fill", "texture_fill", "group", "fill_mask", "smart_material", "smart_mask",
                     "generator", "sbsar_fill", "set_properties", "delete"],
@@ -264,7 +252,7 @@ class OutputMap(BaseModel):
     ]
 
 
-@mcp.tool(annotations=MUTATING)
+@mcp.tool(annotations=WRITES)
 async def export_textures(
     directory: NewDirectory,
     preset: Annotated[str | None, Field(description="URL from inspect export_presets.")] = None,
@@ -299,7 +287,7 @@ async def export_textures(
     }, lease_id=lease_id)
 
 
-@mcp.tool(annotations=MUTATING)
+@mcp.tool(annotations=WRITES)
 async def bake(
     action: Literal["start", "status", "cancel"],
     texture_sets: Annotated[list[TextureSetName] | None, Field(max_length=64)] = None,

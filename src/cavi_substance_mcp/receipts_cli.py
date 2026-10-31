@@ -1,23 +1,16 @@
-"""Command-line startup and status for the installed Painter application."""
+"""Command-line verification of the receipts every Substance server writes."""
 
 import argparse
 import json
-import plistlib
-import subprocess
 from pathlib import Path
 
 from . import receipts
 from .core import workspace
-from .runtime import runtime_status, start_painter
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="cavi-substance-mcp")
-    commands = parser.add_subparsers(dest="command", required=True)
-    runtime = commands.add_parser("runtime", help="Launch Painter with remote scripting or inspect it")
-    runtime.add_argument("action", choices=("start", "status"))
-    receipt = commands.add_parser("receipts", help="Verify a cross-application manifest")
-    actions = receipt.add_subparsers(dest="receipt_action", required=True)
+    parser = argparse.ArgumentParser(prog="cavi-substance-receipts")
+    actions = parser.add_subparsers(dest="receipt_action", required=True)
     verify = actions.add_parser("verify", help="Verify every file recorded in a manifest")
     verify.add_argument("manifest")
     verify.add_argument("--workspace")
@@ -29,16 +22,7 @@ def main(argv=None):
     chain.add_argument("--workspace")
     chain.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    if args.command == "receipts":
-        return _chain_receipt(args) if args.receipt_action == "chain" else _verify_receipt(args)
-    try:
-        result = start_painter() if args.action == "start" else runtime_status()
-        print(json.dumps(result))
-        return 0 if result.get("connected") or result.get("launch_requested") else 1
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError,
-            plistlib.InvalidFileException) as exc:
-        print(json.dumps({"connected": False, "launch_requested": False, "reason": str(exc)}))
-        return 1
+    return _chain_receipt(args) if args.receipt_action == "chain" else _verify_receipt(args)
 
 
 def _verify_receipt(args):

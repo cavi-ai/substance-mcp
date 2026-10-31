@@ -12,10 +12,10 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 from clock import Clock
-from owned_client import OwnedPainterClient
+from owned_client import OwnedPainterClient, wait_ready
 
-from cavi_substance_mcp import painter_operations as lease
-from cavi_substance_mcp.client import PainterClient, PainterTimeout, PainterUnavailable
+from cavi_substance_mcp.painter import operations as lease
+from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout, PainterUnavailable
 from evals.painter_simulator import PainterSimulator
 
 PNG = base64.b64decode(
@@ -106,62 +106,50 @@ class TransportTests(unittest.TestCase):
             self.assertIn("edition_state", status)
 
 
-class LeaseVersionTests(unittest.TestCase):
-    def test_older_lease_state_migrates_without_calling_old_methods(self):
+class SharedLeaseTests(unittest.TestCase):
+    def test_every_payload_shares_one_lease(self):
         module = ModuleType("substance_painter")
-
-        class OldLease:
-            def __init__(self):
-                self.lock = threading.RLock()
-                self.token, self.owner = "old-token", "agent-old"
-                self.project, self.expires = "project-A", time.monotonic() + 100
-
-            def control(self, *args):
-                raise AssertionError("old method called")
-
-            edit = status = require = control
-
-        old = OldLease()
-        module._cavi_mcp_lease = old
         current = lease.shared_lease(module)
         self.assertIsInstance(current, lease.Lease)
-        self.assertIs(current.lock, old.lock)
-        self.assertEqual((current.token, current.owner, current.project),
-                         ("old-token", "agent-old", "project-A"))
-        self.assertIs(module._cavi_mcp_lease, current)
         self.assertIs(getattr(module, lease.LEASE_ATTR), current)
         self.assertIs(lease.shared_lease(module), current)
-        with current.edit("old-token", lambda: "project-A"):
-            pass
 
-    def test_previous_version_lease_without_a_clock_is_replaced(self):
+    def test_concurrent_first_use_creates_one_lease(self):
         module = ModuleType("substance_painter")
+        start = threading.Barrier(8)
+        found = []
 
-        class PreviousLease:
-            VERSION = lease.LEASE_VERSION - 1
+        def first_use():
+            start.wait()
+            found.append(lease.shared_lease(module))
 
-            def __init__(self):
-                self.lock = threading.RLock()
-                self.token, self.owner = "kept-token", "agent-kept"
-                self.project, self.expires = "project-A", time.monotonic() + 100
-                self.touched = time.monotonic()
+        workers = [threading.Thread(target=first_use) for _ in range(8)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(5)
+        self.assertEqual(len(found), 8)
+        self.assertEqual(len({id(item) for item in found}), 1)
 
-        previous = PreviousLease()
-        setattr(module, f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}", previous)
+    def test_a_lease_object_from_another_version_is_left_alone_and_not_adopted(self):
+        module = ModuleType("substance_painter")
+        older = SimpleNamespace(lock=threading.RLock(), token="old-token", owner="agent-old",
+                                project="project-A", expires=time.monotonic() + 100,
+                                touched=time.monotonic())
+        for name in (f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}", "_cavi_mcp_lease"):
+            setattr(module, name, older)
         current = lease.shared_lease(module)
-        self.assertIsNot(current, previous)
-        self.assertEqual(current.VERSION, lease.LEASE_VERSION)
-        self.assertEqual((current.token, current.owner), ("kept-token", "agent-kept"))
-        # A payload from the previous release still resolves its own attribute name.
-        self.assertIs(getattr(module, f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}"), current)
-        self.assertIs(getattr(module, lease.LEASE_ATTR), current)
-        self.assertTrue(current.active())
+        self.assertIsNot(current, older)
+        self.assertIsNone(current.token)
+        self.assertFalse(current.active())
+        self.assertIs(module._cavi_mcp_lease, older)
+        self.assertIs(getattr(module, f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}"), older)
 
-    def test_newer_lease_object_is_reused(self):
+    def test_an_existing_object_under_the_current_name_is_reused(self):
         module = ModuleType("substance_painter")
-        newer = SimpleNamespace(VERSION=lease.Lease.VERSION + 1)
-        setattr(module, lease.LEASE_ATTR, newer)
-        self.assertIs(lease.shared_lease(module), newer)
+        existing = SimpleNamespace()
+        setattr(module, lease.LEASE_ATTR, existing)
+        self.assertIs(lease.shared_lease(module), existing)
 
 
 class BreakTests(unittest.TestCase):
@@ -212,7 +200,7 @@ class ProjectTests(unittest.TestCase):
     def test_wait_ready_polls_until_edition_state(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("loading")
-            result = PainterClient(port=simulator.port, workspace=folder).wait_ready(10, 0.01)
+            result = wait_ready(simulator.port, folder, 10, 0.01)
             self.assertTrue(result["ready"])
             self.assertTrue(result["edition_state"])
             self.assertFalse(result["busy"])
@@ -221,7 +209,7 @@ class ProjectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("closed")
             started = time.monotonic()
-            result = PainterClient(port=simulator.port, workspace=folder).wait_ready(1, 0.1)
+            result = wait_ready(simulator.port, folder, 1, 0.1)
             self.assertFalse(result["ready"])
             self.assertFalse(result["open"])
             self.assertLess(time.monotonic() - started, 3)

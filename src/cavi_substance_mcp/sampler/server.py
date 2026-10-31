@@ -3,7 +3,6 @@
 import asyncio
 from typing import Annotated, Any, Literal
 
-from mcp.types import ToolAnnotations
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,7 +13,7 @@ from pydantic import (
 )
 
 from ..core import workspace
-from ..core.mcp import Server
+from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import batch, launch
 from . import pack as packer
@@ -28,11 +27,6 @@ mcp = Server(
         "Use sampler_build for multi-step batch jobs."
     ),
 )
-READ_ONLY = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-)
-WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
-DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
 ProjectPath = Annotated[str, Field(description="Existing .ssa relative to the workspace.")]
 NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
@@ -87,16 +81,6 @@ ASSET_PARAMS = {
 }
 
 
-def need(value, name, action):
-    if value is None:
-        raise ValueError(f"{name} is required for action={action}")
-    return value
-
-
-def extras(action: str, values: dict, params: dict) -> list[str]:
-    return sorted({key for key, value in values.items() if value is not None} - params[action])
-
-
 @mcp.tool(annotations=READ_ONLY)
 async def sampler_status() -> dict[str, Any]:
     """Sampler executable, version, scripts folder, workspace and running state."""
@@ -113,9 +97,7 @@ async def sampler_inspect(
 ) -> dict[str, Any]:
     """project lists assets; asset lists layers; catalog lists resources and targets."""
     given = {"project": project, "asset": asset, "query": query or None}
-    unexpected = extras(action, given, INSPECT_PARAMS)
-    if unexpected:
-        raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    reject_foreign(action, given, INSPECT_PARAMS[action])
     if action in ("project", "asset"):
         need(project, "project", action)
     if action == "asset":
@@ -207,9 +189,7 @@ async def sampler_asset(
         values["blend_mode"] = None
     if action not in ("import_images", "import_textures", "insert_filter", "insert_material"):
         values["position"], values["insert_above"] = None, None
-    unexpected = extras(action, values, ASSET_PARAMS)
-    if unexpected:
-        raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    reject_foreign(action, values, ASSET_PARAMS[action])
     if action == "delete" and not confirm:
         raise ValueError("confirm must be true for action=delete")
     if action != "delete" and confirm:

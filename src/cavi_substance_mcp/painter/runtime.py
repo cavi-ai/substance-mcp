@@ -5,8 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..core import discovery
 from .client import PainterClient
-from .core import discovery
 
 
 def runtime_status():
@@ -53,5 +53,7 @@ def start_painter():
         "connected": False,
         "launch_requested": True,
         "app": str(app),
-        "reason": "Painter launch requested; inspect status after startup or license prompts finish",
+        "reason": (
+            "Painter launch requested; inspect status after startup or license prompts finish"
+        ),
     }

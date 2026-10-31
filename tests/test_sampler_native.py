@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+from sampler_jobs import run_job_file
 
 from cavi_substance_mcp.sampler import batch, job, launch, runner
 
@@ -68,7 +69,7 @@ class NativeSamplerTests(unittest.TestCase):
             for target in available:
                 with self.subTest(target=target):
                     job = self._write_job(workspace, target, target)
-                    manifest = batch.run_job_file(job, workspace, timeout_seconds=600)
+                    manifest = run_job_file(job, workspace, timeout_seconds=600)
                     self.assertEqual(manifest["status"], "success")
                     paths = [item["path"] for item in manifest["outputs"]]
                     self.assertTrue(any(item.endswith(".sbsar") for item in paths))
@@ -77,7 +78,7 @@ class NativeSamplerTests(unittest.TestCase):
                 workspace, "b2m", "generic", import_option="image_to_material_B2M",
                 outputs=["sbsar"], empty_asset=True,
             )
-            manifest = batch.run_job_file(job, workspace, timeout_seconds=600)
+            manifest = run_job_file(job, workspace, timeout_seconds=600)
             self.assertEqual(manifest["status"], "success")
             paths = [item["path"] for item in manifest["outputs"]]
             self.assertTrue(any(item.endswith(".sbsar") for item in paths))
@@ -184,7 +185,7 @@ class NativeSamplerTests(unittest.TestCase):
             }
             seed = workspace / "jobs/seed.json"
             seed.write_text(json.dumps(seed_data))
-            batch.run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
+            run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
             source = workspace / "jobs/seed/seedProject.ssa"
             digest = source.read_bytes()
             seeded = asyncio.run(launch.invoke(
@@ -211,7 +212,7 @@ class NativeSamplerTests(unittest.TestCase):
             }
             path = workspace / "jobs/source.json"
             path.write_text(json.dumps(data))
-            manifest = batch.run_job_file("jobs/source.json", workspace, timeout_seconds=600)
+            manifest = run_job_file("jobs/source.json", workspace, timeout_seconds=600)
             self.assertEqual(manifest["status"], "success")
             self.assertEqual(manifest["source"], "jobs/seed/seedProject.ssa")
             self.assertEqual(manifest["project"], "jobs/source/CaviCopy.ssa")
@@ -304,7 +305,7 @@ class NativeSamplerTests(unittest.TestCase):
                 ],
             }
             (workspace / "jobs/seed.json").write_text(json.dumps(seed_data))
-            batch.run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
+            run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
             source = workspace / "jobs/seed/seedProject.ssa"
             digest = source.read_bytes()
             seeded = asyncio.run(launch.invoke(
@@ -428,7 +429,7 @@ class NativeSamplerTests(unittest.TestCase):
             }
             job_path = workspace / "jobs/unreal.json"
             job_path.write_text(json.dumps(data))
-            manifest = batch.run_job_file("jobs/unreal.json", workspace,
+            manifest = run_job_file("jobs/unreal.json", workspace,
                                           timeout_seconds=600)
             self.assertEqual(manifest["status"], "success")
             self.assertEqual(manifest["project"], "jobs/unreal/CaviProject.ssa")

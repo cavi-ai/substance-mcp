@@ -1,28 +1,19 @@
 import asyncio
 import json
-import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import FAKE_SAMPLER, patched_environment
 from sampler_fake_cli import ENV, install
+from sampler_jobs import job_data
 
 from cavi_substance_mcp.sampler import server
 
 TIMEOUT = 30
-JOB = {
-    "schema": 1,
-    "directory": "jobs/rock",
-    "project": {"name": "RockProject", "asset": {"name": "Rock", "model": "openpbr"}},
-    "steps": [
-        {"action": "insert_filter", "asset": "Rock", "filter": "Tiling", "position": 0},
-        {"action": "export", "asset": "Rock", "outputs": ["sbsar"]},
-    ],
-}
 
 
 class ServerContractTests(unittest.TestCase):
@@ -31,13 +22,12 @@ class ServerContractTests(unittest.TestCase):
         root = Path(self.folder.name)
         self.workspace = root / "ws"
         (self.workspace / "jobs").mkdir(parents=True)
-        (self.workspace / "jobs/rock.json").write_text(json.dumps(JOB))
+        (self.workspace / "photos").mkdir()
+        (self.workspace / "photos/albedo.png").write_bytes(b"fake-png")
+        (self.workspace / "jobs/rock.json").write_text(json.dumps(job_data()))
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_", "FAKE_SAMPLER"))}
-        env.update({ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(FAKE_SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
 
     def tearDown(self):

@@ -4,7 +4,7 @@ import unittest
 
 from test_texturing import Fixture
 
-from cavi_substance_mcp import painter_operations as ops
+from cavi_substance_mcp.painter import operations as ops
 from evals.painter_simulator import BlendingMode
 
 

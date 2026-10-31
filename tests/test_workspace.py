@@ -1,15 +1,17 @@
+import asyncio
 import os
 import shutil
 import stat
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
 from home import isolate_home
 
-from cavi_substance_mcp import painter_operations
 from cavi_substance_mcp.core import workspace
+from cavi_substance_mcp.painter import operations as painter_operations
 
 
 def can_symlink() -> bool:
@@ -283,8 +285,107 @@ class RemoveTreeTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(parent.stat().st_mode), before)
 
 
+class NewOutputDirectoryTests(unittest.TestCase):
+    """The context manager that makes an output directory and cleans it up on failure."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name).resolve()
+
+    def test_keeps_the_directory_when_the_body_succeeds(self):
+        with workspace.new_output_directory(self.root, "out") as made:
+            self.assertEqual(made, self.root / "out")
+            (made / "file.txt").write_text("x")
+        self.assertEqual((self.root / "out/file.txt").read_text(), "x")
+
+    def test_removes_the_directory_and_its_content_when_the_body_raises(self):
+        for error in (RuntimeError("boom"), KeyboardInterrupt(), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(type(error)) as caught, \
+                        workspace.new_output_directory(self.root, "out") as made:
+                    (made / "sub").mkdir()
+                    (made / "sub/file.txt").write_text("x")
+                    raise error
+                self.assertIs(caught.exception, error)
+                self.assertFalse((self.root / "out").exists())
+
+    def test_never_touches_a_directory_that_already_exists(self):
+        (self.root / "used").mkdir()
+        (self.root / "used/keep.txt").write_text("x")
+        with self.assertRaises(FileExistsError), \
+                workspace.new_output_directory(self.root, "used"):
+            self.fail("the body must not run")
+        self.assertEqual((self.root / "used/keep.txt").read_text(), "x")
+
+    def test_applies_the_output_rules(self):
+        with self.assertRaisesRegex(ValueError, "inside the workspace"), \
+                workspace.new_output_directory(self.root, "../escape"):
+            self.fail("the body must not run")
+
+    def test_can_create_missing_parents(self):
+        with workspace.new_output_directory(self.root, "a/b", parents=True) as made:
+            self.assertEqual(made, self.root / "a/b")
+        self.assertTrue((self.root / "a/b").is_dir())
+
+    def test_leftovers_are_named_in_the_error(self):
+        with patch.object(shutil, "rmtree"), \
+                self.assertRaises(RuntimeError) as caught, \
+                workspace.new_output_directory(self.root, "out") as made:
+            (made / "partial.png").write_text("x")
+            raise ValueError("cook failed")
+        message = str(caught.exception)
+        self.assertIn("ValueError: cook failed", message)
+        self.assertIn("could not remove the incomplete output", message)
+        self.assertIn(str(self.root / "out/partial.png"), message)
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+
+    def test_a_runtime_error_keeps_its_own_text(self):
+        with patch.object(shutil, "rmtree"), self.assertRaises(RuntimeError) as caught, \
+                workspace.new_output_directory(self.root, "out"):
+            raise RuntimeError("sbscooker failed")
+        self.assertTrue(str(caught.exception).startswith("sbscooker failed; could not remove"))
+
+    def test_leftovers_after_a_cancellation_are_a_note_on_the_original_error(self):
+        error = asyncio.CancelledError()
+        with patch.object(shutil, "rmtree"), self.assertRaises(asyncio.CancelledError) as caught, \
+                workspace.new_output_directory(self.root, "out"):
+            raise error
+        self.assertIs(caught.exception, error)
+        self.assertIn(str(self.root / "out"), "\n".join(error.__notes__))
+
+    def test_a_long_list_of_leftovers_is_shortened(self):
+        with patch.object(shutil, "rmtree"), self.assertRaises(RuntimeError) as caught, \
+                workspace.new_output_directory(self.root, "out") as made:
+            for index in range(30):
+                (made / f"{index:02}.png").write_text("x")
+            raise ValueError("boom")
+        self.assertIn("and 21 more", str(caught.exception))
+
+
+class RemoveScratchTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.tree = Path(folder.name) / "scratch"
+        (self.tree / "sub").mkdir(parents=True)
+        (self.tree / "sub/file.txt").write_text("x")
+
+    def test_removes_the_tree_without_a_warning(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            workspace.remove_scratch(self.tree)
+        self.assertFalse(self.tree.exists())
+
+    def test_warns_about_what_is_left(self):
+        with patch.object(shutil, "rmtree"), self.assertWarns(RuntimeWarning) as caught:
+            workspace.remove_scratch(self.tree)
+        self.assertIn(str(self.tree / "sub/file.txt"), str(caught.warning))
+        self.assertTrue(self.tree.exists())
+
+
 class PayloadParityTests(unittest.TestCase):
-    """painter_operations.py runs inside Painter and keeps its own copy of the path rules.
+    """painter/operations.py runs inside Painter and keeps its own copy of the path rules.
 
     The two copies may raise different exception types, but they must accept and refuse
     the same paths and resolve the accepted ones to the same place.

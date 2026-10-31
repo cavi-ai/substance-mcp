@@ -27,16 +27,10 @@ def _print(value, as_json: bool, lines) -> None:
 def _exit(exc: Exception) -> tuple[int, str]:
     if isinstance(exc, (job.JobValidationError, FileNotFoundError, NotADirectoryError)):
         return 2, str(exc)
-    if isinstance(exc, batch.AppUnavailable):
-        return 3, str(exc)
-    if isinstance(exc, (batch.AppRunning, batch.LockTimeout)):
-        return 4, str(exc)
-    if isinstance(exc, batch.JobTimeout):
-        return 6, str(exc)
-    if isinstance(exc, TimeoutError):
-        return 6, str(exc)
     if isinstance(exc, batch.BatchError):
         return exc.code, str(exc)
+    if isinstance(exc, TimeoutError):
+        return 6, str(exc)
     return 5, f"{type(exc).__name__}: {exc}"
 
 
@@ -104,7 +98,8 @@ def main(argv=None) -> int:
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--json", action="store_true")
 
-    validate = commands.add_parser("validate", help="Validate a batch job without launching Sampler")
+    validate = commands.add_parser(
+        "validate", help="Validate a batch job without launching Sampler")
     validate.add_argument("job")
     validate.add_argument("--workspace")
     validate.add_argument("--check-sampler", action="store_true")
@@ -138,7 +133,8 @@ def main(argv=None) -> int:
             if not path.is_absolute():
                 path = root / path
             path = path.resolve()
-            if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() != ".json":
+            if (not path.is_relative_to(root) or not path.is_file()
+                    or path.suffix.lower() != ".json"):
                 raise job.JobValidationError(
                     "pack file must be a JSON file inside the workspace"
                 )

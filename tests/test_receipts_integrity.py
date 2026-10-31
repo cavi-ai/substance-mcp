@@ -16,9 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install as install_designer
+from env import DESIGNER, patched_environment
 
-from cavi_substance_mcp import cli, painter_operations, receipts
+from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
+from cavi_substance_mcp.painter import operations as painter_operations
 
 
 def sha(text: str) -> str:
@@ -54,7 +56,7 @@ class Workspace(unittest.TestCase):
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(root or self.root)}):
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", *argv, "--json"])
+                code = receipts_cli.main([*argv, "--json"])
         return code, json.loads(stream.getvalue())
 
 
@@ -238,6 +240,49 @@ class ChainTests(Workspace):
             "manifest.json", "left/manifest.json", "right/manifest.json",
             "base/manifest.json"]))
 
+    def test_every_manifest_is_loaded_and_every_file_hashed_once(self):
+        self.link_to("base", None)
+        self.link_to("left", "base")
+        self.link_to("right", "base")
+        links = []
+        for name in ("left", "right"):
+            links.append({
+                "manifest": receipts.record(self.root / name / "manifest.json", self.root),
+                "file": self.row(f"{name}/out.txt", name),
+            })
+        path = receipts.write(self.root, self.manifest(provenance=links))
+        expected = receipts.chain(path, self.root)
+        loads, hashes = [], []
+        real_load, real_hash = receipts.load, receipts.sha256_file
+
+        def load(item):
+            loads.append(Path(item).resolve())
+            return real_load(item)
+
+        def sha256_file(item):
+            hashes.append(Path(item).resolve())
+            return real_hash(item)
+
+        with patch.object(receipts, "load", load), patch.object(receipts, "sha256_file",
+                                                                 sha256_file):
+            self.assertEqual(receipts.chain(path, self.root), expected)
+        self.assertEqual(sorted(loads), sorted({
+            (self.root / name / "manifest.json").resolve()
+            for name in ("left", "right", "base")} | {path.resolve()}))
+        self.assertEqual(len(hashes), len(set(hashes)), "a file was hashed more than once")
+        self.assertEqual(len(hashes), 6)  # three linked manifests and their three outputs
+
+    def test_a_tampered_shared_file_is_still_caught_through_every_route(self):
+        self.link_to("base", None)
+        self.link_to("left", "base")
+        self.link_to("right", "base")
+        links = [{"manifest": receipts.record(self.root / name / "manifest.json", self.root),
+                  "file": self.row(f"{name}/out.txt", name)} for name in ("left", "right")]
+        path = receipts.write(self.root, self.manifest(provenance=links))
+        (self.root / "base/out.txt").write_text("tampered!")
+        with self.assertRaisesRegex(receipts.ReceiptError, "mismatch"):
+            receipts.chain(path, self.root)
+
     def test_very_long_chains_fail_cleanly_instead_of_recursing(self):
         previous = None
         for number in range(receipts.MAX_CHAIN + 40):
@@ -311,11 +356,8 @@ class DesignerBuiltinTests(Workspace):
     def setUp(self):
         super().setUp()
         self.app = install_designer(Path(self.folder.name))
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(self.app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.root)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(DESIGNER, {
+            DESIGNER_ENV: str(self.app), "CAVI_SUBSTANCE_WORKSPACE": str(self.root)})
         self.env.start()
 
     def tearDown(self):

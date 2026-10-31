@@ -34,7 +34,7 @@ The export directory contains `manifest.json` with output hashes and a `provenan
 link to the Designer manifest and `.sbsar`. Verify the complete chain:
 
 ```sh
-cavi-substance-mcp receipts chain handoff/painter/manifest.json
+cavi-substance-receipts chain handoff/painter/manifest.json
 ```
 
 A Sampler job that exports `.sbsar` can feed the same Painter step; compare the

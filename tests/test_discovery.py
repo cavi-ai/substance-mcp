@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import patched_environment
 from launcher import write_launcher
 
 from cavi_substance_mcp.core import discovery, proc
@@ -29,8 +30,7 @@ class Scratch(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
-        environment = {k: v for k, v in os.environ.items() if k not in OVERRIDES}
-        patcher = patch.dict(os.environ, environment, clear=True)
+        patcher = patched_environment(drop=OVERRIDES)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -48,7 +48,8 @@ class DefaultTableTests(unittest.TestCase):
             ("sampler", "win32"):
                 r"C:\Program Files\Adobe\Adobe Substance 3D Sampler"
                 r"\Adobe Substance 3D Sampler.exe",
-            ("sampler", "linux"): "/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler",
+            ("sampler", "linux"):
+                "/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler",
             ("painter", "darwin"):
                 "/Applications/Adobe Substance 3D Painter/Adobe Substance 3D Painter.app",
             ("painter", "win32"):
@@ -71,13 +72,6 @@ class DefaultTableTests(unittest.TestCase):
         with platform("freebsd14"):
             self.assertEqual(discovery.platform_name(), "freebsd14")
             self.assertTrue(str(discovery.default_location("sampler")).startswith("/opt/Adobe"))
-
-    def test_executable_suffix_is_added_on_windows_only(self):
-        with platform("win32"):
-            self.assertEqual(discovery.executable_name("sbsrender"), "sbsrender.exe")
-            self.assertEqual(discovery.executable_name("a.exe"), "a.exe")
-        with platform("linux"):
-            self.assertEqual(discovery.executable_name("sbsrender"), "sbsrender")
 
 
 class DirectoryTests(Scratch):
@@ -269,7 +263,8 @@ class VersionTests(Scratch):
         (app / "Contents/MacOS").mkdir(parents=True)
         (app / "Contents/Info.plist").write_bytes(
             plistlib.dumps({"CFBundleShortVersionString": "from-plist"}))
-        program = write_launcher(app / "Contents/MacOS", "Thing", "print('version 1.2.3 (build 9)')\n")
+        program = write_launcher(
+            app / "Contents/MacOS", "Thing", "print('version 1.2.3 (build 9)')\n")
         with platform("linux"):
             self.assertEqual(discovery.version(program), "1.2.3")
 
@@ -312,6 +307,39 @@ class VersionTests(Scratch):
         program = write_launcher(self.root, "tool", "import sys\nsys.exit(3)\n")
         with patch.object(proc, "run_sync", side_effect=TimeoutError("slow")) as probe:
             self.assertIsNone(discovery.version(program))
+            self.assertIsNone(discovery.version(program))
+        self.assertEqual(probe.call_count, 1)
+
+    def test_a_program_that_never_answers_is_given_up_on_at_the_timeout(self):
+        program = write_launcher(self.root, "hang", "import time\ntime.sleep(60)\n")
+        self.assertLessEqual(discovery.VERSION_TIMEOUT, 5)
+        with patch.object(discovery, "VERSION_TIMEOUT", 0.3):
+            started = time.monotonic()
+            self.assertIsNone(discovery.version(program))
+            self.assertLess(time.monotonic() - started, 5)
+
+    def test_the_caller_can_shorten_the_timeout(self):
+        program = write_launcher(self.root, "hang", "import time\ntime.sleep(60)\n")
+        started = time.monotonic()
+        self.assertIsNone(discovery.version(program, timeout=0.3))
+        self.assertLess(time.monotonic() - started, 4)
+
+    def test_a_timeout_cannot_be_raised_above_the_default(self):
+        program = write_launcher(self.root, "hang", "import time\ntime.sleep(60)\n")
+        with patch.object(discovery, "VERSION_TIMEOUT", 0.3):
+            started = time.monotonic()
+            self.assertIsNone(discovery.version(program, timeout=600))
+            self.assertLess(time.monotonic() - started, 5)
+
+    def test_a_probe_cut_short_by_the_caller_is_not_remembered(self):
+        program = write_launcher(self.root, "late", "import time\ntime.sleep(1)\nprint('2.0.0')\n")
+        self.assertIsNone(discovery.version(program, timeout=0.2))
+        self.assertEqual(discovery.version(program), "2.0.0")
+
+    def test_a_probe_that_reaches_the_default_timeout_is_remembered(self):
+        program = write_launcher(self.root, "hang", "import time\ntime.sleep(60)\n")
+        with patch.object(proc, "run_sync", side_effect=TimeoutError("slow")) as probe:
+            self.assertIsNone(discovery.version(program, timeout=discovery.VERSION_TIMEOUT))
             self.assertIsNone(discovery.version(program))
         self.assertEqual(probe.call_count, 1)
 
@@ -449,7 +477,8 @@ class RunningWindowsTests(unittest.TestCase):
     def listing(text, code=0):
         return subprocess.CompletedProcess([], code, stdout=text, stderr="")
 
-    def check(self, output, executable=r"C:\Program Files\Adobe\Sampler\Adobe Substance 3D Sampler.exe"):
+    def check(self, output,
+              executable=r"C:\Program Files\Adobe\Sampler\Adobe Substance 3D Sampler.exe"):
         with platform("win32"), patch.object(discovery.subprocess, "run",
                                              return_value=self.listing(output)) as run:
             result = discovery.running(Path(executable))

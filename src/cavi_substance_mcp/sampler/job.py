@@ -1,6 +1,5 @@
 """Versioned Sampler batch job model and validation."""
 
-import json
 import re
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
@@ -14,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from .. import receipts
 from .names import JOB_FILES, output_directory, plain_name
 from .targets import OUTPUT_KINDS, TEXTURE_FORMATS, target
 
@@ -419,7 +419,7 @@ class Job(StrictModel):
 
 def load_job(path) -> Job:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = receipts.read_json(path)
     except (OSError, ValueError) as exc:
         raise JobValidationError(f"cannot read job: {exc}") from exc
     try:

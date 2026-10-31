@@ -15,7 +15,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from cavi_substance_mcp import client
+from cavi_substance_mcp.painter import client
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = SRC / "cavi_substance_mcp"
@@ -45,7 +45,7 @@ IN_APP = {
 # Source files whose every import statement, even one inside a function, is checked.
 # Value: top-level names the host application provides to code running inside it.
 APPLICATION_MODULES = {
-    "painter_operations.py": {"substance_painter", "PySide6"},
+    "painter/operations.py": {"substance_painter", "PySide6"},
     "receipts.py": set(),
     "core/workspace.py": set(),
     "sampler/names.py": set(),
@@ -59,7 +59,9 @@ REPORT = """
 def report():
     tops = {{name.split(".")[0] for name in sys.modules}} - {{"__main__"}}
     print(json.dumps({{
-        "package": sorted(name for name in sys.modules if name.split(".")[0] == "cavi_substance_mcp"),
+        "package": sorted(
+            name for name in sys.modules if name.split(".")[0] == "cavi_substance_mcp"
+        ),
         "third_party": sorted(tops - set(sys.stdlib_module_names) - {{"cavi_substance_mcp"}}),
     }}))
 """
@@ -161,7 +163,7 @@ class StaticImportTests(unittest.TestCase):
                     )
 
     def test_the_painter_payload_imports_nothing_from_the_package(self):
-        for top, level, module in imported_names(PACKAGE / "painter_operations.py"):
+        for top, level, module in imported_names(PACKAGE / "painter/operations.py"):
             with self.subTest(module=module):
                 self.assertEqual(level, 0)
                 self.assertNotEqual(top, "cavi_substance_mcp")
@@ -198,7 +200,8 @@ class SyntaxFloorTests(unittest.TestCase):
             self.skipTest("no python3.11 on PATH; the 3.11 CI legs compile these natively")
         for relative in APPLICATION_MODULES:
             with self.subTest(file=relative):
-                code = "import sys; compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec')"
+                code = ("import sys; "
+                        "compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec')")
                 result = subprocess.run(
                     [executable, "-I", "-S", "-c", code, str(PACKAGE / relative)],
                     capture_output=True, text=True, timeout=60, check=False)

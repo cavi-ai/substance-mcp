@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import shutil
 import tempfile
@@ -36,14 +35,6 @@ def _job_file(name, root: Path) -> Path:
     if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() != ".json":
         raise jobs.JobValidationError("job file must be a JSON file inside the workspace")
     return path
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 # Bookkeeping files at the top of a job directory. Per-export receipts deeper in the
@@ -80,7 +71,11 @@ def _job_dir(root: Path, job: jobs.Job) -> Path:
     return path
 
 
-def app_available(wait_seconds: float = 0) -> None:
+def app_available(wait_seconds: float = 0, sleep=time.sleep, clock=time.monotonic) -> None:
+    """Refuse to go on while Sampler is running, waiting up to ``wait_seconds`` for it to quit.
+
+    ``sleep`` and ``clock`` are injectable so a test does not have to wait.
+    """
     found = runner.installation()
     if found.executable is None:
         raise AppUnavailable(
@@ -92,9 +87,9 @@ def app_available(wait_seconds: float = 0) -> None:
         raise AppRunning(
             "Sampler is already running. Quit it before running a batch job."
         )
-    deadline = time.monotonic() + wait_seconds
-    while runner.running() and time.monotonic() < deadline:
-        time.sleep(0.5)
+    deadline = clock() + wait_seconds
+    while runner.running() and clock() < deadline:
+        sleep(0.5)
     if runner.running():
         raise AppRunning(
             f"Sampler is still running after {wait_seconds:g} s; quit it and retry."
@@ -250,7 +245,7 @@ async def validate_with_project_async(name, workspace_path=None,
             raise jobs.JobValidationError("; ".join(result["problems"]))
         return plan
     finally:
-        workspace.remove_tree(temporary)
+        workspace.remove_scratch(temporary)
 
 
 def validate_with_project(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
@@ -320,7 +315,7 @@ async def check_build_async(name, workspace_path=None,
         }
         return plan
     finally:
-        workspace.remove_tree(temporary)
+        workspace.remove_scratch(temporary)
 
 
 def check_build(name, workspace_path=None, timeout_seconds: float = 1800) -> dict:
@@ -346,8 +341,8 @@ def doctor(workspace_path=None) -> dict:
     }
 
 
-def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: str,
-              seconds: float, inputs: list[dict]) -> dict:
+def _manifest(root: Path, job_dir: Path, result: dict, started: str, seconds: float,
+              inputs: list[dict]) -> dict:
     manifest = receipts.build(
         "sampler", "build", root,
         inputs=[root / row["path"] for row in inputs], outputs=_outputs(job_dir),
@@ -360,7 +355,7 @@ def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: s
     manifest.update({
         "status": "success",
         "job": (job_dir / "job.json").relative_to(root).as_posix(),
-        "job_sha256": _sha256(job_dir / "job.json"),
+        "job_sha256": receipts.sha256_file(job_dir / "job.json"),
         "project": result.get("project"),
         "source": result.get("source"),
         "assets": result.get("assets", []),
@@ -416,8 +411,8 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )
-            return _manifest(root, job_dir, loaded, result, started,
-                             time.monotonic() - clock, inputs)
+            return _manifest(root, job_dir, result, started, time.monotonic() - clock,
+                             inputs)
         except BaseException as exc:
             # Cancellation and interrupts are not Exceptions; without this a cancelled
             # run left jobs/<dir> behind and a retry into that directory was refused.
@@ -425,16 +420,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 with contextlib.suppress(OSError):
                     _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
             else:
-                workspace.remove_tree(job_dir)
+                workspace.remove_scratch(job_dir)
             if isinstance(exc, TimeoutError):
                 raise JobTimeout(str(exc)) from exc
             raise
-
-
-def run_job_file(name, workspace_path=None, timeout_seconds: float = 1800,
-                 wait_for_app: float = 0, keep_on_failure: bool = False,
-                 lock_timeout: float = 300, on_progress=None) -> dict:
-    return asyncio.run(run_job_file_async(
-        name, workspace_path, timeout_seconds, wait_for_app, keep_on_failure,
-        lock_timeout, on_progress,
-    ))

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from .. import receipts
-from ..core.workspace import existing, input_file, new_output_dir, rel, remove_tree
+from ..core.workspace import existing, input_file, new_output_directory, rel
 from . import names as filenames
 from . import targets
 
@@ -500,7 +500,7 @@ def _save(ssa) -> None:
             _wait_changed(target, before)
 
 
-def _resource(ssa, kind: str, name: str, getter):
+def _resource(kind: str, name: str, getter):
     found = [item for item in getter(name) if _resource_name(item) == name]
     if not found:
         available = sorted({_resource_name(item) for item in getter("")})[:64]
@@ -776,10 +776,9 @@ def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
 
 def _create_project(ssa, root, args) -> dict:
     name = _name(args.get("name"), "name")
-    directory = new_output_dir(root, args.get("directory"))
-    project = directory / f"{name}.ssa"
     started = time.monotonic()
-    try:
+    with new_output_directory(root, args.get("directory")) as directory:
+        project = directory / f"{name}.ssa"
         ssa.create_project(name, str(project))
         if not list(ssa.get_project_assets()):
             ssa.create_asset(name, ssa.MaterialModel.asm,
@@ -787,15 +786,11 @@ def _create_project(ssa, root, args) -> dict:
         ssa.save_project_as(str(project))
         _wait_file(project)
         ssa.wait_for_computation()
-        manifest = receipts.build(
-            "sampler", "create_project", root, outputs=[project],
+        manifest_path = receipts.write_manifest(
+            directory, "sampler", "create_project", root, outputs=[project],
             parameters={"name": name}, seconds=time.monotonic() - started,
             version=_APP["version"],
         )
-        manifest_path = receipts.write(directory, manifest)
-    except BaseException:
-        remove_tree(directory)
-        raise
     return {
         "project": rel(root, project),
         "directory": rel(root, directory),
@@ -810,21 +805,16 @@ def _save_as(ssa, root, args) -> dict:
     if source is None:
         raise ValueError("project is required for action=save_as")
     name = _name(args.get("name") or source.stem, "name")
-    directory = new_output_dir(root, args.get("directory"))
-    target = directory / f"{name}.ssa"
     started = time.monotonic()
-    try:
+    with new_output_directory(root, args.get("directory")) as directory:
+        target = directory / f"{name}.ssa"
         ssa.save_project_as(str(target))
         _wait_file(target)
-        manifest = receipts.build(
-            "sampler", "save_as", root, inputs=[source], outputs=[target],
+        manifest_path = receipts.write_manifest(
+            directory, "sampler", "save_as", root, inputs=[source], outputs=[target],
             parameters={"name": name}, seconds=time.monotonic() - started,
             version=_APP["version"],
         )
-        manifest_path = receipts.write(directory, manifest)
-    except BaseException:
-        remove_tree(directory)
-        raise
     return {
         "source": rel(root, source),
         "project": rel(root, target),
@@ -961,7 +951,7 @@ def _insert_filter(ssa, root, args) -> dict:
     if project is None:
         raise ValueError("project is required for action=insert_filter")
     asset = _find_asset(ssa, asset_name)
-    resource = _resource(ssa, "Filter", name, ssa.get_filters)
+    resource = _resource("Filter", name, ssa.get_filters)
     layer = asset.insert_filter(resource, position, insert_above=insert_above)
     ssa.wait_for_computation()
     _save(ssa)
@@ -986,7 +976,7 @@ def _insert_material(ssa, root, args) -> dict:
     if project is None:
         raise ValueError("project is required for action=insert_material")
     asset = _find_asset(ssa, asset_name)
-    resource = _resource(ssa, "Material", name, ssa.get_materials)
+    resource = _resource("Material", name, ssa.get_materials)
     layer = asset.insert_material(
         resource, position, getattr(ssa.BlendMode, blend), insert_above=insert_above
     )
@@ -1343,7 +1333,7 @@ def _export(ssa, root, args) -> dict:
         raise ValueError("project is required for action=export")
     asset = _find_asset(ssa, asset_name)
     preset = (
-        _resource(ssa, "Export preset", preset_name, ssa.get_export_presets)
+        _resource("Export preset", preset_name, ssa.get_export_presets)
         if preset_name else None
     )
     directory_name = args.get("directory")
@@ -1365,8 +1355,7 @@ def _export(ssa, root, args) -> dict:
     }
     if dry_run:
         return {**plan, "files": []}
-    destination = new_output_dir(root, directory_name)
-    try:
+    with new_output_directory(root, directory_name) as destination:
         ssa.wait_for_computation()
         controller = ssa.ExportController()
         options = {
@@ -1389,15 +1378,11 @@ def _export(ssa, root, args) -> dict:
             # Only the target's own preset promises its map set.
             expected = targets.target(target_name).maps
         files = _wait_files(destination, wait_seconds, expected)
-        manifest = receipts.build(
-            "sampler", "export", root, inputs=[project], outputs=files,
+        manifest_path = receipts.write_manifest(
+            destination, "sampler", "export", root, inputs=[project], outputs=files,
             parameters=plan, seconds=time.monotonic() - started,
             version=_APP["version"],
         )
-        manifest_path = receipts.write(destination, manifest)
-    except BaseException:
-        remove_tree(destination)
-        raise
     return {
         **plan,
         "directory": rel(root, destination),

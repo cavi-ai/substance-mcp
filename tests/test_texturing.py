@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from owned_client import OwnedPainterClient
+from owned_client import OwnedPainterClient, wait_ready
 
-from cavi_substance_mcp import painter_operations as ops
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter import operations as ops
+from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import BakingStatus, BlendingMode, MeshMapUsage, PainterSimulator
 
 MASK_MAP = {"name": "T_$textureSet_MaskMap", "format": "png", "bit_depth": 8,
@@ -222,20 +222,20 @@ class ProjectTests(Fixture):
                                                   "preserve_strokes": False})
         self.assertTrue(result["loading_may_be_pending"])
         self.assertFalse(self.sim.reload_settings.preserve_strokes)
-        status = self.waiter().wait_ready(10, 0.01)
+        status = wait_ready(self.sim.port, self.root, 10, 0.01)
         self.assertTrue(status["ready"])
         self.assertEqual(status["mesh_reload"]["status"], "SUCCESS")
         self.sim.state = "reload-error"
         self.client.call("reload_mesh", {"path": "input.obj"})
         with self.assertRaisesRegex(RuntimeError, "Mesh reload failed"):
-            self.waiter().wait_ready(10, 0.01)
+            wait_ready(self.sim.port, self.root, 10, 0.01)
         self.assertEqual(self.waiter().call("status")["mesh_reload"]["status"], "ERROR")
 
     def test_mesh_reload_result_belongs_to_one_project(self):
         self.sim.state = "reload-error"
         self.client.call("reload_mesh", {"path": "input.obj"})
         with self.assertRaisesRegex(RuntimeError, "Mesh reload failed"):
-            self.waiter().wait_ready(10, 0.01)
+            wait_ready(self.sim.port, self.root, 10, 0.01)
         self.sim.state = "open"
         self.client.call("close_project", {"expected_file": "simulated-original.spp"})
         self.assertIsNone(self.waiter().call("status")["mesh_reload"])

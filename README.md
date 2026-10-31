@@ -20,7 +20,8 @@ licensed Adobe application. The MCP does not supply an Adobe license or authenti
 accounts.
 
 Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Painter),
-`cavi-substance-designer-mcp` and `cavi-substance-sampler-mcp`.
+`cavi-substance-designer-mcp` and `cavi-substance-sampler-mcp`. The same install provides
+`cavi-substance-receipts`, which verifies the manifests they write (see [Receipts](#receipts)).
 
 ```sh
 uv tool install git+https://github.com/cavi-ai/substance-mcp
@@ -162,8 +163,8 @@ sizes and SHA-256 hashes.
 Verify a manifest and every file it records:
 
 ```sh
-cavi-substance-mcp receipts verify handoff/designer/manifest.json
-cavi-substance-mcp receipts verify handoff/designer/manifest.json \
+cavi-substance-receipts verify handoff/designer/manifest.json
+cavi-substance-receipts verify handoff/designer/manifest.json \
   --file handoff/designer/rock.sbsar --role outputs --json
 ```
 
@@ -172,10 +173,10 @@ manifests record the verified `.sbsar` manifest and file when `source_manifest` 
 `source_file` are supplied. Verify the whole chain, including those links:
 
 ```sh
-cavi-substance-mcp receipts chain handoff/painter/manifest.json
+cavi-substance-receipts chain handoff/painter/manifest.json
 ```
 
-`receipts chain` verifies every manifest, every recorded file, and each provenance
+`cavi-substance-receipts chain` verifies every manifest, every recorded file, and each provenance
 link's source file. See `examples/pipeline/designer-to-painter/` for a complete
 handoff.
 

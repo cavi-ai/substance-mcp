@@ -4,7 +4,7 @@ import unittest
 
 from test_texturing import Fixture
 
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import BakingProcessProgress, BakingStatus
 
 

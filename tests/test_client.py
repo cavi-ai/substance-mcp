@@ -30,7 +30,8 @@ class RemoteTests(unittest.TestCase):
             simulator.setup("dirty-unsaved")
             client = OwnedPainterClient(port=simulator.port, workspace=Path(folder))
             with self.assertRaisesRegex(RuntimeError, "changed"):
-                client.call("close_project", {"expected_file": "another.spp", "discard_unsaved": True})
+                client.call("close_project", {"expected_file": "another.spp",
+                                              "discard_unsaved": True})
             self.assertTrue(client.call("status")["open"])
             result = client.call("close_project", {"expected_file": None, "discard_unsaved": True})
             self.assertTrue(result["closed"])
@@ -66,21 +67,15 @@ class RemoteTests(unittest.TestCase):
             self.assertFalse((workspace / "textures").exists())
 
     def test_unknown_operations_are_rejected_without_network(self):
-        module = Path(__file__).resolve().parents[1] / "src/cavi_substance_mcp/client.py"
+        module = Path(__file__).resolve().parents[1] / "src/cavi_substance_mcp/painter/client.py"
         self.assertTrue(module.exists(), "Painter transport is not implemented")
-        from cavi_substance_mcp.client import PainterClient
+        from cavi_substance_mcp.painter.client import PainterClient
 
         with self.assertRaisesRegex(ValueError, "Unknown operation"):
             PainterClient().call("execute_python", {"code": "print(1)"})
 
-    def test_remote_host_is_rejected(self):
-        from cavi_substance_mcp.client import PainterClient
-
-        with self.assertRaisesRegex(ValueError, "loopback"):
-            PainterClient(host="example.com")
-
     def test_official_http_contract_and_data_encoding(self):
-        from cavi_substance_mcp.client import PainterClient
+        from cavi_substance_mcp.painter.client import PainterClient
 
         captured = []
 
@@ -116,7 +111,11 @@ class RemoteTests(unittest.TestCase):
         import sys
         from types import ModuleType
 
-        from cavi_substance_mcp.client import SOURCE_KEY, bootstrap_expression, full_expression
+        from cavi_substance_mcp.painter.client import (
+            SOURCE_KEY,
+            bootstrap_expression,
+            full_expression,
+        )
 
         malicious = "'); __import__('os').system('false'); #"
         captured = []
@@ -137,7 +136,7 @@ class RemoteTests(unittest.TestCase):
         compile(full_expression("open_project", {"path": malicious}, Path("/tmp/w")), "x", "eval")
 
     def test_export_folder_must_be_new_and_inside_workspace(self):
-        from cavi_substance_mcp.painter_operations import export_destination
+        from cavi_substance_mcp.painter.operations import export_destination
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -154,14 +153,14 @@ class WorkspaceRootTests(unittest.TestCase):
         self.home = isolate_home(self)
 
     def client(self, **kwargs):
-        from cavi_substance_mcp.client import PainterClient
+        from cavi_substance_mcp.painter.client import PainterClient
 
         # Nothing listens on port 1, so a call that passes the workspace check ends in
         # PainterUnavailable instead of reaching an application.
         return PainterClient(port=1, **kwargs)
 
     def test_default_workspace_is_created_only_for_a_write(self):
-        from cavi_substance_mcp.client import PainterUnavailable
+        from cavi_substance_mcp.painter.client import PainterUnavailable
 
         default = self.home / "Documents/SubstanceMCP"
         client = self.client()

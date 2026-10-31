@@ -5,21 +5,21 @@ from unittest.mock import patch
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from cavi_substance_mcp import server
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter import server
+from cavi_substance_mcp.painter.client import PainterClient
 
 
 class LeaseIdContractTests(unittest.IsolatedAsyncioTestCase):
-    def lease_schemas(self):
+    async def lease_schemas(self):
         found = {}
-        for tool in server.mcp._tool_manager.list_tools():
-            schema = tool.parameters["properties"].get("lease_id")
+        for tool in await server.mcp.list_tools():
+            schema = tool.input_schema["properties"].get("lease_id")
             if schema is not None:
                 found[tool.name] = schema
         return found
 
-    def test_every_lease_id_parameter_is_a_bounded_token_pattern(self):
-        schemas = self.lease_schemas()
+    async def test_every_lease_id_parameter_is_a_bounded_token_pattern(self):
+        schemas = await self.lease_schemas()
         self.assertGreaterEqual(len(schemas), 5)
         for name, schema in schemas.items():
             branch = next(item for item in schema["anyOf"] if item.get("type") == "string")
@@ -37,9 +37,9 @@ class LeaseIdContractTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BakeContractTests(unittest.IsolatedAsyncioTestCase):
-    def test_bake_offers_start_status_and_cancel(self):
-        tool = server.mcp._tool_manager.get_tool("bake")
-        self.assertEqual(tool.parameters["properties"]["action"]["enum"],
+    async def test_bake_offers_start_status_and_cancel(self):
+        tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+        self.assertEqual(tools["bake"].input_schema["properties"]["action"]["enum"],
                          ["start", "status", "cancel"])
 
     async def test_cancel_forwards_the_lease_to_the_bake_cancel_operation(self):

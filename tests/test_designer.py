@@ -14,6 +14,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import ENV, install, sbsar
+from env import DESIGNER, patched_environment
 from launcher import write_launcher
 
 from cavi_substance_mcp import packing
@@ -60,8 +61,7 @@ class InstallationTests(unittest.TestCase):
             self.assertEqual(runner.installation().bin_dir, Path("/x"))
 
     def test_platform_defaults(self):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(DESIGNER):
             # shutil.which cannot run as another platform, and nothing is installed anyway.
             with patch.object(discovery.sys, "platform", "win32"), \
                     patch.object(discovery.shutil, "which", return_value=None):
@@ -76,9 +76,7 @@ class InstallationTests(unittest.TestCase):
     def test_path_is_searched_after_the_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
             tools = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
-            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-            env["PATH"] = str(tools)
-            with patch.dict(os.environ, env, clear=True), patch.object(
+            with patched_environment(DESIGNER, {"PATH": str(tools)}), patch.object(
                     discovery, "default_location", return_value=Path(folder) / "nowhere"):
                 found = runner.installation()
             self.assertEqual((found.source, found.bin_dir), ("PATH", tools.resolve()))
@@ -88,9 +86,7 @@ class InstallationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             default = write_launcher(Path(folder) / "default", "sbsrender", "print(1)\n").parent
             other = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
-            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-            env["PATH"] = str(other)
-            with patch.dict(os.environ, env, clear=True), patch.object(
+            with patched_environment(DESIGNER, {"PATH": str(other)}), patch.object(
                     discovery, "default_location", return_value=default):
                 found = runner.installation()
             self.assertEqual((found.source, found.bin_dir), ("default", default))
@@ -113,9 +109,7 @@ class InstallationTests(unittest.TestCase):
             app = Path(folder) / "Adobe Substance 3D Designer.app"
             macos = write_launcher(app / "Contents/MacOS", "sbsrender", "print(1)\n").parent
             (app / "Contents/Resources/packages").mkdir(parents=True)
-            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-            env["CAVI_DESIGNER_APP"] = str(app)
-            with patch.dict(os.environ, env, clear=True):
+            with patched_environment(DESIGNER, {"CAVI_DESIGNER_APP": str(app)}):
                 found = runner.installation()
             self.assertEqual((found.source, found.bin_dir), ("CAVI_DESIGNER_APP", macos))
             self.assertTrue(found.binary("sbsrender"))
@@ -211,10 +205,9 @@ class FakeCliTests(unittest.TestCase):
         (self.workspace / "meshes").mkdir(parents=True)
         self.log = root / "log.jsonl"
         app = install(root)
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-        env.update({ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
-                    "CAVI_FAKE_DESIGNER_LOG": str(self.log)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(DESIGNER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
+            "CAVI_FAKE_DESIGNER_LOG": str(self.log)})
         self.env.start()
         (self.workspace / "m.sbsar").write_text(sbsar(["pkg://g"]))
         for name in ("low", "high", "cage"):
@@ -329,9 +322,9 @@ class WorkspaceRootTests(unittest.TestCase):
         self.default = self.home / "Documents/SubstanceMCP"
 
     def test_default_workspace_is_created_for_an_output_directory(self):
-        made = operations.new_directory("out")
-        self.assertEqual(made, self.default / "out")
-        self.assertTrue(made.is_dir())
+        with operations.new_directory("out") as made:
+            self.assertEqual(made, self.default / "out")
+            self.assertTrue(made.is_dir())
 
     def test_reading_never_creates_the_default_workspace(self):
         status = asyncio.run(operations.status())
@@ -344,8 +337,10 @@ class WorkspaceRootTests(unittest.TestCase):
     def test_missing_explicit_workspace_is_refused_and_not_created(self):
         missing = self.home / "not-there"
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}):
-            with self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
-                operations.new_directory("out")
+            with self.assertRaisesRegex(
+                    ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"
+            ), operations.new_directory("out"):
+                self.fail("the body must not run")
             self.assertFalse(asyncio.run(operations.status())["workspace_exists"])
         self.assertFalse(missing.exists())
 

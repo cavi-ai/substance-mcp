@@ -2,10 +2,9 @@
 
 from typing import Annotated, Any, Literal
 
-from mcp.types import ToolAnnotations
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
-from ..core.mcp import Server
+from ..core.mcp import READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import operations
 
@@ -16,10 +15,6 @@ mcp = Server(
         "CAVI_SUBSTANCE_WORKSPACE; outputs go to new directories. Call designer_status first."
     ),
 )
-READ_ONLY = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-)
-WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
 Number = StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)]
 Resolution = Literal[32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
 Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
@@ -36,12 +31,6 @@ ACTION_PARAMS = {
 }
 DEFAULTS = {"format": "png", "bit_depth": "8", "expose_output_size": True,
             "expose_random_seed": True}
-
-
-def need(value, name, action):
-    if value is None:
-        raise ValueError(f"{name} is required for action={action}")
-    return value
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -74,12 +63,10 @@ async def material(
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
     """info lists graphs; cook .sbs -> .sbsar; render outputs (+optional pack); pack maps."""
-    given = {key for key, value in locals().items()
-             if key not in ("action", "timeout_seconds") and value is not None
-             and value != DEFAULTS.get(key)}
-    extra = given - ACTION_PARAMS[action]
-    if extra:
-        raise ValueError(f"Not valid for action={action}: {', '.join(sorted(extra))}")
+    reject_foreign(action, {
+        key: value for key, value in locals().items()
+        if key not in ("action", "timeout_seconds") and value != DEFAULTS.get(key)
+    }, ACTION_PARAMS[action])
     if action == "info":
         return await operations.info(need(path, "path", action), timeout_seconds)
     if action == "cook":

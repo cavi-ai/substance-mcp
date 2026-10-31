@@ -1,6 +1,7 @@
 """The Painter MCP server stays responsive while Painter works, and Painter calls never overlap."""
 
 import asyncio
+import inspect
 import json
 import os
 import sys
@@ -15,9 +16,9 @@ from unittest.mock import patch
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from cavi_substance_mcp import client as painter_client
-from cavi_substance_mcp import server
-from cavi_substance_mcp.client import PainterClient, PainterTimeout
+from cavi_substance_mcp.painter import client as painter_client
+from cavi_substance_mcp.painter import server
+from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout
 from evals.painter_simulator import PainterSimulator
 
 
@@ -81,21 +82,22 @@ class SerializationTests(unittest.TestCase):
             self.assertEqual(painter.peak, 1)
 
     def test_status_does_not_queue_behind_a_long_call(self):
-        with FakePainter(delay=2.0) as painter:
+        with FakePainter(delay=0.8) as painter, patch.object(
+                painter_client, "STATUS_QUEUE_SECONDS", 0.1):
             worker = threading.Thread(
                 target=PainterClient(port=painter.port).call, args=("export_presets",))
             worker.start()
             time.sleep(0.2)
             started = time.monotonic()
             status = PainterClient(port=painter.port).call("status")
-            self.assertLess(time.monotonic() - started, 1.5)
+            self.assertLess(time.monotonic() - started, 0.5)
             self.assertTrue(status["busy"])
             self.assertEqual(status["in_flight"], "export_presets")
             worker.join(10)
             self.assertEqual(painter.total, 1)
 
     def test_queued_call_that_cannot_start_in_time_was_never_sent(self):
-        with FakePainter(delay=1.5) as painter:
+        with FakePainter(delay=0.8) as painter:
             worker = threading.Thread(
                 target=PainterClient(port=painter.port).call, args=("export_presets",))
             worker.start()
@@ -139,14 +141,16 @@ class TimeoutTests(unittest.TestCase):
 
 class HandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_painter_tool_is_a_coroutine(self):
-        tools = server.mcp._tool_manager.list_tools()
+        tools = await server.mcp.list_tools()
         self.assertTrue(tools)
-        self.assertEqual([tool.name for tool in tools if not tool.is_async], [])
+        # The module-level names are the undecorated coroutines (core.mcp.Server.tool).
+        self.assertEqual([tool.name for tool in tools
+                          if not inspect.iscoroutinefunction(getattr(server, tool.name))], [])
 
     async def test_slow_call_does_not_block_the_event_loop_or_other_handlers(self):
         def slow(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
             if operation == "save":
-                time.sleep(1.0)
+                time.sleep(0.6)
             return {"operation": operation}
 
         ticks = 0
@@ -171,8 +175,11 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(ticks, 15)
 
     async def test_cancelling_a_request_returns_without_waiting_for_painter(self):
+        finished = threading.Event()
+
         def slow(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
-            time.sleep(1.5)
+            time.sleep(0.8)
+            finished.set()
             return {}
 
         with patch.object(PainterClient, "call", slow):
@@ -183,12 +190,13 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
             self.assertLess(time.monotonic() - started, 0.5)
-            await asyncio.sleep(1.6)  # let the abandoned worker finish before patch exit
+            # Let the abandoned worker finish before the patch ends.
+            self.assertTrue(await asyncio.to_thread(finished.wait, 5))
 
 
 class CancelledQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_request_cancelled_while_queued_never_reaches_painter(self):
-        with FakePainter(delay=1.2) as painter, patch.dict(
+        with FakePainter(delay=0.8) as painter, patch.dict(
                 os.environ, {"CAVI_PAINTER_PORT": str(painter.port)}):
             running = threading.Thread(
                 target=PainterClient(port=painter.port).call, args=("export_presets",))
@@ -201,7 +209,7 @@ class CancelledQueueTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await queued
             running.join(10)
-            await asyncio.sleep(0.5)  # time for a wrongly surviving worker to send it
+            await asyncio.sleep(0.3)  # time for a wrongly surviving worker to send it
             self.assertEqual(painter.total, 1)
 
 
@@ -209,7 +217,7 @@ class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):
     async def session(self, port, work):
         env = {**os.environ, "CAVI_PAINTER_PORT": str(port)}
         params = StdioServerParameters(command=sys.executable,
-                                       args=["-m", "cavi_substance_mcp.server"], env=env)
+                                       args=["-m", "cavi_substance_mcp.painter.server"], env=env)
         async with stdio_client(params) as (reader, writer), ClientSession(
                 reader, writer) as session:
             await session.initialize()
@@ -228,13 +236,13 @@ class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):
             reply = await call
             self.assertFalse(reply.is_error)
 
-        with FakePainter(delay=2.5) as painter:
+        with FakePainter(delay=1.6) as painter:
             await self.session(painter.port, work)
 
     async def test_wait_ready_polls_without_freezing_the_server(self):
         async def work(session):
             call = asyncio.create_task(session.call_tool(
-                "project", {"action": "wait_ready", "timeout_seconds": 3}))
+                "project", {"action": "wait_ready", "timeout_seconds": 2}))
             await asyncio.sleep(0.7)
             started = time.monotonic()
             await session.send_ping()

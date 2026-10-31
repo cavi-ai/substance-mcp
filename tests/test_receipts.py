@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -14,13 +15,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install
+from env import DESIGNER, SAMPLER, patched_environment
 from owned_client import OwnedPainterClient
 from painter_simulator import PainterSimulator
 from sampler_fake_cli import ENV as SAMPLER_ENV
 from sampler_fake_cli import install as install_sampler
 
-from cavi_substance_mcp import cli, painter_operations, receipts
+from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
+from cavi_substance_mcp.painter import operations as painter_operations
 from cavi_substance_mcp.sampler import launch as sampler
 
 
@@ -49,6 +52,72 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), manifest)
         self.assertEqual(path.name, "manifest.json")
 
+    def test_sha256_file_hashes_in_blocks(self):
+        small = self.root / "small.bin"
+        small.write_bytes(b"abc")
+        large = self.root / "large.bin"
+        large.write_bytes(b"x" * (3 * 1024 * 1024 + 5))
+        self.assertEqual(receipts.sha256_file(small), hashlib.sha256(b"abc").hexdigest())
+        self.assertEqual(receipts.sha256_file(str(large)),
+                         hashlib.sha256(b"x" * (3 * 1024 * 1024 + 5)).hexdigest())
+
+    def test_user_json_is_capped_at_8_mib(self):
+        self.assertEqual(receipts.MAX_JSON_BYTES, 8 * 1024 * 1024)
+        with patch.object(receipts, "MAX_JSON_BYTES", 2 * 1024 * 1024):
+            small = self.root / "manifest.json"
+            small.write_text(json.dumps({"schema": 1, "pad": "x" * (2 * 1024 * 1024)}))
+            with self.assertRaisesRegex(receipts.ReceiptError, r"larger than 2 MiB"):
+                receipts.load(small)
+
+    def test_a_receipt_at_the_cap_still_loads(self):
+        text = json.dumps({"schema": 1, "pad": ""})
+        size = 4096
+        padded = json.dumps({"schema": 1, "pad": "x" * (size - len(text))})
+        self.assertEqual(len(padded), size)
+        path = self.root / "manifest.json"
+        path.write_text(padded)
+        with patch.object(receipts, "MAX_JSON_BYTES", size):
+            self.assertEqual(receipts.load(path)["schema"], 1)
+        with patch.object(receipts, "MAX_JSON_BYTES", size - 1), \
+                self.assertRaisesRegex(receipts.ReceiptError, "larger than"):
+            receipts.load(path)
+
+    def test_the_cap_is_checked_before_the_file_is_parsed(self):
+        path = self.root / "manifest.json"
+        path.write_text("[" * 5000)
+        with patch.object(receipts, "MAX_JSON_BYTES", 1000), \
+                self.assertRaisesRegex(receipts.ReceiptError, "larger than"):
+            receipts.load(path)
+
+    def test_write_manifest_builds_and_writes_atomically(self):
+        source = self.root / "source.txt"
+        source.write_text("input")
+        directory = self.root / "out"
+        directory.mkdir()
+        (directory / "result.txt").write_text("output")
+        path = receipts.write_manifest(
+            directory, "test", "write", self.root, inputs=[source],
+            outputs=[directory / "result.txt"], parameters={"a": 1}, seconds=0.5,
+            version="1.2",
+        )
+        self.assertEqual(path, directory / "manifest.json")
+        written = json.loads(path.read_text())
+        self.assertEqual(written["parameters"], {"a": 1})
+        self.assertEqual(written["version"], "1.2")
+        self.assertEqual([row["path"] for row in written["inputs"]], ["source.txt"])
+        self.assertEqual([row["path"] for row in written["outputs"]], ["out/result.txt"])
+        receipts.verify(written, self.root)
+        self.assertEqual(sorted(item.name for item in directory.iterdir()),
+                         ["manifest.json", "result.txt"])
+
+    def test_write_manifest_writes_nothing_when_a_file_is_missing(self):
+        directory = self.root / "out"
+        directory.mkdir()
+        with self.assertRaises(receipts.ReceiptError):
+            receipts.write_manifest(directory, "test", "write", self.root,
+                                    outputs=[directory / "missing.txt"])
+        self.assertEqual(list(directory.iterdir()), [])
+
     def test_verify_manifest_and_cli(self):
         output = self.root / "out.txt"
         output.write_text("output")
@@ -59,13 +128,13 @@ class ReceiptTests(unittest.TestCase):
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(self.root)}):
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", "verify", "manifest.json", "--json"])
+                code = receipts_cli.main(["verify", "manifest.json", "--json"])
             self.assertEqual(code, 0)
             self.assertTrue(json.loads(stream.getvalue())["ok"])
             output.write_text("xxxxxx")
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
-                code = cli.main(["receipts", "verify", "manifest.json", "--json"])
+                code = receipts_cli.main(["verify", "manifest.json", "--json"])
             self.assertEqual(code, 1)
             result = json.loads(stream.getvalue())
             self.assertFalse(result["ok"])
@@ -86,11 +155,8 @@ class ReceiptTests(unittest.TestCase):
         (workspace / "maps").mkdir(parents=True)
         (workspace / "source.sbs").write_text("fake-sbs")
         app = install(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(DESIGNER, {
+                DESIGNER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             cooked = asyncio.run(designer.cook(
                 "source.sbs", None, "designer-out", True, True, 30
             ))
@@ -129,8 +195,8 @@ class ReceiptTests(unittest.TestCase):
             with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
                 stream = io.StringIO()
                 with contextlib.redirect_stdout(stream):
-                    code = cli.main([
-                        "receipts", "chain", exported["manifest"], "--json",
+                    code = receipts_cli.main([
+                        "chain", exported["manifest"], "--json",
                     ])
                 self.assertEqual(code, 0)
                 self.assertEqual([step["app"] for step in
@@ -144,11 +210,8 @@ class ReceiptTests(unittest.TestCase):
         workspace = self.root / "ws"
         workspace.mkdir()
         app = install_sampler(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({SAMPLER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(SAMPLER, {
+                SAMPLER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             created = asyncio.run(sampler.invoke(
                 "create_project", {"directory": "projects", "name": "Rock"}, 30
             ))
@@ -185,11 +248,8 @@ class ReceiptTests(unittest.TestCase):
         workspace.mkdir()
         (workspace / "source.sbs").write_text("fake-sbs")
         app = install(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(DESIGNER, {
+                DESIGNER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             cooked = asyncio.run(designer.cook(
                 "source.sbs", None, "designer-out", True, True, 30
             ))

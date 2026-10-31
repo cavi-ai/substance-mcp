@@ -2,13 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import PainterSimulator
 
 
 class OwnershipTests(unittest.TestCase):
     def test_cached_clients_can_execute_the_self_contained_status_payload(self):
-        from cavi_substance_mcp import painter_operations
+        from cavi_substance_mcp.painter import operations as painter_operations
 
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("dirty-unsaved")
