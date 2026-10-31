@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -60,10 +61,22 @@ class SamplerTests(unittest.TestCase):
         inspected = self.call("inspect_project", project="projects/Rock.ssa")
         self.assertEqual(inspected["project"], "projects/Rock.ssa")
         self.assertEqual([item["name"] for item in inspected["assets"]], ["Rock"])
+        created_receipt = json.loads(
+            (self.workspace / created["manifest"]).read_text()
+        )
+        self.assertEqual((created_receipt["app"], created_receipt["operation"]),
+                         ("sampler", "create_project"))
+        self.assertEqual(created_receipt["outputs"][0]["path"], "projects/Rock.ssa")
         copied = self.call("save_as", project="projects/Rock.ssa", directory="copy",
                            name="RockCopy")
         self.assertEqual(copied["project"], "copy/RockCopy.ssa")
         self.assertTrue((self.workspace / "copy/RockCopy.ssa").is_file())
+        copied_receipt = json.loads(
+            (self.workspace / copied["manifest"]).read_text()
+        )
+        self.assertEqual((copied_receipt["app"], copied_receipt["operation"]),
+                         ("sampler", "save_as"))
+        self.assertEqual(copied_receipt["inputs"][0]["path"], "projects/Rock.ssa")
 
     def test_asset_create_delete_and_catalog(self):
         self.create_project()
@@ -119,6 +132,9 @@ class SamplerTests(unittest.TestCase):
                              directory="waited", format="sbsar", dry_run=False,
                              wait_seconds=1)
         self.assertEqual(exported["files"], ["waited/Rock.sbsar"])
+        receipt = json.loads((self.workspace / exported["manifest"]).read_text())
+        self.assertEqual((receipt["app"], receipt["operation"]), ("sampler", "export"))
+        self.assertEqual(receipt["outputs"][0]["path"], "waited/Rock.sbsar")
 
     def test_metadata_channels_and_blend(self):
         self.create_project()
@@ -220,6 +236,8 @@ class SamplerTests(unittest.TestCase):
         )
         self.assertEqual(exported["files"], ["out/Rock.sbsar"])
         self.assertTrue((self.workspace / "out/Rock.sbsar").is_file())
+        self.assertIn("manifest", exported)
+        self.assertFalse((self.workspace / "out/manifest.json").is_symlink())
 
     def test_export_failure_removes_directory(self):
         self.create_project()

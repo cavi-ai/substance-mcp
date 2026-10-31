@@ -647,6 +647,7 @@ def _receipt_hash(path: Path) -> str:
 
 def _receipt_record(path: Path, root: Path) -> dict:
     path = Path(path).resolve()
+    root = Path(root).resolve()
     return {
         "path": path.relative_to(root).as_posix(),
         "size": path.stat().st_size,
@@ -656,6 +657,7 @@ def _receipt_record(path: Path, root: Path) -> dict:
 
 def _receipt_records(paths, root: Path) -> list[dict]:
     seen, found = set(), []
+    root = Path(root).resolve()
     for item in paths:
         path = Path(item).resolve()
         if path in seen or not path.is_file():
@@ -683,8 +685,56 @@ def _receipt_build(app, operation, root: Path, inputs=(), outputs=(), parameters
 
 def _receipt_write(directory: Path, manifest: dict) -> Path:
     path = Path(directory) / RECEIPT_MANIFEST
-    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(manifest, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
     return path
+
+
+def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[dict, Path | None]:
+    if expected is not None:
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
+            raise ValueError("expected_sha256 must be 64 hexadecimal characters")
+        expected = expected.lower()
+    manifest_path = None
+    if manifest_name is not None:
+        manifest_path = input_file(root, manifest_name, {".json"})
+    entry = _receipt_record(path, root)
+    if expected is not None and entry["sha256"] != expected:
+        raise ValueError("sbsar sha256 does not match expected_sha256")
+    if manifest_path is not None:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"source_manifest is unreadable: {exc}") from exc
+        if not isinstance(manifest, dict) or manifest.get("schema") != 1:
+            raise ValueError("source_manifest schema must be 1")
+        rows = manifest.get("outputs")
+        if not isinstance(rows, list):
+            raise ValueError("source_manifest outputs must be a list")
+        target = Path(path).resolve()
+        found = None
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("path"), str):
+                continue
+            candidate = Path(row["path"])
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            if candidate.resolve() == target:
+                found = row
+                break
+        if found is None:
+            raise ValueError(f"{path.name} is not an output of source_manifest")
+        if found.get("size") != entry["size"] or found.get("sha256") != entry["sha256"]:
+            raise ValueError(f"{path.name} does not match source_manifest")
+    return entry, manifest_path
 
 
 def _painter_version():
@@ -1180,6 +1230,11 @@ def _layer_edit(params, root):
             path = input_file(root(), required(params, "sbsar"), {".sbsar"})
             if path.stat().st_size > 512 * 1024 * 1024:
                 raise ValueError("sbsar exceeds 512 MiB")
+            source, manifest_path = _receipt_source(
+                path, root(), params.get("source_manifest"), params.get("expected_sha256")
+            )
+            verified = (params.get("source_manifest") is not None
+                        or params.get("expected_sha256") is not None)
             package = resource.import_project_resource(
                 str(path), resource.Usage.BASE_MATERIAL, name="cavi_sbsar_" + uuid.uuid4().hex)
             graphs = ([child for child in package.children()
@@ -1189,7 +1244,6 @@ def _layer_edit(params, root):
                 raise RuntimeError(f"No material graph in {path.name}; imported resource "
                                    f"{package.identifier().url()} kept (no Painter API removes it)")
             item = graphs[0]
-            source = _receipt_record(path, root())
         node, applied = None, []
         try:
             with layerstack.ScopedModification(f"Create {action} {name}"):
@@ -1219,7 +1273,9 @@ def _layer_edit(params, root):
         if action == "sbsar_fill":
             result.update(parameters=applied, graphs=len(graphs),
                           active_channels=sorted(channel_label(c) for c in node.active_channels),
-                          source=source)
+                          source=source, verified=verified)
+            if manifest_path is not None:
+                result["source_manifest"] = manifest_path.relative_to(root()).as_posix()
         return result
     node = node_by_uid(layerstack, required(params, "uid", None), texture_set)
     if action == "delete":

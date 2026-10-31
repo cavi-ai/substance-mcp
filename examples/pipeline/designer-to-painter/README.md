@@ -14,10 +14,12 @@ SHA-256.
 
 ```json
 {"action": "sbsar_fill", "texture_set": "Body", "name": "Designer material",
- "sbsar": "handoff/designer/01_02_pbr_metallic_roughness.sbsar"}
+ "sbsar": "handoff/designer/01_02_pbr_metallic_roughness.sbsar",
+ "source_manifest": "handoff/designer/manifest.json"}
 ```
 
-The result contains `source` with the same path and SHA-256 as the Designer output.
+The result contains `source` with the same path and SHA-256 as the Designer output,
+plus `verified: true`. A mismatch fails before Painter imports the resource.
 
 3. Export textures from Painter:
 

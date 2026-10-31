@@ -11,6 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from .. import receipts
 from ..painter_operations import export_destination, input_file, remove_tree
 from . import runner, targets
 
@@ -947,6 +948,7 @@ def _create_project(ssa, root, args) -> dict:
     name = _name(args.get("name"), "name")
     directory = _new_directory(root, args.get("directory"))
     project = directory / f"{name}.ssa"
+    started = time.monotonic()
     try:
         ssa.create_project(name, str(project))
         if not list(ssa.get_project_assets()):
@@ -955,6 +957,12 @@ def _create_project(ssa, root, args) -> dict:
         ssa.save_project_as(str(project))
         _wait_file(project)
         ssa.wait_for_computation()
+        manifest = receipts.build(
+            "sampler", "create_project", root, outputs=[project],
+            parameters={"name": name}, seconds=time.monotonic() - started,
+            version=runner.installation().version,
+        )
+        manifest_path = receipts.write(directory, manifest)
     except BaseException:
         remove_tree(directory)
         raise
@@ -963,6 +971,7 @@ def _create_project(ssa, root, args) -> dict:
         "directory": _rel(root, directory),
         "name": name,
         "assets": [_asset(item) for item in ssa.get_project_assets()],
+        "manifest": _rel(root, manifest_path),
     }
 
 
@@ -973,9 +982,16 @@ def _save_as(ssa, root, args) -> dict:
     name = _name(args.get("name") or source.stem, "name")
     directory = _new_directory(root, args.get("directory"))
     target = directory / f"{name}.ssa"
+    started = time.monotonic()
     try:
         ssa.save_project_as(str(target))
         _wait_file(target)
+        manifest = receipts.build(
+            "sampler", "save_as", root, inputs=[source], outputs=[target],
+            parameters={"name": name}, seconds=time.monotonic() - started,
+            version=runner.installation().version,
+        )
+        manifest_path = receipts.write(directory, manifest)
     except BaseException:
         remove_tree(directory)
         raise
@@ -983,6 +999,7 @@ def _save_as(ssa, root, args) -> dict:
         "source": _rel(root, source),
         "project": _rel(root, target),
         "directory": _rel(root, directory),
+        "manifest": _rel(root, manifest_path),
     }
 
 
@@ -1436,6 +1453,7 @@ def _import_resource(ssa, root, args) -> dict:
 
 
 def _export(ssa, root, args) -> dict:
+    started = time.monotonic()
     fmt = args.get("format", "sbsar")
     wait_seconds = args.get("wait_seconds", 600)
     if type(wait_seconds) not in (int, float) or not 1 <= wait_seconds <= 3600:
@@ -1516,6 +1534,12 @@ def _export(ssa, root, args) -> dict:
         files = _wait_files(destination, wait_seconds)
         if not files:
             raise RuntimeError("Sampler exported no files")
+        manifest = receipts.build(
+            "sampler", "export", root, inputs=[project], outputs=files,
+            parameters=plan, seconds=time.monotonic() - started,
+            version=runner.installation().version,
+        )
+        manifest_path = receipts.write(destination, manifest)
     except BaseException:
         remove_tree(destination)
         raise
@@ -1523,6 +1547,7 @@ def _export(ssa, root, args) -> dict:
         **plan,
         "directory": _rel(root, destination),
         "files": [_rel(root, item) for item in files],
+        "manifest": _rel(root, manifest_path),
     }
 
 

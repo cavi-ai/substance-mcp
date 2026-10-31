@@ -9,10 +9,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from .. import packing
+from .. import packing, receipts
 from ..painter_operations import remove_tree
 from ..sampler import runner
-from .operations import new_directory, rel, source
+from .operations import new_directory, rel, source, workspace
 
 WORKER = Path(__file__).with_name("sampler_worker.py")
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".exr"}
@@ -142,6 +142,21 @@ async def run(action: str, values: dict, timeout: float) -> dict:
             (dest / "packed").mkdir()
             packed = await asyncio.to_thread(packing.pack, spec, maps, dest / "packed")
             out["packed"] = [{**item, "path": rel(item["path"])} for item in packed["maps"]]
+        inputs = ([Path(item) for item in job.get("images", [])]
+                  if action == "image_to_material" else [Path(job["project"])])
+        outputs = list(maps.values())
+        if job.get("save_as"):
+            outputs.append(Path(job["save_as"]))
+        if spec is not None:
+            outputs.extend(item["path"] for item in packed["maps"])
+        manifest = receipts.build(
+            "sampler", action, workspace(), inputs=inputs, outputs=outputs,
+            parameters={"format": fmt, "resolution": values["resolution"]},
+            seconds=time.monotonic() - started,
+            version=runner.installation().version,
+        )
+        manifest_path = receipts.write(dest, manifest)
+        out["manifest"] = rel(manifest_path)
     except BaseException:
         remove_tree(dest)
         raise
