@@ -75,7 +75,7 @@ async def exercise(mode, env, workspace, adapter=None):
 
                 arguments = dict(case["arguments"])
                 if mode != "protocol":
-                    needs_lease = (case["tool"] not in {"session_control", "generate_mesh"}
+                    needs_lease = (case["tool"] != "session_control"
                                    and not tools[case["tool"]].annotations.read_only_hint
                                    and not case.get("without_lease"))
                     # keep_lease: continue the previous case's lease so ownership spans cases.

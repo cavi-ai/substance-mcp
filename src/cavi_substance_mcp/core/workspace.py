@@ -4,9 +4,9 @@ Standard library only: the Sampler operations that run inside Sampler's embedded
 import this module, and it must not import anything else from this package.
 
 Painter runs painter/operations.py as a self-contained payload and cannot import this
-package, so that file keeps its own copy of ``input_file``, ``output_path`` and
-``remove_tree``. tests/test_workspace.py checks that the two copies accept and refuse the
-same paths.
+package, so that file keeps its own copies of ``input_file``, ``remove_tree`` and the
+twin of ``output_path``, which it calls ``export_destination``. tests/test_workspace.py
+checks that the copies accept and refuse the same paths.
 """
 
 import os
