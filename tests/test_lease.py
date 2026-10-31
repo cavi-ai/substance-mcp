@@ -1,16 +1,15 @@
 import threading
 import unittest
-from unittest.mock import patch
 
-from cavi_substance_mcp import lease
+from clock import Clock
+
+from cavi_substance_mcp import painter_operations as lease
 
 
 class LeaseTests(unittest.TestCase):
     def setUp(self):
-        self.clock = patch.object(lease.time, "monotonic", return_value=100.0)
-        self.now = self.clock.start()
-        self.addCleanup(self.clock.stop)
-        self.session = lease.Lease()
+        self.clock = Clock(100.0)
+        self.session = lease.Lease(clock=self.clock)
         self.project = "project-A"
 
     def claim(self, owner="agent-A"):
@@ -52,7 +51,7 @@ class LeaseTests(unittest.TestCase):
 
     def test_expiry_blocks_old_edits_and_allows_new_claim_without_app_actions(self):
         token = self.claim()
-        self.now.return_value = 161.0
+        self.clock.now = 161.0
         with self.assertRaisesRegex(RuntimeError, "expired"), self.session.edit(
                 token, lambda: self.project):
             self.fail("Expired edit ran")
@@ -104,7 +103,7 @@ class LeaseTests(unittest.TestCase):
             finished.set()
 
         with self.session.edit(token, lambda: self.project):
-            self.now.return_value = 161.0
+            self.clock.now = 161.0
             worker = threading.Thread(target=contender)
             worker.start()
             self.assertTrue(attempted.wait(1))

@@ -16,10 +16,11 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-# Bump when Lease state or methods change.
-LEASE_VERSION = 2
+# Bump when Lease state or methods change. Version 3 added the injectable clock.
+LEASE_VERSION = 3
 LEASE_ATTR = f"_cavi_mcp_lease_v{LEASE_VERSION}"
-OLDER_LEASE_ATTRS = ("_cavi_mcp_lease",)
+# Newest first: the first one present supplies the state a new Lease adopts.
+OLDER_LEASE_ATTRS = ("_cavi_mcp_lease_v2", "_cavi_mcp_lease")
 BREAK_IDLE_SECONDS = 300
 READ_ONLY = frozenset({"status", "texture_sets", "layer_stack", "export_presets", "shelf",
                        "bake_settings", "bake_status"})
@@ -80,7 +81,8 @@ CUSTOM_PRESET = "cavi_maps"
 class Lease:
     VERSION = LEASE_VERSION
 
-    def __init__(self):
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
         self.lock = threading.RLock()
         self.token = None
         self.owner = None
@@ -100,16 +102,16 @@ class Lease:
                 self.owner = getattr(old, "owner", None)
                 self.project = getattr(old, "project", None)
                 self.expires = float(getattr(old, "expires", 0.0))
-                self.touched = float(getattr(old, "touched", time.monotonic()))
+                self.touched = float(getattr(old, "touched", self.clock()))
 
     def clear(self):
         self.token, self.owner, self.project, self.expires = None, None, None, 0.0
 
     def active(self):
-        return self.token is not None and time.monotonic() < self.expires
+        return self.token is not None and self.clock() < self.expires
 
     def status(self, project):
-        now = time.monotonic()
+        now = self.clock()
         return {
             "active": self.active(),
             "owner": self.owner,
@@ -128,7 +130,7 @@ class Lease:
     def require(self, token, project):
         if not self.matches(token):
             raise RuntimeError("A valid lease_id is required; inspect and claim the session")
-        if time.monotonic() >= self.expires:
+        if self.clock() >= self.expires:
             raise RuntimeError("The edit lease expired; inspect and claim the session again")
         if project != self.project:
             raise RuntimeError("The project changed; release the lease and inspect before claiming")
@@ -149,7 +151,7 @@ class Lease:
                     raise RuntimeError("The inspected project changed; inspect the session again")
                 if not self.active():
                     raise RuntimeError("No active lease to break; claim the session instead")
-                idle = time.monotonic() - self.touched
+                idle = self.clock() - self.touched
                 if idle < BREAK_IDLE_SECONDS:
                     raise RuntimeError(
                         f"Lease of {self.owner} was used {idle:.0f} s ago; "
@@ -174,7 +176,7 @@ class Lease:
                 if self.active():
                     raise RuntimeError(f"Application is owned by {self.owner}; wait for release")
                 self.token, self.owner, self.project = secrets.token_urlsafe(32), owner, project
-            now = time.monotonic()
+            now = self.clock()
             self.expires, self.touched = now + ttl, now
             result = self.status(project)
             if action == "claim":
@@ -185,13 +187,13 @@ class Lease:
     def edit(self, token, identity):
         with self.lock:
             self.require(token, identity())
-            self.touched = time.monotonic()
+            self.touched = self.clock()
             try:
                 yield
                 # Owned saves and project transitions may change the project identity.
                 self.project = identity()
             finally:
-                self.touched = time.monotonic()
+                self.touched = self.clock()
 
 
 def shared_lease(module):
