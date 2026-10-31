@@ -8,13 +8,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from home import isolate_home
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from designer_fake_cli import install, sbsar
+from designer_fake_cli import ENV, install, sbsar
+from launcher import write_launcher
 
 from cavi_substance_mcp import packing
+from cavi_substance_mcp.core import discovery, proc
 from cavi_substance_mcp.designer import operations, runner
 
 HDRP = {"maps": [
@@ -59,25 +62,64 @@ class InstallationTests(unittest.TestCase):
     def test_platform_defaults(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
         with patch.dict(os.environ, env, clear=True):
-            with patch.object(runner.sys, "platform", "win32"):
+            # shutil.which cannot run as another platform, and nothing is installed anyway.
+            with patch.object(discovery.sys, "platform", "win32"), \
+                    patch.object(discovery.shutil, "which", return_value=None):
                 found = runner.installation()
-                self.assertEqual(found.bin_dir, runner.DEFAULT_DIRS["win32"])
-            with patch.object(runner.sys, "platform", "linux"):
+                self.assertEqual(found.bin_dir, Path(
+                    r"C:\Program Files\Adobe\Adobe Substance 3D Designer"))
+            with patch.object(discovery.sys, "platform", "linux"), \
+                    patch.object(discovery.shutil, "which", return_value=None):
                 self.assertEqual(runner.installation().bin_dir,
                                  Path("/opt/Adobe/Adobe_Substance_3D_Designer"))
 
-    def test_app_resources(self):
+    def test_path_is_searched_after_the_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
-            app = install(Path(folder))
-            with patch.dict(os.environ, {"CAVI_DESIGNER_APP": str(app)}):
-                os.environ.pop("CAVI_DESIGNER_BIN_DIR", None)
+            tools = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["PATH"] = str(tools)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                    discovery, "default_location", return_value=Path(folder) / "nowhere"):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("PATH", tools.resolve()))
+            self.assertTrue(found.binary("sbsrender"))
+
+    def test_an_existing_default_beats_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            default = write_launcher(Path(folder) / "default", "sbsrender", "print(1)\n").parent
+            other = write_launcher(Path(folder) / "bin", "sbsrender", "print(1)\n").parent
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["PATH"] = str(other)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                    discovery, "default_location", return_value=default):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("default", default))
+
+    def test_resources_sit_beside_the_fake_install(self):
+        with tempfile.TemporaryDirectory() as folder:
+            bin_dir = install(Path(folder))
+            with patch.dict(os.environ, {ENV: str(bin_dir)}):
                 found = runner.installation()
                 self.assertTrue(found.binary("sbsrender"))
-                self.assertEqual(found.resources, (app / "Contents/Resources").resolve())
+                self.assertEqual(found.resources, (bin_dir.parent / "resources").resolve())
                 self.assertTrue(operations.builtin_file("packages/brick_1").is_file())
                 for bad in ("packages/../templates/x", "other/brick_1", "packages/a/b"):
                     with self.assertRaises(ValueError):
                         operations.builtin_file(bad)
+
+    def test_a_macos_bundle_keeps_its_tools_and_resources_where_designer_puts_them(self):
+        # The layout of a real macOS install, built by hand: nothing here is executed.
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder) / "Adobe Substance 3D Designer.app"
+            macos = write_launcher(app / "Contents/MacOS", "sbsrender", "print(1)\n").parent
+            (app / "Contents/Resources/packages").mkdir(parents=True)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["CAVI_DESIGNER_APP"] = str(app)
+            with patch.dict(os.environ, env, clear=True):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("CAVI_DESIGNER_APP", macos))
+            self.assertTrue(found.binary("sbsrender"))
+            self.assertEqual(found.resources, (app / "Contents/Resources").resolve())
 
 
 class PackingTests(unittest.TestCase):
@@ -170,7 +212,7 @@ class FakeCliTests(unittest.TestCase):
         self.log = root / "log.jsonl"
         app = install(root)
         env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-        env.update({"CAVI_DESIGNER_APP": str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
+        env.update({ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
                     "CAVI_FAKE_DESIGNER_LOG": str(self.log)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -192,6 +234,11 @@ class FakeCliTests(unittest.TestCase):
         self.assertTrue(status["available"])
         self.assertEqual(status["templates"], ["01_02_pbr_metallic_roughness"])
         self.assertEqual(status["binaries"]["sbscooker"]["version"], "0.0.0-fake")
+
+    def test_a_truncated_info_listing_is_refused(self):
+        with patch.object(proc, "STDOUT_LIMIT", 20), \
+                self.assertRaisesRegex(RuntimeError, "truncated"):
+            asyncio.run(operations.info("m.sbsar", 30))
 
     def test_cook_flags(self):
         result = asyncio.run(operations.cook(
@@ -263,17 +310,44 @@ class FakeCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / "h").exists())
 
 
-class RunnerTests(unittest.TestCase):
-    def test_stdout_bounded(self):
-        code = "import sys; sys.stdout.write('x' * 300000)"
-        with patch.object(runner, "STDOUT_LIMIT", 1000):
-            result = asyncio.run(runner.run([sys.executable, "-c", code], 30))
-        self.assertEqual((len(result.stdout), result.truncated), (1000, True))
+class TruncatedReportTests(unittest.TestCase):
+    def test_a_cut_report_is_an_error_not_a_short_list(self):
+        cut = proc.Result(0, "GRAPH-URL pkg://a\n", "", stdout_truncated=True)
+        with self.assertRaisesRegex(RuntimeError, "sbsrender info.*truncated"):
+            runner.parsed_stdout(cut, "sbsrender info")
+        whole = proc.Result(0, "GRAPH-URL pkg://a\n", "")
+        self.assertEqual(runner.parsed_stdout(whole, "sbsrender info"), whole.stdout)
 
-    def test_timeout_kills_child(self):
-        code = "import time; time.sleep(30)"
-        with self.assertRaisesRegex(TimeoutError, "killed"):
-            asyncio.run(runner.run([sys.executable, "-c", code], 0.5))
+    def test_failure_text_says_when_output_was_cut(self):
+        cut = proc.Result(2, "", "engine failed\n", stderr_truncated=True)
+        self.assertRegex(runner.failure(cut, "sbscooker"), "exit 2: engine failed.*truncated")
+
+
+class WorkspaceRootTests(unittest.TestCase):
+    def setUp(self):
+        self.home = isolate_home(self)
+        self.default = self.home / "Documents/SubstanceMCP"
+
+    def test_default_workspace_is_created_for_an_output_directory(self):
+        made = operations.new_directory("out")
+        self.assertEqual(made, self.default / "out")
+        self.assertTrue(made.is_dir())
+
+    def test_reading_never_creates_the_default_workspace(self):
+        status = asyncio.run(operations.status())
+        self.assertEqual(status["workspace"], str(self.default))
+        self.assertFalse(status["workspace_exists"])
+        with self.assertRaises(ValueError):
+            operations.source("in.sbsar", {".sbsar"})
+        self.assertFalse(self.default.exists())
+
+    def test_missing_explicit_workspace_is_refused_and_not_created(self):
+        missing = self.home / "not-there"
+        with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}):
+            with self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
+                operations.new_directory("out")
+            self.assertFalse(asyncio.run(operations.status())["workspace_exists"])
+        self.assertFalse(missing.exists())
 
 
 class ServerTests(unittest.TestCase):
@@ -281,9 +355,9 @@ class ServerTests(unittest.TestCase):
         from cavi_substance_mcp.designer.server import mcp
 
         tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
-        self.assertEqual(set(tools), {"designer_status", "material", "bake", "sampler"})
-        self.assertTrue(tools["designer_status"].annotations.readOnlyHint)
-        actions = tools["material"].inputSchema["properties"]["action"]["enum"]
+        self.assertEqual(set(tools), {"designer_status", "material", "bake"})
+        self.assertTrue(tools["designer_status"].annotations.read_only_hint)
+        actions = tools["material"].input_schema["properties"]["action"]["enum"]
         self.assertEqual(actions, ["info", "cook", "render", "pack"])
 
 

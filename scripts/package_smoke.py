@@ -39,10 +39,15 @@ TIMEOUT = 90  # seconds per MCP request or subprocess; first start-up imports nu
 # console script -> tool count
 SERVERS = {
     "cavi-substance-mcp": 7,
-    "cavi-substance-designer-mcp": 4,
+    "cavi-substance-designer-mcp": 3,
     "cavi-substance-sampler-mcp": 8,
 }
-REQUIRED_IN_WHEEL = ("cavi_substance_mcp/painter_operations.py",)
+# The files that run inside Painter and Sampler are loaded from the installed package.
+REQUIRED_IN_WHEEL = (
+    "cavi_substance_mcp/painter_operations.py",
+    "cavi_substance_mcp/core/workspace.py",
+    "cavi_substance_mcp/sampler/operations.py",
+)
 FORBIDDEN_IN_WHEEL = ("tests/", "evals/")
 FORBIDDEN_IN_SDIST = (
     ".github/",
@@ -361,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     sdist = only(dist, "*.tar.gz")
     print(f"checking {wheel.name} and {sdist.name}", flush=True)
 
-    report.run("wheel contains painter_operations.py, no tests/ or evals/",
+    report.run("wheel contains the in-app modules, no tests/ or evals/",
                lambda: check_wheel_contents(wheel))
     report.run("wheel and sdist contain LICENSE", lambda: check_license(wheel, sdist))
     report.run("sdist excludes " + ", ".join(FORBIDDEN_IN_SDIST),

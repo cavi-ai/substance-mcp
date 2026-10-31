@@ -1,26 +1,21 @@
 """Typed stdio MCP surface for Substance 3D Designer's headless CLIs."""
 
-from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
+from ..core.mcp import Server
 from ..packing import USAGE, PackSpec
 from . import operations
-from . import sampler as sampler_jobs
 
-mcp = FastMCP(
+mcp = Server(
     "cavi-substance-designer-mcp",
     instructions=(
-        "Runs Designer's sbscooker, sbsrender, substance3d_baker and Sampler batch jobs. Paths "
-        "are relative to CAVI_SUBSTANCE_WORKSPACE; outputs go to new directories. Call "
-        "designer_status first."
+        "Runs Designer's sbscooker, sbsrender and substance3d_baker. Paths are relative to "
+        "CAVI_SUBSTANCE_WORKSPACE; outputs go to new directories. Call designer_status first."
     ),
 )
-# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
-mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
@@ -41,11 +36,6 @@ ACTION_PARAMS = {
 }
 DEFAULTS = {"format": "png", "bit_depth": "8", "expose_output_size": True,
             "expose_random_seed": True}
-SAMPLER_PARAMS = {
-    "image_to_material": {"images", "mode", "tiling", "delight", "save_project"},
-    "export_project": {"project", "asset"},
-}
-SAMPLER_DEFAULTS = {"mode": "ai", "tiling": True, "delight": False, "save_project": False}
 
 
 def need(value, name, action):
@@ -56,8 +46,8 @@ def need(value, name, action):
 
 @mcp.tool(annotations=READ_ONLY)
 async def designer_status() -> dict[str, Any]:
-    """Resolved Designer CLIs, Sampler, versions, built-in packages and workspace."""
-    return {**await operations.status(), "sampler": await sampler_jobs.status()}
+    """Resolved Designer CLIs, versions, built-in packages and workspace."""
+    return await operations.status()
 
 
 @mcp.tool(annotations=WRITES)
@@ -129,36 +119,6 @@ async def bake(
                "match_by_name": match_by_name, "suffix_low": suffix_low,
                "suffix_high": suffix_high, "format": format}
     return await operations.bake(low, high, cage, maps, directory, options, timeout_seconds)
-
-
-@mcp.tool(annotations=WRITES)
-async def sampler(
-    action: Literal["image_to_material", "export_project"],
-    directory: Annotated[str, Field(description="New workspace directory.")],
-    images: Annotated[list[str] | None, Field(
-        min_length=1, max_length=8, description="png/jpg/tif/exr; multiangle: 2-8.")] = None,
-    mode: Literal["ai", "b2m", "multiangle"] = "ai",
-    tiling: StrictBool = True,
-    delight: StrictBool = False,
-    project: Annotated[str | None, Field(description="export_project: .ssa.")] = None,
-    asset: Annotated[str | None, Field(max_length=96)] = None,
-    resolution: Literal[256, 512, 1024, 2048, 4096, 8192] = 2048,
-    format: Literal["png", "exr", "tif"] = "png",
-    pack: Annotated[PackSpec | None, Field(description="png/tif only.")] = None,
-    save_project: StrictBool = False,
-    timeout_seconds: Timeout = 900,
-) -> dict[str, Any]:
-    """Deprecated: use cavi-substance-sampler-mcp for batch jobs. One-shot compatibility helper."""
-    values = {key: value for key, value in locals().items() if key != "action"}
-    given = {key for key, value in values.items()
-             if key in SAMPLER_PARAMS["image_to_material"] | SAMPLER_PARAMS["export_project"]
-             and value is not None and value != SAMPLER_DEFAULTS.get(key)}
-    extra = given - SAMPLER_PARAMS[action]
-    if extra:
-        raise ValueError(f"Not valid for action={action}: {', '.join(sorted(extra))}")
-    need(images if action == "image_to_material" else project,
-         "images" if action == "image_to_material" else "project", action)
-    return await sampler_jobs.run(action, values, timeout_seconds)
 
 
 def main():

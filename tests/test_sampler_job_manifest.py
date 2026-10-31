@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from sampler_fake_cli import install
+from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp import receipts
-from cavi_substance_mcp.sampler import batch, job, operations
+from cavi_substance_mcp.sampler import batch, job, launch
 
 
 def job_data():
@@ -40,7 +40,7 @@ class JobManifestTests(unittest.TestCase):
         app = install(root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({"CAVI_SAMPLER_APP": str(app),
+        env.update({ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -80,14 +80,14 @@ class JobManifestTests(unittest.TestCase):
             self.assertNotIn(f"jobs/rock/{name}", outputs)
 
     def test_an_input_changed_during_the_run_fails_the_job(self):
-        original = operations.invoke_job
+        original = launch.invoke_job
 
         async def edit_input_then_run(*args, **kwargs):
             result = await original(*args, **kwargs)
             (self.workspace / "photos/albedo.png").write_bytes(b"changed")
             return result
 
-        with patch.object(operations, "invoke_job", edit_input_then_run), \
+        with patch.object(launch, "invoke_job", edit_input_then_run), \
                 self.assertRaisesRegex(job.JobValidationError, "input changed"):
             self.run_job()
         self.assertFalse((self.workspace / "jobs/rock").exists())
@@ -96,7 +96,7 @@ class JobManifestTests(unittest.TestCase):
         async def fail(*args, **kwargs):
             raise RuntimeError("boom")
 
-        with patch.object(operations, "invoke_job", fail), \
+        with patch.object(launch, "invoke_job", fail), \
                 self.assertRaisesRegex(RuntimeError, "boom"):
             batch.run_job_file("jobs/rock.json", self.workspace, keep_on_failure=True)
         record = json.loads((self.workspace / "jobs/rock/failure.json").read_text())

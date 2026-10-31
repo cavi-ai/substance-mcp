@@ -1,24 +1,24 @@
-"""Sampler script jobs and operations evaluated inside Sampler."""
+"""Operations and batch jobs that run inside Sampler's embedded Python.
 
-import asyncio
-import contextlib
-import contextvars
+launch.py starts Sampler with a generated driver script that imports this module and
+calls ``execute_in_sampler``, ``execute_job`` or ``preflight_job``. Sampler's interpreter
+has no third-party packages and cannot see the host-side modules, so this module and
+everything it imports stay standard library only and never import launch, runner, lock,
+batch, job or anything under core except workspace. tests/test_import_closure.py
+enforces both.
+"""
+
 import json
 import math
-import os
 import re
 import shutil
-import tempfile
 import time
-import uuid
 from pathlib import Path
 
 from .. import receipts
-from ..painter_operations import export_destination, input_file, remove_tree
+from ..core.workspace import existing, input_file, new_output_dir, rel, remove_tree
 from . import names as filenames
-from . import runner, targets
-from .errors import AppRunning
-from .lock import WorkspaceLock
+from . import targets
 
 PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
@@ -37,20 +37,10 @@ IMPORT_OPTIONS = (
     "HDR_merge",
     "use_as_environment",
 )
-RESPONSE_LIMIT = 8 * 1024 * 1024
-LOCK_WAIT = 60
-WORK_PREFIX = ".cavi-work-"
-# Operations that save the project they open. They run on a disposable copy so a
-# failure or a timeout kill can never leave the user's .ssa half written.
-MUTATING = frozenset({
-    "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
-    "insert_material", "set_parameters", "apply_preset", "set_metadata",
-    "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
-    "remove_layer",
-})
-_HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
+# The installed Sampler's version, supplied by the host with each request.
+_APP = {"version": None}
 BLEND_MODES = (
     "blend_ao",
     "blend_color_id",
@@ -61,283 +51,6 @@ BLEND_MODES = (
     "blend_normal",
     "blend_per_channel",
 )
-DRIVER = '''import json
-import sys
-from pathlib import Path
-
-PACKAGE_ROOT = {package_root!r}
-REQUEST = Path({request!r})
-RESPONSE = Path({response!r})
-
-
-def main():
-    data = json.loads(REQUEST.read_text(encoding="utf-8"))
-    try:
-        sys.path.insert(0, PACKAGE_ROOT)
-        from cavi_substance_mcp.sampler.operations import (
-            execute_in_sampler, execute_job, preflight_job,
-        )
-
-        if "preflight" in data:
-            result = preflight_job(
-                data["preflight"], data["workspace"], data["project"]
-            )
-        elif "job" in data:
-            result = execute_job(data["job"], data["workspace"])
-        else:
-            result = execute_in_sampler(
-                data["operation"], data.get("arguments") or {{}}, data["workspace"]
-            )
-    except BaseException as exc:
-        RESPONSE.write_text(
-            json.dumps({{"ok": False, "error": f"{{type(exc).__name__}}: {{exc}}"}}),
-            encoding="utf-8",
-        )
-    else:
-        RESPONSE.write_text(
-            json.dumps({{"ok": True, "result": result}}, default=str), encoding="utf-8"
-        )
-
-
-main()
-'''
-
-
-def workspace(create=False) -> Path:
-    root = Path(
-        os.environ.get("CAVI_SUBSTANCE_WORKSPACE", Path.home() / "Documents/CaviGameArt")
-    ).expanduser()
-    if create:
-        root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
-
-
-def status() -> dict:
-    found = runner.installation()
-    root = workspace()
-    scripts = runner.scripts_dir()
-    return {
-        "available": found.executable is not None,
-        "executable": str(found.executable) if found.executable else None,
-        "source": found.source,
-        "version": found.version,
-        "scripts_dir": str(scripts),
-        "scripts_dir_exists": scripts.is_dir(),
-        "running": runner.running(),
-        "workspace": str(root),
-        "workspace_exists": root.is_dir(),
-    }
-
-
-async def _tail_progress(path: Path, callback, stop: asyncio.Event):
-    seen = 0
-    while True:
-        if path.is_file():
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError:
-                lines = []
-            for line in lines[seen:]:
-                seen += 1
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    continue
-                with contextlib.suppress(Exception):
-                    callback(event)
-        if stop.is_set():
-            return
-        await asyncio.sleep(0.2)
-
-
-@contextlib.asynccontextmanager
-async def exclusive(root, lock_timeout: float = LOCK_WAIT):
-    """Hold the workspace lock for one or more Sampler launches.
-
-    Every launch goes through this, so single-operation tools, preflight checks and
-    batch jobs never run Sampler concurrently. Re-entrant within one task so a batch
-    job can hold the lock across its directory setup and the launch itself.
-    """
-    root = Path(root)
-    key = str(root.resolve())
-    if key in _HELD.get():
-        yield
-        return
-    async with WorkspaceLock(root, lock_timeout):
-        token = _HELD.set(_HELD.get() | {key})
-        try:
-            yield
-        finally:
-            _HELD.reset(token)
-
-
-async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None,
-                       on_progress=None, lock_timeout: float = LOCK_WAIT,
-                       aliases=None) -> dict:
-    async with exclusive(payload["workspace"], lock_timeout):
-        # Checked under the lock, immediately before launching, so two of our own
-        # launches cannot race each other between the check and the start.
-        if runner.running():
-            raise AppRunning(
-                "Sampler is already running. Save and quit it; Sampler runs startup "
-                "scripts only when no other instance is active."
-            )
-        return await _launch(payload, timeout_seconds, progress_file, on_progress, aliases)
-
-
-async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
-                  on_progress=None, aliases=None) -> dict:
-    job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
-    request, response, script = job / "request.json", job / "response.json", job / "run.py"
-    stop = asyncio.Event()
-    tailer = None
-    if progress_file is not None and on_progress is not None:
-        tailer = asyncio.create_task(_tail_progress(Path(progress_file), on_progress, stop))
-    try:
-        request.write_text(
-            json.dumps(payload, allow_nan=False), encoding="utf-8"
-        )
-        script.write_text(
-            DRIVER.format(
-                package_root=str(Path(__file__).resolve().parents[2]),
-                request=str(request),
-                response=str(response),
-            ),
-            encoding="utf-8",
-        )
-        started = time.monotonic()
-        result = await runner.run_script(script, timeout_seconds, job)
-        deadline = time.monotonic() + 2
-        while not response.is_file() and result.returncode == 0 and time.monotonic() < deadline:
-            await asyncio.sleep(0.1)
-        if not response.is_file():
-            if result.returncode != 0:
-                raise RuntimeError(runner.failure(result))
-            raise RuntimeError(
-                "Sampler exited without running the script. Quit any running Sampler window, "
-                "then retry. " + runner.diagnostics(result)
-            )
-        if response.stat().st_size > RESPONSE_LIMIT:
-            raise RuntimeError("Sampler response exceeds size limit")
-        try:
-            payload = json.loads(response.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise RuntimeError("Sampler returned an unreadable response") from exc
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
-            detail = str(
-                payload.get("error") if isinstance(payload, dict) else payload
-                or "Sampler operation failed"
-            )
-            detail = _unalias(detail, aliases)
-            for kind in (ValueError, FileExistsError, TypeError, RuntimeError):
-                prefix = f"{kind.__name__}: "
-                if detail.startswith(prefix):
-                    raise kind(detail[len(prefix):])
-            raise RuntimeError(detail)
-        if result.returncode != 0:
-            # A response file proves the script ran, not that Sampler shut down cleanly.
-            raise RuntimeError(runner.failure(result))
-        reply = payload.get("result")
-        if not isinstance(reply, dict):
-            raise TypeError("Sampler operation returned an unexpected response")
-        reply["seconds"] = round(time.monotonic() - started, 3)
-        return reply
-    finally:
-        if tailer is not None:
-            stop.set()
-            await tailer
-        remove_tree(job)
-
-
-def _unalias(value, aliases):
-    if not aliases:
-        return value
-    if isinstance(value, str):
-        for old, new in aliases.items():
-            value = value.replace(old, new)
-        return value
-    if isinstance(value, list):
-        return [_unalias(item, aliases) for item in value]
-    if isinstance(value, dict):
-        return {key: _unalias(item, aliases) for key, item in value.items()}
-    return value
-
-
-async def _copy_file(source: Path, target: Path) -> None:
-    """Copy without blocking the event loop or leaving a stray thread on cancellation."""
-    with source.open("rb") as reader, target.open("wb") as writer:
-        while chunk := reader.read(8 * 1024 * 1024):
-            writer.write(chunk)
-            await asyncio.sleep(0)
-    shutil.copystat(source, target)
-
-
-async def _invoke_on_copy(root: Path, operation: str, arguments: dict,
-                          timeout_seconds: float, lock_timeout: float) -> dict:
-    """Run a mutating operation on a copy and replace the project only on success."""
-    original = _input(root, arguments["project"], PROJECT)
-    work = original.with_name(f"{WORK_PREFIX}{uuid.uuid4().hex[:12]}-{original.name}")
-    aliases = {_rel(root, work): _rel(root, original)}
-    try:
-        await _copy_file(original, work)
-        reply = await _run_payload(
-            {"operation": operation, "workspace": str(root),
-             "arguments": {**arguments, "project": _rel(root, work)}},
-            timeout_seconds, lock_timeout=lock_timeout, aliases=aliases,
-        )
-        if reply.get("saved"):
-            if not work.is_file() or work.stat().st_size == 0:
-                raise RuntimeError("Sampler reported a save but wrote no project data")
-            os.replace(work, original)
-    finally:
-        work.unlink(missing_ok=True)
-    return _unalias(reply, aliases)
-
-
-async def invoke(operation: str, arguments: dict, timeout_seconds: float,
-                 workspace_path=None, lock_timeout: float = LOCK_WAIT) -> dict:
-    if workspace_path is None:
-        root = workspace(create=True)
-    else:
-        root = Path(workspace_path).expanduser().resolve()
-        root.mkdir(parents=True, exist_ok=True)
-    if operation in MUTATING and arguments.get("project") is not None:
-        # Hold the lock across copy, run and replace so two edits of one project
-        # cannot lose each other's changes.
-        async with exclusive(root, lock_timeout):
-            return await _invoke_on_copy(
-                root, operation, arguments, timeout_seconds, lock_timeout)
-    return await _run_payload(
-        {"operation": operation, "arguments": arguments, "workspace": str(root)},
-        timeout_seconds, lock_timeout=lock_timeout,
-    )
-
-
-async def invoke_preflight(job: dict, timeout_seconds: float, workspace_path,
-                           project: str, lock_timeout: float = LOCK_WAIT) -> dict:
-    root = Path(workspace_path).expanduser().resolve()
-    return await _run_payload(
-        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds,
-        lock_timeout=lock_timeout,
-    )
-
-
-async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
-                     progress_file=None, on_progress=None,
-                     lock_timeout: float = LOCK_WAIT) -> dict:
-    if workspace_path is None:
-        root = workspace(create=True)
-    else:
-        root = Path(workspace_path).expanduser().resolve()
-        root.mkdir(parents=True, exist_ok=True)
-    return await _run_payload(
-        {"job": job, "workspace": str(root)}, timeout_seconds,
-        progress_file=progress_file, on_progress=on_progress, lock_timeout=lock_timeout,
-    )
-
-
 def _wait_file(path: Path, timeout: float = 120) -> Path:
     deadline = time.monotonic() + timeout
     while not path.is_file() and time.monotonic() < deadline:
@@ -405,34 +118,13 @@ def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float 
     raise RuntimeError("Sampler export files were still changing when the wait ended")
 
 
-def _root(value) -> Path:
-    return Path(value).expanduser().resolve(strict=True)
-
-
-def _rel(root: Path, path) -> str:
-    return Path(path).resolve().relative_to(root).as_posix()
-
-
 def _display(root: Path, path) -> str | None:
     if not path:
         return None
     try:
-        return _rel(root, path)
+        return rel(root, path)
     except (OSError, ValueError):
         return str(path)
-
-
-def _input(root: Path, name: str, extensions: set[str]) -> Path:
-    try:
-        return input_file(root, name, extensions)
-    except (OSError, RuntimeError) as exc:
-        raise ValueError("Input must be a supported file inside the workspace") from exc
-
-
-def _new_directory(root: Path, name: str) -> Path:
-    path = export_destination(root, name)
-    path.mkdir()
-    return path
 
 
 def _name(value, label: str) -> str:
@@ -753,7 +445,7 @@ def _open(ssa, root: Path, name: str | None) -> Path | None:
     candidate = (root / name).resolve()
     if _CURRENT.get("path") == candidate:
         return candidate
-    path = _input(root, name, PROJECT)
+    path = input_file(root, name, PROJECT)
     try:
         current = ssa.get_project_path()
     except Exception:  # noqa: BLE001 -- optional native call
@@ -766,7 +458,7 @@ def _open(ssa, root: Path, name: str | None) -> Path | None:
             pass
     opened = ssa.open_project(str(path))
     if not opened:
-        raise RuntimeError(f"Sampler did not open {_rel(root, path)}")
+        raise RuntimeError(f"Sampler did not open {rel(root, path)}")
     ssa.wait_for_computation()
     return path
 
@@ -820,7 +512,7 @@ def _inspect_project(ssa, root, args) -> dict:
     path = _open(ssa, root, args.get("project"))
     assets = [_asset(item) for item in ssa.get_project_assets()]
     return {
-        "project": _rel(root, path) if path else None,
+        "project": rel(root, path) if path else None,
         "project_path": _display(root, _get(ssa, "get_project_path", lambda: "")()),
         "assets": assets,
     }
@@ -833,7 +525,7 @@ def _inspect_asset(ssa, root, args) -> dict:
     path = _open(ssa, root, args.get("project"))
     asset = _find_asset(ssa, name)
     return {
-        "project": _rel(root, path) if path else None,
+        "project": rel(root, path) if path else None,
         "asset": _asset(asset),
         "layers": [_layer(item) for item in asset.get_layers()],
     }
@@ -897,8 +589,8 @@ def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
 
     if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
         raise TypeError("Job must be an object with steps")
-    root = _root(workspace_path)
-    project = _input(root, project_path, PROJECT)
+    root = existing(workspace_path)
+    project = input_file(root, project_path, PROJECT)
     if not ssa.open_project(str(project)):
         raise RuntimeError("Sampler could not open the preflight project")
     ssa.wait_for_computation()
@@ -1074,7 +766,7 @@ def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
             continue
         problems.append(f"{prefix}: unknown action")
     return {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "probe": probe,
         "problems": problems,
         "warnings": warnings,
@@ -1084,7 +776,7 @@ def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
 
 def _create_project(ssa, root, args) -> dict:
     name = _name(args.get("name"), "name")
-    directory = _new_directory(root, args.get("directory"))
+    directory = new_output_dir(root, args.get("directory"))
     project = directory / f"{name}.ssa"
     started = time.monotonic()
     try:
@@ -1098,18 +790,18 @@ def _create_project(ssa, root, args) -> dict:
         manifest = receipts.build(
             "sampler", "create_project", root, outputs=[project],
             parameters={"name": name}, seconds=time.monotonic() - started,
-            version=runner.installation().version,
+            version=_APP["version"],
         )
         manifest_path = receipts.write(directory, manifest)
     except BaseException:
         remove_tree(directory)
         raise
     return {
-        "project": _rel(root, project),
-        "directory": _rel(root, directory),
+        "project": rel(root, project),
+        "directory": rel(root, directory),
         "name": name,
         "assets": [_asset(item) for item in ssa.get_project_assets()],
-        "manifest": _rel(root, manifest_path),
+        "manifest": rel(root, manifest_path),
     }
 
 
@@ -1118,7 +810,7 @@ def _save_as(ssa, root, args) -> dict:
     if source is None:
         raise ValueError("project is required for action=save_as")
     name = _name(args.get("name") or source.stem, "name")
-    directory = _new_directory(root, args.get("directory"))
+    directory = new_output_dir(root, args.get("directory"))
     target = directory / f"{name}.ssa"
     started = time.monotonic()
     try:
@@ -1127,17 +819,17 @@ def _save_as(ssa, root, args) -> dict:
         manifest = receipts.build(
             "sampler", "save_as", root, inputs=[source], outputs=[target],
             parameters={"name": name}, seconds=time.monotonic() - started,
-            version=runner.installation().version,
+            version=_APP["version"],
         )
         manifest_path = receipts.write(directory, manifest)
     except BaseException:
         remove_tree(directory)
         raise
     return {
-        "source": _rel(root, source),
-        "project": _rel(root, target),
-        "directory": _rel(root, directory),
-        "manifest": _rel(root, manifest_path),
+        "source": rel(root, source),
+        "project": rel(root, target),
+        "directory": rel(root, directory),
+        "manifest": rel(root, manifest_path),
     }
 
 
@@ -1178,7 +870,7 @@ def _create_asset(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _asset(asset),
         "saved": True,
     }
@@ -1195,12 +887,12 @@ def _delete_asset(ssa, root, args) -> dict:
         raise RuntimeError(f"Sampler did not delete asset {name!r}")
     ssa.wait_for_computation()
     _save(ssa)
-    return {"project": _rel(root, path), "deleted": name, "saved": True}
+    return {"project": rel(root, path), "deleted": name, "saved": True}
 
 
 def _import_images(ssa, root, args) -> dict:
     names = _list(args.get("images"), "images")
-    paths = [_input(root, name, IMAGES) for name in names]
+    paths = [input_file(root, name, IMAGES) for name in names]
     option = args.get("import_option", "use_as_bitmap")
     if option not in IMPORT_OPTIONS:
         raise ValueError(f"import_option must be one of: {', '.join(IMPORT_OPTIONS)}")
@@ -1219,10 +911,10 @@ def _import_images(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
-        "images": [_rel(root, item) for item in paths],
+        "images": [rel(root, item) for item in paths],
         "saved": True,
     }
 
@@ -1235,7 +927,7 @@ def _import_textures(ssa, root, args) -> dict:
     for usage, name in images.items():
         if not isinstance(usage, str) or not USAGE.fullmatch(usage):
             raise ValueError(f"Invalid usage name: {usage}")
-        paths[usage] = _input(root, name, IMAGES)
+        paths[usage] = input_file(root, name, IMAGES)
     insert_above = bool(args.get("insert_above", True))
     position = _position(args.get("position", 0))
     asset_name = args.get("asset")
@@ -1251,10 +943,10 @@ def _import_textures(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
-        "images": {usage: _rel(root, path) for usage, path in paths.items()},
+        "images": {usage: rel(root, path) for usage, path in paths.items()},
         "saved": True,
     }
 
@@ -1274,7 +966,7 @@ def _insert_filter(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
         "saved": True,
@@ -1301,7 +993,7 @@ def _insert_material(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
         "saved": True,
@@ -1334,7 +1026,7 @@ def _set_parameters(ssa, root, args) -> dict:
     if changed:
         _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _jsonable(_get(layer, "name")),
         "parameters": applied,
@@ -1365,7 +1057,7 @@ def _apply_preset(ssa, root, args) -> dict:
     if changed:
         _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
         "preset": preset,
@@ -1423,7 +1115,7 @@ def _set_metadata(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "metadata": _metadata(asset),
         "saved": True,
@@ -1447,7 +1139,7 @@ def _channels(ssa, root, args, activate: bool) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "channels": channels,
         "activated": activate,
@@ -1493,7 +1185,7 @@ def _set_channels(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
         "applies_to": [_usage_id(item) for item in applies_objects] if applies_objects else None,
@@ -1533,7 +1225,7 @@ def _set_blend_parameters(ssa, root, args) -> dict:
     if changed:
         _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
         "parameters": applied,
@@ -1568,7 +1260,7 @@ def _remove_layer(ssa, root, args) -> dict:
     ssa.wait_for_computation()
     _save(ssa)
     return {
-        "project": _rel(root, path),
+        "project": rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "removed": layer_name,
         "position": index,
@@ -1581,8 +1273,8 @@ def _import_resource(ssa, root, args) -> dict:
     if project is not None:
         candidate = (root / project).resolve()
         if _CURRENT.get("path") != candidate:
-            _input(root, project, PROJECT)
-    path = _input(root, args.get("path"), RESOURCE_FILES)
+            input_file(root, project, PROJECT)
+    path = input_file(root, args.get("path"), RESOURCE_FILES)
     source_manifest = args.get("source_manifest")
     expected = args.get("expected_sha256")
     if expected is not None:
@@ -1591,7 +1283,7 @@ def _import_resource(ssa, root, args) -> dict:
         expected = expected.lower()
     source, manifest_path = None, None
     if source_manifest is not None:
-        manifest_path = _input(root, source_manifest, {".json"})
+        manifest_path = input_file(root, source_manifest, {".json"})
         source = receipts.verify_file(receipts.load(manifest_path), root, path, "outputs")
     if expected is not None:
         actual = receipts.record(path, root)
@@ -1600,7 +1292,7 @@ def _import_resource(ssa, root, args) -> dict:
         source = source or actual
     resources = ssa.import_resources(str(path))
     result = {
-        "path": _rel(root, path),
+        "path": rel(root, path),
         "resources": [
             {"name": _resource_name(item), "label": _jsonable(_get(item, "label"))}
             for item in resources
@@ -1609,7 +1301,7 @@ def _import_resource(ssa, root, args) -> dict:
     if source_manifest is not None or expected is not None:
         result.update(verified=True, source=source)
         if manifest_path is not None:
-            result["source_manifest"] = _rel(root, manifest_path)
+            result["source_manifest"] = rel(root, manifest_path)
     return result
 
 
@@ -1659,7 +1351,7 @@ def _export(ssa, root, args) -> dict:
         raise ValueError("directory is required for action=export")
     dry_run = bool(args.get("dry_run", True))
     plan = {
-        "project": _rel(root, project),
+        "project": rel(root, project),
         "asset": _jsonable(_get(asset, "name")),
         "directory": directory_name,
         "format": fmt,
@@ -1673,7 +1365,7 @@ def _export(ssa, root, args) -> dict:
     }
     if dry_run:
         return {**plan, "files": []}
-    destination = _new_directory(root, directory_name)
+    destination = new_output_dir(root, directory_name)
     try:
         ssa.wait_for_computation()
         controller = ssa.ExportController()
@@ -1700,7 +1392,7 @@ def _export(ssa, root, args) -> dict:
         manifest = receipts.build(
             "sampler", "export", root, inputs=[project], outputs=files,
             parameters=plan, seconds=time.monotonic() - started,
-            version=runner.installation().version,
+            version=_APP["version"],
         )
         manifest_path = receipts.write(destination, manifest)
     except BaseException:
@@ -1708,9 +1400,9 @@ def _export(ssa, root, args) -> dict:
         raise
     return {
         **plan,
-        "directory": _rel(root, destination),
-        "files": [_rel(root, item) for item in files],
-        "manifest": _rel(root, manifest_path),
+        "directory": rel(root, destination),
+        "files": [rel(root, item) for item in files],
+        "manifest": rel(root, manifest_path),
     }
 
 
@@ -1751,7 +1443,7 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
         asset_dir = base / directories[name]
         asset_dir.mkdir(parents=True, exist_ok=True)
         for kind in step.get("outputs") or ["sbsar", "textures"]:
-            directory = _rel(root, asset_dir / kind)
+            directory = rel(root, asset_dir / kind)
             if kind == "sbsar":
                 result = _export(ssa, root, {
                     "project": project, "asset": name, "directory": directory,
@@ -1844,12 +1536,13 @@ def _dispatch_step(ssa, root, job_dir, project, step):
     raise ValueError(f"Unknown step action: {action}")
 
 
-def execute_job(job: dict, workspace_path: str) -> dict:
+def execute_job(job: dict, workspace_path: str, version: str | None = None) -> dict:
     import substance_sampler as ssa
 
     if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
         raise TypeError("Job must be an object with steps")
-    root = _root(workspace_path)
+    _APP["version"] = version
+    root = existing(workspace_path)
     job_dir = (root / str(job.get("directory", ""))).resolve()
     if job_dir == root or not job_dir.is_relative_to(root) or not job_dir.is_dir():
         raise ValueError("job directory must be an existing directory inside the workspace")
@@ -1866,7 +1559,7 @@ def execute_job(job: dict, workspace_path: str) -> dict:
     _BATCH["active"] = True
     try:
         if source is not None:
-            source_path = _input(root, source, PROJECT)
+            source_path = input_file(root, source, PROJECT)
             copy_name = _name(
                 project_spec.get("name") or source_path.stem, "project name"
             )
@@ -1875,14 +1568,14 @@ def execute_job(job: dict, workspace_path: str) -> dict:
             if not ssa.open_project(str(project_path)):
                 raise RuntimeError("Sampler could not open the copied project")
             ssa.wait_for_computation()
-            source_rel = _rel(root, source_path)
+            source_rel = rel(root, source_path)
             mutated = False
         else:
             project_name = _name(project_spec.get("name"), "project name")
             project_path = job_dir / f"{project_name}.ssa"
             ssa.create_project(project_name, str(project_path))
             mutated = project_spec.get("asset") is not None
-        project = _rel(root, project_path)
+        project = rel(root, project_path)
         _CURRENT["path"] = project_path.resolve()
         created = project_spec.get("asset")
         if created is not None:
@@ -1941,7 +1634,7 @@ def execute_job(job: dict, workspace_path: str) -> dict:
         _BATCH["active"] = False
         _CURRENT["path"] = None
     reply = {
-        "directory": _rel(root, job_dir),
+        "directory": rel(root, job_dir),
         "project": project,
         "source": source_rel,
         "assets": [_asset(item) for item in ssa.get_project_assets()],
@@ -1953,12 +1646,14 @@ def execute_job(job: dict, workspace_path: str) -> dict:
 
 
 
-def execute_in_sampler(operation: str, arguments: dict, workspace_path: str) -> dict:
+def execute_in_sampler(operation: str, arguments: dict, workspace_path: str,
+                       version: str | None = None) -> dict:
     import substance_sampler as ssa
 
     if not isinstance(arguments, dict):
         raise TypeError("Parameters must be an object")
-    root = _root(workspace_path)
+    _APP["version"] = version
+    root = existing(workspace_path)
     actions = {
         "inspect_project": _inspect_project,
         "inspect_asset": _inspect_asset,

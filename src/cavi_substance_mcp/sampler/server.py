@@ -1,9 +1,8 @@
 """Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
 
-from importlib.metadata import version as package_version
+import asyncio
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import (
     BaseModel,
@@ -14,11 +13,13 @@ from pydantic import (
     StringConstraints,
 )
 
+from ..core import workspace
+from ..core.mcp import Server
 from ..packing import USAGE, PackSpec
-from . import batch, operations
+from . import batch, launch
 from . import pack as packer
 
-mcp = FastMCP(
+mcp = Server(
     "cavi-substance-sampler-mcp",
     instructions=(
         "Runs Sampler startup scripts through --run-script-silent. Quit Sampler first; an "
@@ -27,8 +28,6 @@ mcp = FastMCP(
         "Use sampler_build for multi-step batch jobs."
     ),
 )
-# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
-mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
@@ -101,7 +100,7 @@ def extras(action: str, values: dict, params: dict) -> list[str]:
 @mcp.tool(annotations=READ_ONLY)
 async def sampler_status() -> dict[str, Any]:
     """Sampler executable, version, scripts folder, workspace and running state."""
-    return operations.status()
+    return await asyncio.to_thread(launch.status)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -124,7 +123,7 @@ async def sampler_inspect(
     arguments = {key: value for key, value in given.items() if value is not None}
     operation = {"project": "inspect_project", "asset": "inspect_asset",
                  "catalog": "catalog"}[action]
-    return await operations.invoke(operation, arguments, timeout_seconds)
+    return await launch.invoke(operation, arguments, timeout_seconds)
 
 
 @mcp.tool(annotations=WRITES)
@@ -143,7 +142,7 @@ async def sampler_project(
     else:
         need(project, "project", action)
     operation = "create_project" if action == "create" else "save_as"
-    return await operations.invoke(operation, {
+    return await launch.invoke(operation, {
         key: value for key, value in {
             "directory": directory, "name": name, "project": project,
         }.items() if value is not None
@@ -271,7 +270,7 @@ async def sampler_asset(
         arguments["material"] = material
         arguments["blend_mode"] = blend_mode
     operation = {"create": "create_asset", "delete": "delete_asset"}.get(action, action)
-    return await operations.invoke(operation, arguments, timeout_seconds)
+    return await launch.invoke(operation, arguments, timeout_seconds)
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -342,7 +341,7 @@ async def sampler_layer(
     operation = {"set_parameters": "set_parameters", "apply_preset": "apply_preset",
                  "set_channels": "set_channels", "set_blend_parameters": "set_blend_parameters",
                  "remove": "remove_layer"}[action]
-    return await operations.invoke(operation, {
+    return await launch.invoke(operation, {
         key: value for key, value in arguments.items() if value is not None
     }, timeout_seconds)
 
@@ -371,7 +370,7 @@ async def sampler_export(
         raise ValueError("target exports textures; use png, tga, tif or exr")
     if format is None:
         format = "png" if target is not None else "sbsar"
-    return await operations.invoke("export", {
+    return await launch.invoke("export", {
         "project": project, "directory": directory, "asset": asset, "target": target,
         "format": format, "preset": preset, "channels": channels, "resolution": resolution,
         "material_type": material_type, "subfolder": subfolder, "wait_seconds": wait_seconds,
@@ -393,7 +392,7 @@ async def sampler_build(
         raise ValueError(
             "check_sampler, check_project and check_build require dry_run=true"
         )
-    root = operations.workspace()
+    root = workspace.root()
     if dry_run:
         if check_build:
             return {

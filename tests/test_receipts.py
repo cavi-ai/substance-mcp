@@ -12,14 +12,16 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install
 from owned_client import OwnedPainterClient
 from painter_simulator import PainterSimulator
+from sampler_fake_cli import ENV as SAMPLER_ENV
 from sampler_fake_cli import install as install_sampler
 
 from cavi_substance_mcp import cli, painter_operations, receipts
 from cavi_substance_mcp.designer import operations as designer
-from cavi_substance_mcp.sampler import operations as sampler
+from cavi_substance_mcp.sampler import launch as sampler
 
 
 class ReceiptTests(unittest.TestCase):
@@ -86,7 +88,7 @@ class ReceiptTests(unittest.TestCase):
         app = install(self.root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("CAVI_DESIGNER")}
-        env.update({"CAVI_DESIGNER_APP": str(app),
+        env.update({DESIGNER_ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
         with patch.dict(os.environ, env, clear=True):
             cooked = asyncio.run(designer.cook(
@@ -144,7 +146,7 @@ class ReceiptTests(unittest.TestCase):
         app = install_sampler(self.root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({"CAVI_SAMPLER_APP": str(app),
+        env.update({SAMPLER_ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
         with patch.dict(os.environ, env, clear=True):
             created = asyncio.run(sampler.invoke(
@@ -185,7 +187,7 @@ class ReceiptTests(unittest.TestCase):
         app = install(self.root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("CAVI_DESIGNER")}
-        env.update({"CAVI_DESIGNER_APP": str(app),
+        env.update({DESIGNER_ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
         with patch.dict(os.environ, env, clear=True):
             cooked = asyncio.run(designer.cook(

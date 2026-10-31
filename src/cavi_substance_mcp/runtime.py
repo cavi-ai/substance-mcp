@@ -1,12 +1,12 @@
 """Launch the installed Painter application without closing existing projects."""
 
-import os
 import plistlib
 import subprocess
 import sys
 from pathlib import Path
 
 from .client import PainterClient
+from .core import discovery
 
 
 def runtime_status():
@@ -22,10 +22,10 @@ def start_painter():
         return {**status, "launch_requested": False}
     if sys.platform != "darwin":
         raise RuntimeError("Automatic Painter launch is currently supported on macOS")
-    app = Path(os.environ.get(
-        "CAVI_PAINTER_APP",
-        "/Applications/Adobe Substance 3D Painter/Adobe Substance 3D Painter.app",
-    )).expanduser().resolve()
+    located = discovery.find_app("painter", "Adobe Substance 3D Painter", "CAVI_PAINTER_APP")
+    if located.path is None:
+        raise RuntimeError("Painter not found; set CAVI_PAINTER_APP to its .app bundle")
+    app = located.path.expanduser().resolve()
     with (app / "Contents/Info.plist").open("rb") as stream:
         info = plistlib.load(stream)
     executable = info.get("CFBundleExecutable", "")
@@ -37,17 +37,14 @@ def start_painter():
     ):
         raise ValueError("CAVI_PAINTER_APP must identify Adobe Substance 3D Painter")
     executable = app / "Contents/MacOS" / executable
-    processes = subprocess.run(
-        ["/bin/ps", "-axo", "pid=,comm="],
-        capture_output=True, text=True, check=True, timeout=10,
-    )
-    for line in processes.stdout.splitlines():
-        fields = line.strip().split(maxsplit=1)
-        if len(fields) == 2 and Path(fields[1]).resolve() == executable.resolve():
-            raise RuntimeError(
-                "Painter is already running without a reachable scripting connection. "
-                "Save and quit it, then run runtime start again; no process was stopped."
-            )
+    running = discovery.running(executable)
+    if running is None:
+        raise RuntimeError("Cannot tell whether Painter is already running (pgrep failed)")
+    if running:
+        raise RuntimeError(
+            "Painter is already running without a reachable scripting connection. "
+            "Save and quit it, then run runtime start again; no process was stopped."
+        )
     subprocess.run(
         ["/usr/bin/open", "-a", str(app), "--args", "--enable-remote-scripting"],
         capture_output=True, text=True, check=True, timeout=15,

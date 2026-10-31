@@ -11,14 +11,42 @@ Native project creation, texture-set and preset inspection, uniform fill creatio
 
 Baking, layer actions beyond `fill`/`texture_fill`, shelf search, mesh reload and custom export maps were checked against Painter's documented Python API and a read-only attribute probe, then tested only against the simulator; they have not been run natively.
 
+Designer and Sampler discovery, process checks and process termination are written for Windows as well as macOS and Linux (default install paths under `Program Files`, `tasklist`, `taskkill`). They have not run on Windows yet; the Windows CI leg is experimental until it has run green on a real runner.
+
 ## Install
 
-Requires Python 3.11+, uv, and a separately installed and licensed Adobe application.
-The MCP does not supply an Adobe license or authenticate accounts.
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a separately installed and
+licensed Adobe application. The MCP does not supply an Adobe license or authenticate
+accounts.
+
+Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Painter),
+`cavi-substance-designer-mcp` and `cavi-substance-sampler-mcp`.
 
 ```sh
-uv sync --locked
+uv tool install git+https://github.com/cavi-ai/substance-mcp
 ```
+
+Upgrade with `uv tool upgrade cavi-substance-mcp`. To work from a checkout instead, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Register the servers you need in your MCP client. Desktop apps that do not inherit your
+shell's `PATH` need absolute paths, which `command -v cavi-substance-mcp` prints.
+
+```json
+{
+  "mcpServers": {
+    "substance-painter": {"command": "cavi-substance-mcp"},
+    "substance-designer": {"command": "cavi-substance-designer-mcp"},
+    "substance-sampler": {"command": "cavi-substance-sampler-mcp"}
+  }
+}
+```
+
+Tools read and write files only inside the workspace (see below). To use a folder other
+than the default, add `"env": {"CAVI_SUBSTANCE_WORKSPACE": "/absolute/path"}` to a server
+entry.
+
+### Painter
 
 Launch the installed Painter application with remote scripting enabled:
 
@@ -39,12 +67,6 @@ Commands print JSON and exit nonzero on failure. Running `cavi-substance-mcp` wi
 arguments continues to serve MCP over stdio.
 
 Adobe documents the protocol in its [remote control guide](https://experienceleague.adobe.com/en/docs/substance-3d-dev/painter-python/tutorials/remote-control).
-
-Register the stdio server in your MCP client:
-
-```json
-{"mcpServers":{"substance":{"command":"/path/to/substance-mcp/.venv/bin/cavi-substance-mcp"}}}
-```
 
 Call `painter_status` first. After `open`/`create`/`reload_mesh`, call `project` with `action="wait_ready"` before editing.
 
@@ -83,7 +105,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 
 Timeouts: 60 s per call, 600 s for save, save_copy and export. A timeout means the outcome is unknown; check `painter_status` before retrying. A refused connection means Painter is not reachable.
 
-`CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/CaviGameArt`. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. Use the same workspace for your Blender exports to pass meshes between applications.
+`CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/SubstanceMCP`. The default is created the first time a tool writes to it. A workspace you set yourself must already exist; a missing one is refused instead of created. Read-only tools never create it; the one exception is that a Sampler call holds its lock file in the workspace, so it creates the default first. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. All three servers share the one workspace, so the output of one application is an input to the next.
 
 `CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript. The operation payload is sent once and cached in Painter by SHA-256; later calls send a small bootstrap.
 
@@ -129,8 +151,7 @@ sizes and SHA-256 hashes.
  "parameters": {"source": "templates/..."}}
 ```
 
-- Designer: `cook`, `render`, `pack`, `bake`; the deprecated `sampler` helper also
-  writes a receipt.
+- Designer: `cook`, `render`, `pack`, `bake`.
 - Painter: `export_textures`, `save_copy`; exports can record `source_manifest` +
   `source_file` provenance. `sbsar_fill` results record the imported `.sbsar` as
   `source` and set `verified` when `source_manifest` or `expected_sha256` was checked.
@@ -196,14 +217,14 @@ headless CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or
 ```
 
 - Binaries: `CAVI_DESIGNER_BIN_DIR`, else `CAVI_DESIGNER_APP` (`.app` path), else the
-  standard install dir for macOS, Windows or Linux.
+  standard install dir for macOS, Windows or Linux, else `sbsrender` on `PATH`. An
+  override is final: a wrong one is reported as not found, not replaced.
 - Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories only.
   Failed calls remove the directory they created.
 
 | Tool | Actions / inputs |
 | --- | --- |
-| `designer_status` | binaries, versions, packages dir, templates, workspace, `sampler` |
-| `sampler` | Deprecated one-shot Sampler helper; use `cavi-substance-sampler-mcp`. |
+| `designer_status` | binaries, versions, packages dir, templates, workspace |
 | `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
 | `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
 
@@ -255,7 +276,12 @@ run startup scripts.
 ```
 
 - Executable: `CAVI_SAMPLER_BIN` (exact path), else `CAVI_SAMPLER_APP` (`.app` path),
-  else the standard install path for macOS, Windows or Linux.
+  else the standard install path for macOS, Windows or Linux, else the executable on
+  `PATH`. The version is read from the bundle's `Info.plist` on macOS and from
+  `--version` elsewhere.
+- `CAVI_SAMPLER_SCRIPT_PATH` overrides the startup-scripts folder that `sampler_status`
+  reports (default: Sampler's per-user scripts folder). Each launch also sets Adobe's own
+  `SAMPLER_SCRIPT_PATH` for the Sampler it starts; that variable is Adobe's, not ours.
 - Paths are relative to `CAVI_SUBSTANCE_WORKSPACE`; outputs go to new directories.
   Failed calls remove the directory they created.
 - Each call starts Sampler, opens the project if supplied, runs one operation, saves
@@ -436,8 +462,8 @@ The CLI form reads a JSON file with `directory`, `sources` and `pack`:
 cavi-substance-sampler-mcp pack pack.json --json
 ```
 
-Packing runs on the host, not inside Sampler. The Designer `material pack` action and
-the deprecated Designer `sampler` pack option remain compatible.
+Packing runs on the host, not inside Sampler. The Designer `material pack` action uses
+the same spec.
 
 Limitations:
 
@@ -452,7 +478,8 @@ Limitations:
 - Project-aware preflight is limited to source-project jobs. Use `--check-build` to
   validate new-project layers and parameters; it skips exports and refuses
   `import_resource` jobs.
-- `sampler_status` reports `running: null` where process inspection is unavailable.
+- `sampler_status` reports `running: null` where process inspection is unavailable
+  (`pgrep` on macOS and Linux, `tasklist` on Windows).
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.
 - Native project creation, source-project copies, source-project preflight, metadata,
@@ -468,47 +495,6 @@ uv run --locked python -m unittest tests.test_sampler_native  # launch test need
 ```
 
 The evals run against a fake Sampler executable (`evals/sampler_fake_cli.py`).
-
-## Sampler batch tool (deprecated)
-
-For multi-step jobs, engine targets, manifests and packing, use the standalone
-`cavi-substance-sampler-mcp` server above. The Designer server's `sampler` tool is
-deprecated and remains only as a one-shot image-to-material or project-export
-compatibility helper:
-`--run-script-silent sampler_worker.py -S job.json --skip-version-check
---ignore-gpu-warning`. The worker is fixed; no user code runs inside Sampler.
-
-- Executable: `CAVI_SAMPLER_BIN`, else `CAVI_SAMPLER_APP`, else the standard install.
-- Refuses to start while another Sampler instance is running (`pgrep`).
-- Timeout 900 s by default, 3600 s max; the process group is killed on timeout.
-- Success needs non-empty exported maps; the exit code alone is not trusted.
-- Maps are renamed to `<usage>.<format>`: `baseColor`, `normal`, `roughness`,
-  `metallic`, `height`, `ambientOcclusion`, `opacity`, `specularLevel`.
-
-| Action | Inputs |
-| --- | --- |
-| `image_to_material` | `images`, `mode`, `tiling` (default true), `delight`, `resolution`, `format`, `directory`, optional `pack`, `save_project` |
-| `export_project` | `project` (`.ssa`), optional `asset`, `resolution`, `format`, `directory`, optional `pack` |
-
-- `mode`: `ai` Image to Material (AI Powered), `b2m` Image to Material (B2M), one
-  image; `multiangle` Multiangle To Material, 2-8 images.
-- `tiling` adds Make It Tile; `delight` adds Delighter (AI Powered).
-- `resolution` 256-8192 (power of two) sets document and export size.
-- `format` `png`, `tif` or `exr`; `pack` (the spec above) needs `png` or `tif`.
-- `save_project` writes `<first image>.ssa` into the output directory.
-
-Limitations:
-
-- Sampler opens its app process (a window may appear); there is no headless mode.
-- Filter parameters are Sampler defaults; no per-filter tuning.
-- `export_project` exports one asset; several assets need `asset`.
-
-```sh
-CAVI_SAMPLER_NATIVE=1 uv run --locked python -m unittest tests.test_designer_sampler_native
-```
-
-The evals use `evals/designer_sampler_fake.py`, which runs the real worker against a
-stub `substance_sampler` module.
 
 ## Contributing
 

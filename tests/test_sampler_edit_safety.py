@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from sampler_fake_cli import install
+from sampler_fake_cli import ENV, install
 
-from cavi_substance_mcp.sampler import operations, server
+from cavi_substance_mcp.sampler import launch, server
 
 TIMEOUT = 30
 
@@ -24,7 +24,7 @@ class EditSafetyTests(unittest.TestCase):
         app = install(root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_", "FAKE_SAMPLER"))}
-        env.update({"CAVI_SAMPLER_APP": str(app),
+        env.update({ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -36,7 +36,7 @@ class EditSafetyTests(unittest.TestCase):
         self.folder.cleanup()
 
     def call(self, operation, timeout=TIMEOUT, **arguments):
-        return asyncio.run(operations.invoke(operation, arguments, timeout))
+        return asyncio.run(launch.invoke(operation, arguments, timeout))
 
     def leftovers(self):
         return sorted(item.name for item in self.workspace.rglob(".cavi-work-*"))
@@ -55,7 +55,7 @@ class EditSafetyTests(unittest.TestCase):
             seen.append((Path(source), Path(target), self.project.read_bytes()))
             return real(source, target)
 
-        with patch.object(operations.os, "replace", side_effect=replace):
+        with patch.object(launch.os, "replace", side_effect=replace):
             made = self.add_filter()
         self.assertEqual(made["project"], "projects/Rock.ssa")
         self.assertEqual(len(seen), 1)
@@ -97,11 +97,11 @@ class EditSafetyTests(unittest.TestCase):
         self.assertEqual(self.leftovers(), [])
 
     def test_missing_project_is_refused_before_launching_sampler(self):
-        with patch.object(operations.runner, "run_script") as launch, \
+        with patch.object(launch.runner, "run_script") as run_script, \
                 self.assertRaisesRegex(ValueError, "inside the workspace"):
             self.call("insert_filter", project="projects/Missing.ssa", asset="Rock",
                       filter="Tiling", position=0)
-        launch.assert_not_called()
+        run_script.assert_not_called()
 
     def test_asset_delete_requires_confirmation(self):
         arguments = {"action": "delete", "project": "projects/Rock.ssa", "asset": "Rock"}
@@ -118,10 +118,10 @@ class EditSafetyTests(unittest.TestCase):
     def test_destructive_tools_are_annotated(self):
         tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
         for name in ("sampler_asset", "sampler_layer"):
-            self.assertTrue(tools[name].annotations.destructiveHint, name)
-            self.assertFalse(tools[name].annotations.readOnlyHint, name)
+            self.assertTrue(tools[name].annotations.destructive_hint, name)
+            self.assertFalse(tools[name].annotations.read_only_hint, name)
         for name in ("sampler_project", "sampler_export", "sampler_build", "sampler_pack"):
-            self.assertFalse(tools[name].annotations.destructiveHint, name)
+            self.assertFalse(tools[name].annotations.destructive_hint, name)
 
 
 if __name__ == "__main__":

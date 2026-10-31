@@ -11,9 +11,10 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
+from clock import Clock
 from owned_client import OwnedPainterClient
 
-from cavi_substance_mcp import lease
+from cavi_substance_mcp import painter_operations as lease
 from cavi_substance_mcp.client import PainterClient, PainterTimeout, PainterUnavailable
 from evals.painter_simulator import PainterSimulator
 
@@ -133,6 +134,29 @@ class LeaseVersionTests(unittest.TestCase):
         with current.edit("old-token", lambda: "project-A"):
             pass
 
+    def test_previous_version_lease_without_a_clock_is_replaced(self):
+        module = ModuleType("substance_painter")
+
+        class PreviousLease:
+            VERSION = lease.LEASE_VERSION - 1
+
+            def __init__(self):
+                self.lock = threading.RLock()
+                self.token, self.owner = "kept-token", "agent-kept"
+                self.project, self.expires = "project-A", time.monotonic() + 100
+                self.touched = time.monotonic()
+
+        previous = PreviousLease()
+        setattr(module, f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}", previous)
+        current = lease.shared_lease(module)
+        self.assertIsNot(current, previous)
+        self.assertEqual(current.VERSION, lease.LEASE_VERSION)
+        self.assertEqual((current.token, current.owner), ("kept-token", "agent-kept"))
+        # A payload from the previous release still resolves its own attribute name.
+        self.assertIs(getattr(module, f"_cavi_mcp_lease_v{lease.LEASE_VERSION - 1}"), current)
+        self.assertIs(getattr(module, lease.LEASE_ATTR), current)
+        self.assertTrue(current.active())
+
     def test_newer_lease_object_is_reused(self):
         module = ModuleType("substance_painter")
         newer = SimpleNamespace(VERSION=lease.Lease.VERSION + 1)
@@ -142,10 +166,8 @@ class LeaseVersionTests(unittest.TestCase):
 
 class BreakTests(unittest.TestCase):
     def setUp(self):
-        clock = patch.object(lease.time, "monotonic", return_value=1000.0)
-        self.now = clock.start()
-        self.addCleanup(clock.stop)
-        self.session = lease.Lease()
+        self.clock = Clock(1000.0)
+        self.session = lease.Lease(clock=self.clock)
         self.token = self.session.control({"action": "claim", "owner": "agent-A",
                                            "expected_project": "P", "ttl_seconds": 3600}, "P")[
             "lease_id"]
@@ -154,26 +176,26 @@ class BreakTests(unittest.TestCase):
         return self.session.control({"action": "break", "expected_project": project}, "P")
 
     def test_recent_lease_cannot_be_broken(self):
-        self.now.return_value = 1000.0 + lease.BREAK_IDLE_SECONDS - 1
+        self.clock.now = 1000.0 + lease.BREAK_IDLE_SECONDS - 1
         with self.assertRaisesRegex(RuntimeError, "idle"):
             self.brk()
         self.assertTrue(self.session.active())
 
     def test_edit_and_renew_reset_idle(self):
-        self.now.return_value = 1250.0
+        self.clock.now = 1250.0
         with self.session.edit(self.token, lambda: "P"):
             pass
-        self.now.return_value = 1400.0
+        self.clock.now = 1400.0
         with self.assertRaisesRegex(RuntimeError, "idle"):
             self.brk()
         self.session.control({"action": "renew", "lease_id": self.token,
                               "ttl_seconds": 3600}, "P")
-        self.now.return_value = 1650.0
+        self.clock.now = 1650.0
         with self.assertRaisesRegex(RuntimeError, "idle"):
             self.brk()
 
     def test_idle_lease_break_requires_project_and_returns_owner(self):
-        self.now.return_value = 1000.0 + lease.BREAK_IDLE_SECONDS
+        self.clock.now = 1000.0 + lease.BREAK_IDLE_SECONDS
         with self.assertRaisesRegex(RuntimeError, "project changed"):
             self.brk("other")
         result = self.brk()

@@ -5,9 +5,15 @@
 Install Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and Node.js 22, then:
 
 ```bash
+git clone https://github.com/cavi-ai/substance-mcp.git
+cd substance-mcp
 uv sync --locked --dev
 npm ci
 ```
+
+The servers then run from the checkout as `uv run cavi-substance-mcp`,
+`uv run cavi-substance-designer-mcp` and `uv run cavi-substance-sampler-mcp`. In an MCP
+client, use the absolute paths under `.venv/bin/` (`.venv\Scripts\` on Windows).
 
 No Adobe application is required. The unit tests and evaluations run against a simulated
 Painter API and fake Designer and Sampler executables.
@@ -39,14 +45,24 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   and `client.py` the loopback transport. `runtime.py` and `cli.py` hold the launcher and
   the `receipts` commands.
 - Designer server: `src/cavi_substance_mcp/designer/`. `server.py` holds the tools,
-  `operations.py` the workspace-confined operations and `runner.py` the bounded CLI runner.
-  `sampler.py` and `sampler_worker.py` are the deprecated Sampler helper.
+  `operations.py` the workspace-confined operations and `runner.py` the tool lookup and
+  report parsing; subprocesses run through `core/proc.py`.
 - Sampler server and batch CLI: `src/cavi_substance_mcp/sampler/`. `server.py` holds the
-  tools, `operations.py` the scripts that run inside Sampler, `job.py` the batch job model,
+  tools, `operations.py` the scripts that run inside Sampler's embedded Python, `launch.py`
+  the host side that starts Sampler and reads the response, `job.py` the batch job model,
   `batch.py` and `cli.py` the batch runner, and `targets.py` the engine targets.
-- Shared code: `receipts.py` for receipts and `packing.py` for channel packing.
+- Shared code: `core/` for what every server uses (`workspace.py` holds the workspace
+  root and path rules, `proc.py` the bounded subprocess runner, `discovery.py` how the
+  Adobe executables are found, versioned and checked for a running process), `receipts.py` for
+  receipts and `packing.py` for channel packing.
+- Code that runs inside an application (`painter_operations.py`, and `receipts.py`,
+  `core/workspace.py`, `sampler/operations.py`, `sampler/names.py` and
+  `sampler/targets.py` inside Sampler) is standard library only and never imports a
+  host-side module. `tests/test_import_closure.py` enforces this.
 - `evals/`: `painter_simulator.py` (simulated Painter API), `designer_fake_cli.py`,
-  `designer_sampler_fake.py` and `sampler_fake_cli.py` (fake executables), the corpora
+  `sampler_fake_cli.py` (fake executables, installed by `launcher.py` as shebang scripts on
+  POSIX and `.cmd` wrappers on Windows; tests point discovery at them with
+  `CAVI_DESIGNER_BIN_DIR` and `CAVI_SAMPLER_BIN`), the corpora
   (`cases.json`, `designer_cases.json`, `sampler_cases.json`), the mcp-eval manifests
   (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`).
 - `tests/`: unit tests. `examples/`: synthetic job files and handoff walkthroughs.
@@ -69,7 +85,7 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
 
 ## Commits
 
-Use Conventional Commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `build:`, `test:`.
+Use Conventional Commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `build:`, `test:`, `ci:`.
 
 ## Security
 

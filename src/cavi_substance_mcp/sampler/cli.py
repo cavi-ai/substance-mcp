@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 
 from .. import packing
-from . import batch, job, operations
+from ..core import workspace
+from . import batch, job
 from . import pack as packer
 
 
@@ -132,9 +133,7 @@ def main(argv=None) -> int:
             print(json.dumps(job.job_schema(), indent=2))
             return 0
         if args.command == "pack":
-            root = Path(args.workspace or operations.workspace()).expanduser().resolve(
-                strict=True
-            )
+            root = workspace.existing_root(args.workspace)
             path = Path(args.file).expanduser()
             if not path.is_absolute():
                 path = root / path

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from sampler_fake_cli import install
+from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp.sampler import server
 
@@ -35,7 +35,7 @@ class ServerContractTests(unittest.TestCase):
         app = install(root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_", "FAKE_SAMPLER"))}
-        env.update({"CAVI_SAMPLER_APP": str(app),
+        env.update({ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -49,7 +49,7 @@ class ServerContractTests(unittest.TestCase):
 
     def test_build_defaults_to_a_dry_run(self):
         schema = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-        self.assertIs(schema["sampler_build"].inputSchema["properties"]["dry_run"]["default"],
+        self.assertIs(schema["sampler_build"].input_schema["properties"]["dry_run"]["default"],
                       True)
         plan = self.run_tool(server.sampler_build, job="jobs/rock.json")
         self.assertTrue(plan["dry_run"])

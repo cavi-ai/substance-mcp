@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install as install_designer
 
 from cavi_substance_mcp import cli, painter_operations, receipts
@@ -312,7 +313,7 @@ class DesignerBuiltinTests(Workspace):
         self.app = install_designer(Path(self.folder.name))
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("CAVI_DESIGNER")}
-        env.update({"CAVI_DESIGNER_APP": str(self.app),
+        env.update({DESIGNER_ENV: str(self.app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.root)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -339,7 +340,7 @@ class DesignerBuiltinTests(Workspace):
             "role": "app-resource", "name": "templates/01_02_pbr_metallic_roughness",
             "sha256": template_sha, "tool_version": "0.0.0-fake"}])
         self.assertNotIn(str(self.app), json.dumps(manifest))
-        shutil.rmtree(self.app)
+        shutil.rmtree(self.app.parent)  # the whole fake install, not only its bin directory
         moved = self.root.parent / "other-machine"
         shutil.copytree(self.root, moved)
         steps = receipts.chain(moved / cooked["manifest"], moved)

@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+# The variable that points the host at an install made by install().
+ENV = "CAVI_DESIGNER_BIN_DIR"
 TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
 COMMON = ("--inputs", "--output_path", "--output_name", "--output_size", "--output_format",
           "--udim", "--name_suffix_low", "--name_suffix_high")
@@ -37,22 +39,27 @@ def sbsar(graphs, flags=()):
 
 
 def install(root: Path) -> Path:
-    app = Path(root) / "Fake Designer.app"
-    macos = app / "Contents/MacOS"
-    macos.mkdir(parents=True)
+    """Install the fake tools under ``root``; return the directory ``ENV`` must name.
+
+    The layout is a plain ``bin`` directory of launchers with ``resources`` beside it, not
+    a macOS bundle, so the same install works on every platform. The launchers are shebang
+    scripts on POSIX and ``.cmd`` wrappers on Windows (see launcher.write_launcher).
+    """
+    from launcher import write_launcher  # only the test process installs; the tools never need it
+
+    home = Path(root) / "fake-designer"
     for kind, names in {"templates": ["01_02_pbr_metallic_roughness"],
                         "packages": ["brick_1"]}.items():
-        (app / "Contents/Resources" / kind).mkdir(parents=True)
+        (home / "resources" / kind).mkdir(parents=True)
         for name in names:
-            (app / "Contents/Resources" / kind / f"{name}.sbs").write_text("fake-sbs")
+            (home / "resources" / kind / f"{name}.sbs").write_text("fake-sbs")
+    bin_dir = home / "bin"
     for tool in TOOLS:
-        script = macos / tool
-        script.write_text(
-            f"#!{sys.executable}\nimport runpy\n"
+        write_launcher(bin_dir, tool, (
+            "import runpy\n"
             f"runpy.run_path({str(Path(__file__).resolve())!r}, "
-            f"init_globals={{'FAKE_TOOL': {tool!r}}}, run_name='__main__')\n")
-        script.chmod(0o755)
-    return app
+            f"init_globals={{'FAKE_TOOL': {tool!r}}}, run_name='__main__')\n"))
+    return bin_dir
 
 
 def options(argv):

@@ -12,9 +12,24 @@
 - CI on Linux, macOS and Windows across Python 3.11-3.13 with pinned actions, a lowest-dependency
   leg, CodeQL, a package smoke test (`npm run verify:package`), a tag-driven release workflow
   with PyPI trusted publishing, and a nightly upgrade and vulnerability canary.
+- Windows support for Designer and Sampler: default install paths under `Program Files`
+  (`%ProgramFiles%` is honoured), `tasklist` to see whether an application is running,
+  `taskkill /T /F` to end a timed-out tool and everything it started, and read-only files are
+  cleared when a failed output is removed. The fake Designer and Sampler programs install as
+  `.cmd` launchers on Windows, so the tests can run there. The Windows CI leg stays
+  experimental until it has run green on a real runner.
+- Designer and Sampler executables are also found on `PATH`, after an environment override
+  and the platform's default install location.
+- `CAVI_SAMPLER_SCRIPT_PATH` overrides the startup-scripts folder `sampler_status` reports.
+- An import-closure test proves the code that runs inside Painter and Sampler imports only the
+  standard library and, for Sampler, no host-side module.
 
 ### Changed
 
+- Requires the MCP Python SDK 2.3 or later. The servers use its `MCPServer` and re-raise
+  anticipated failures (invalid arguments, refused paths, an unavailable or busy
+  application) as tool errors, so their messages still reach the client; other exceptions
+  are reported without their details.
 - Pillow requires 13.0 or later; the locked 12.3.0 had known vulnerabilities fixed in 13.0.0.
 - Package metadata: readme, MIT license expression and license file, authors, keywords,
   classifiers, project URLs and a description naming all three applications. The build
@@ -28,6 +43,16 @@
 
 ### Changed (breaking)
 
+- The default workspace is `~/Documents/SubstanceMCP`; set `CAVI_SUBSTANCE_WORKSPACE` to keep
+  using a previous folder. Only the default is created on
+  demand. A workspace named by `CAVI_SUBSTANCE_WORKSPACE` must already exist, and a missing one
+  is refused with a message instead of being created. Read-only calls never create it; a Sampler
+  call does, because it holds its lock file there.
+- `SAMPLER_SCRIPT_PATH` is read as `CAVI_SAMPLER_SCRIPT_PATH` for the scripts folder that
+  `sampler_status` reports, with no alias. The variable each launch sets for the Sampler it
+  starts is still Adobe's own `SAMPLER_SCRIPT_PATH`.
+- The deprecated Designer `sampler` tool is removed, and `designer_status` no longer has a
+  `sampler` entry. Use `cavi-substance-sampler-mcp`.
 - Painter: `bake` gains `action="cancel"`. Deleting a node whose subtree holds layers this
   lease did not create requires `confirm_name`. `layer_edit` times out after 120 seconds.
 - Sampler: `sampler_build` defaults to `dry_run=true`. `sampler_asset action="delete"`
@@ -45,6 +70,13 @@
 
 ### Fixed
 
+- A Designer or Sampler program whose grandchild kept its output pipe open held the call until
+  the timeout and then reported a timeout for a run that had already finished. A call now ends
+  when the process exits.
+- Designer output that exceeds the limit is no longer silently shortened: a cut `sbsrender`
+  report is an error and error messages say when output was dropped.
+- A timed-out Designer tool is asked to stop (SIGTERM) before it is killed, like Sampler.
+- `runtime start` refuses to launch when it cannot tell whether Painter is already running.
 - `serverInfo.version` reports the package version instead of the MCP SDK version.
 - Painter tool calls run off the event loop and are serialized, so a long call no longer
   blocks other requests, and a request cancelled while queued is never sent.

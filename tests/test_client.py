@@ -1,11 +1,14 @@
 import base64
 import json
+import os
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
+from home import isolate_home
 from owned_client import OwnedPainterClient
 
 
@@ -144,6 +147,40 @@ class RemoteTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 export_destination(root, "used")
             self.assertEqual(export_destination(root, "new"), root.resolve() / "new")
+
+
+class WorkspaceRootTests(unittest.TestCase):
+    def setUp(self):
+        self.home = isolate_home(self)
+
+    def client(self, **kwargs):
+        from cavi_substance_mcp.client import PainterClient
+
+        # Nothing listens on port 1, so a call that passes the workspace check ends in
+        # PainterUnavailable instead of reaching an application.
+        return PainterClient(port=1, **kwargs)
+
+    def test_default_workspace_is_created_only_for_a_write(self):
+        from cavi_substance_mcp.client import PainterUnavailable
+
+        default = self.home / "Documents/SubstanceMCP"
+        client = self.client()
+        self.assertEqual(client.workspace, default)
+        with self.assertRaises(PainterUnavailable):
+            client.call("texture_sets")
+        self.assertFalse(default.exists(), "a read-only call created the workspace")
+        with self.assertRaises(PainterUnavailable):
+            client.call("save")
+        self.assertTrue(default.is_dir())
+
+    def test_missing_explicit_workspace_is_refused_and_not_created(self):
+        missing = self.home / "not-there"
+        with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}), \
+                self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
+            self.client().call("save")
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            self.client(workspace=missing).call("save")
+        self.assertFalse(missing.exists())
 
 
 if __name__ == "__main__":
