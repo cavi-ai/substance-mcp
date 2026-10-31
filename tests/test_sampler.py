@@ -106,6 +106,23 @@ class SamplerTests(unittest.TestCase):
         self.assertIn("image_to_material_B2M", catalog["import_options"])
         self.assertTrue(catalog["export_targets"]["unreal"]["available"])
 
+    def test_create_asset_refuses_duplicate_names(self):
+        self.create_project()
+        self.call("create_asset", project="projects/Rock.ssa", name="Brick")
+        project = self.workspace / "projects/Rock.ssa"
+        before = project.read_bytes()
+        for name in ("Brick", "Rock"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "already exists"):
+                self.call("create_asset", project="projects/Rock.ssa", name=name)
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.call("create_asset", project="projects/Rock.ssa", name="Brick", empty=True)
+        self.assertEqual(project.read_bytes(), before)
+        self.assertEqual(
+            [item["name"] for item in
+             self.call("inspect_project", project="projects/Rock.ssa")["assets"]],
+            ["Rock", "Brick"],
+        )
+
     def test_create_empty_asset(self):
         self.create_project()
         made = self.call("create_asset", project="projects/Rock.ssa", name="Empty", empty=True)

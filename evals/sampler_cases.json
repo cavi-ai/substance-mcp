@@ -281,6 +281,20 @@
     }
   },
   {
+    "id": "asset-create-duplicate",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa",
+      "name": "Brick"
+    },
+    "error": "already exists"
+  },
+  {
     "id": "asset-create-fail",
     "tool": "sampler_asset",
     "kind": "success",

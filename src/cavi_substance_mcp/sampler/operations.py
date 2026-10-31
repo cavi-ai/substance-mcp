@@ -1107,6 +1107,8 @@ def _create_asset(ssa, root, args) -> dict:
     path = _open(ssa, root, args.get("project"))
     if path is None:
         raise ValueError("project is required for action=create")
+    if any(_get(item, "name") == name for item in ssa.get_project_assets()):
+        raise ValueError(f"Asset {name!r} already exists in the project")
     model_name = args.get("model") or "asm"
     if model_name not in ("asm", "openpbr"):
         raise ValueError("model must be asm or openpbr")
