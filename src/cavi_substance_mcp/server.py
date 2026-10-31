@@ -293,7 +293,7 @@ async def export_textures(
 
 @mcp.tool(annotations=MUTATING)
 async def bake(
-    action: Literal["start", "status"],
+    action: Literal["start", "status", "cancel"],
     texture_sets: Annotated[list[TextureSetName] | None, Field(max_length=64)] = None,
     maps: list[Literal["normal", "world_space_normal", "id", "ao", "curvature", "position",
                        "thickness", "height", "opacity", "bent_normals"]] | None = None,
@@ -310,10 +310,12 @@ async def bake(
     high_poly_suffix: Annotated[str | None, Field(max_length=32)] = None,
     lease_id: LeaseId = None,
 ) -> dict[str, Any]:
-    """Bake mesh maps; start returns at once, poll status until busy is false.
-    Unset options keep current settings; unselected sets are disabled for baking."""
+    """Bake mesh maps; start returns at once, poll status until busy is false; cancel stops
+    a running bake. Unset options keep current settings; unselected sets are disabled."""
     if action == "status":
         return await painter("bake_status")
+    if action == "cancel":
+        return await painter("bake_cancel", lease_id=lease_id)
     return await painter("bake", {
         "texture_sets": texture_sets, "maps": maps, "high_poly_meshes": high_poly_meshes,
         "resolution": resolution, "antialiasing": antialiasing, "max_frontal": max_frontal,

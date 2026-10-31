@@ -12,7 +12,8 @@ class BlendModeTests(Fixture):
         group = self.edit("group", name="Wear")
         node = self.sim.layers[0]
         for mode in ("mro", "__members__", "_value2member_map_", "multiply", "", "Multiply "):
-            with self.subTest(mode=mode), self.assertRaisesRegex(RuntimeError, "Unknown blend_mode"):
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    RuntimeError, "Unknown blend_mode"):
                 self.edit("set_properties", uid=group["uid"], blend_mode=mode)
             self.assertEqual(node.modes, {})
 

@@ -36,5 +36,23 @@ class LeaseIdContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(reached), 1)
 
 
+class BakeContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_bake_offers_start_status_and_cancel(self):
+        tool = server.mcp._tool_manager.get_tool("bake")
+        self.assertEqual(tool.parameters["properties"]["action"]["enum"],
+                         ["start", "status", "cancel"])
+
+    async def test_cancel_forwards_the_lease_to_the_bake_cancel_operation(self):
+        calls = []
+
+        def spy(self, operation, params=None, *, lease_id=None, timeout=None):
+            calls.append((operation, params, lease_id))
+            return {"cancel_requested": True}
+
+        with patch.object(PainterClient, "call", spy):
+            await server.mcp.call_tool("bake", {"action": "cancel", "lease_id": "abc"})
+        self.assertEqual(calls, [("bake_cancel", None, "abc")])
+
+
 if __name__ == "__main__":
     unittest.main()

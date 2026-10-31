@@ -145,8 +145,21 @@ class Owner:
 
 
 class StopSource:
-    def __bool__(self):
+    """Handle returned by bake_selected_textures_async; request_stop cancels the bake."""
+
+    def __init__(self, simulator):
+        self.simulator = simulator
+        self.requested = False
+
+    def request_stop(self):
+        if not self.simulator.stop_allowed or not self.simulator.bake_running:
+            return False
+        self.requested = True
+        self.simulator.finish_bake(BakingStatus.Cancel)
         return True
+
+    def stop_requested(self):
+        return self.requested
 
 
 class Dispatcher:
@@ -206,6 +219,9 @@ class PainterSimulator:
         self.last_channel = None
         self.modifying = False
         self.delay = 0.0  # seconds every scripting request takes, like a long Painter operation
+        self.drop_bake_end = False  # finish bakes without delivering BakingProcessEnded
+        self.stop_allowed = True  # whether request_stop on a running bake succeeds
+        self.stop_source = None
         self.reset_bake()
 
     def reset_bake(self):
@@ -219,8 +235,17 @@ class PainterSimulator:
                          "LowpolySuffix": "_low", "HipolySuffix": "_high", "SubSampling": 0})}
 
     def setup(self, state):
+        self.drop_bake_end = False
+        self.stop_allowed = True
         if state == "bake-ended":
             self.finish_bake(BakingStatus.Success)
+            self.state = "open"
+            return
+        if state == "bake-end-lost":
+            # Painter finishes the bake but the payload never hears about it.
+            self.drop_bake_end = True
+            self.finish_bake(BakingStatus.Success)
+            self.age_bake(60)
             self.state = "open"
             return
         self.state = state
@@ -241,7 +266,16 @@ class PainterSimulator:
             for usage in self.bake["bakers"]:
                 self.mesh_maps[usage] = ResourceID("project", f"Body_{usage.name}_baked")
         self.module.event.DISPATCHER._trigger(BakingProcessProgress(1.0))
-        self.module.event.DISPATCHER._trigger(BakingProcessEnded(status))
+        if not self.drop_bake_end:
+            self.module.event.DISPATCHER._trigger(BakingProcessEnded(status))
+
+    def age_bake(self, seconds):
+        """Make the payload believe `seconds` more have passed since its last bake activity."""
+        for key, state in vars(self.module).items():
+            if key.startswith("_cavi_mcp_bake_") and isinstance(state, dict):
+                for name in ("started", "progress_at", "busy_at"):
+                    if state.get(name):
+                        state[name] -= seconds
 
     def register(self, node):
         node.uid_value = self.next_uid
@@ -888,9 +922,10 @@ class PainterSimulator:
                 raise RuntimeError("simulated bake launch failure")
             sim.bake_running = True
             sim.bake_calls += 1
+            sim.stop_source = StopSource(sim)
             if sim.state == "bake-instant":
                 sim.finish_bake(BakingStatus.Success)
-            return StopSource()
+            return sim.stop_source
 
         module.baking = SimpleNamespace(
             BakingParameters=BakingParameters, MeshMapUsage=MeshMapUsage,

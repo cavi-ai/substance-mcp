@@ -2911,6 +2911,131 @@
   }
  },
  {
+  "id": "bake-start-for-cancel",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/started": true
+  }
+ },
+ {
+  "id": "bake-cancel-unowned",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "without_lease": true,
+  "error": "lease"
+ },
+ {
+  "id": "bake-cancel-success",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/cancel_requested": true
+  }
+ },
+ {
+  "id": "bake-status-cancelled",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/running": false,
+   "/busy": false,
+   "/status": "Cancel",
+   "/reconciled": false
+  }
+ },
+ {
+  "id": "bake-cancel-idle-refused",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "No bake is running"
+ },
+ {
+  "id": "bake-start-lost-end",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/started": true
+  }
+ },
+ {
+  "id": "bake-lost-end-reconciled",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "bake-end-lost",
+  "equals": {
+   "/running": false,
+   "/busy": false,
+   "/reconciled": true,
+   "/status": "Unknown"
+  }
+ },
+ {
+  "id": "bake-lost-end-unlocks-edits",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "AfterLostEnd"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/name": "AfterLostEnd"
+  }
+ },
+ {
   "id": "bake-unowned",
   "tool": "bake",
   "arguments": {

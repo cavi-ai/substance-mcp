@@ -25,7 +25,10 @@ READ_ONLY = frozenset({"status", "texture_sets", "layer_stack", "export_presets"
                        "bake_settings", "bake_status"})
 NORMAL_MAP_FORMATS = ("OpenGL", "DirectX")
 RLOCK_TYPE = type(threading.RLock())
-BAKE_ATTR = "_cavi_mcp_bake_v1"
+# v2 adds the stop handle and lost-end-event bookkeeping, which older callbacks never set.
+BAKE_ATTR = "_cavi_mcp_bake_v2"
+# Idle time after which a bake whose end event never arrived is considered finished.
+BAKE_GRACE_SECONDS = 15.0
 RELOAD_ATTR = "_cavi_mcp_reload_v1"
 CREATED_ATTR = "_cavi_mcp_created_v1"
 MESH_EXTENSIONS = {".fbx", ".obj", ".gltf", ".glb"}
@@ -343,15 +346,39 @@ def bake_state(module):
 
         def ended(evt, state=state):
             state.update(running=False, status=getattr(evt.status, "name", str(evt.status)),
-                         ended=time.monotonic())
+                         ended=time.monotonic(), stop=None)
 
         def progress(evt, state=state):
-            state["progress"] = float(evt.progress)
+            state.update(progress=float(evt.progress), progress_at=time.monotonic())
 
         event.DISPATCHER.connect_strong(event.BakingProcessEnded, ended)
         event.DISPATCHER.connect_strong(event.BakingProcessProgress, progress)
         state.update(connected=True, running=False, status=None)
     return state
+
+
+def reconcile_bake(state, busy):
+    """True while a bake is running; clears one whose end event was lost.
+
+    Painter reporting idle, with no progress since, for BAKE_GRACE_SECONDS means the bake
+    is over even though BakingProcessEnded never reached us.
+    """
+    if not state.get("running"):
+        return False
+    now = time.monotonic()
+    if busy:
+        state["busy_at"] = now
+        return True
+    latest = max(state.get(key) or 0.0 for key in ("started", "busy_at", "progress_at"))
+    if now - latest < BAKE_GRACE_SECONDS:
+        return True
+    state.update(running=False, status="Unknown", reconciled=True, ended=now, stop=None)
+    return False
+
+
+def baking_now(module, project):
+    state = vars(module).get(BAKE_ATTR) or {}
+    return bool(state.get("running")) and reconcile_bake(state, project.is_busy())
 
 
 def execute(operation: str, params: dict, workspace: str) -> dict:
@@ -393,16 +420,18 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
 
     if operation == "status":
         opened = project.is_open()
+        busy = project.is_busy()
         reload = vars(substance_painter).get(RELOAD_ATTR) or {}
+        bake = vars(substance_painter).get(BAKE_ATTR) or {}
         return {
             "connected": True,
             "api_version": str(substance_painter.__version__),
             "open": opened,
             "file": project.file_path() if opened else None,
             "needs_saving": project.needs_saving() if opened else False,
-            "busy": project.is_busy(),
+            "busy": busy,
             "edition_state": bool(project.is_in_edition_state()) if opened else False,
-            "baking": bool((vars(substance_painter).get(BAKE_ATTR) or {}).get("running")),
+            "baking": bool(bake.get("running")) and reconcile_bake(bake, busy),
             "mesh_reload": {key: reload.get(key) for key in ("pending", "status", "path")}
             if reload else None,
             "workspace": str(Path(workspace)),
@@ -410,6 +439,8 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         }
     if operation == "bake_status":
         return _bake_status(substance_painter)
+    if operation == "bake_cancel":
+        return _bake_cancel(substance_painter, project)
     if operation == "shelf":
         return _shelf(params)
     if operation in {"open_project", "create_project"}:
@@ -457,7 +488,7 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         project.close()
         vars(substance_painter).pop(RELOAD_ATTR, None)
         return {"closed": not project.is_open()}
-    if (vars(substance_painter).get(BAKE_ATTR) or {}).get("running"):
+    if baking_now(substance_painter, project):
         raise RuntimeError("Painter is baking and not idle; poll bake action=status")
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
@@ -1460,7 +1491,8 @@ def _bake(params, root):
     from substance_painter import baking, project, textureset
 
     state = bake_state(substance_painter)
-    if state.get("running") or project.is_busy():
+    busy = project.is_busy()
+    if busy or reconcile_bake(state, busy):
         raise RuntimeError("Painter is already baking or busy; check bake action=status")
     sets = texture_sets_named(textureset, names_list(params, "texture_sets"))
     maps = names_list(params, "maps", len(BAKE_MAPS))
@@ -1545,8 +1577,11 @@ def _bake(params, root):
         enabled = {item.name(): [usage.name for usage in baking.BakingParameters
                                  .from_texture_set(item).get_enabled_bakers()] for item in sets}
         state.update(running=True, status=None, progress=0.0, started=time.monotonic(),
-                     ended=None, texture_sets=sorted(selected), maps=enabled)
-        baking.bake_selected_textures_async()
+                     ended=None, texture_sets=sorted(selected), maps=enabled,
+                     reconciled=False, stop=None, progress_at=None, busy_at=None)
+        stop = baking.bake_selected_textures_async()
+        if state.get("running"):  # the end event may already have fired during the call
+            state["stop"] = stop
     except Exception as exc:
         state["running"] = False
         try:
@@ -1567,13 +1602,28 @@ def _bake(params, root):
             "next": "bake action=status until busy is false"}
 
 
+def _bake_cancel(module, project):
+    state = vars(module).get(BAKE_ATTR) or {}
+    if not (state.get("running") and reconcile_bake(state, project.is_busy())):
+        raise RuntimeError("No bake is running; nothing to cancel")
+    stop = state.get("stop")
+    if stop is None:
+        raise RuntimeError("The running bake has no cancel handle; cancel it in Painter")
+    if not stop.request_stop():
+        raise RuntimeError("Painter could not stop the bake; check bake action=status")
+    return {"cancel_requested": True, "running": bool(state.get("running")),
+            "next": "bake action=status until busy is false"}
+
+
 def _bake_status(module):
     from substance_painter import project, textureset
 
     state = vars(module).get(BAKE_ATTR) or {}
     opened = project.is_open()
     busy = project.is_busy()
-    result = {"busy": bool(state.get("running")) or busy, "running": bool(state.get("running")),
+    running = bool(state.get("running")) and reconcile_bake(state, busy)
+    result = {"busy": running or busy, "running": running,
+              "reconciled": bool(state.get("reconciled")),
               "status": state.get("status"), "progress": state.get("progress"),
               "seconds_since_start": round(time.monotonic() - state["started"], 1)
               if state.get("started") else None,

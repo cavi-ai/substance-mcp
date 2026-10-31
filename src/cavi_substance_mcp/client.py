@@ -28,6 +28,7 @@ OPERATIONS = frozenset(
         "session_control",
         "layer_edit",
         "bake",
+        "bake_cancel",
         "bake_status",
         "bake_settings",
         "shelf",
