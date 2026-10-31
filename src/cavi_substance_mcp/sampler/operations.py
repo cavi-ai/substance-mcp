@@ -1,6 +1,7 @@
 """Sampler script jobs and operations evaluated inside Sampler."""
 
 import asyncio
+import contextlib
 import json
 import math
 import os
@@ -112,9 +113,37 @@ def status() -> dict:
     }
 
 
-async def _run_payload(payload: dict, timeout_seconds: float) -> dict:
+async def _tail_progress(path: Path, callback, stop: asyncio.Event):
+    seen = 0
+    while True:
+        if path.is_file():
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                lines = []
+            for line in lines[seen:]:
+                seen += 1
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                with contextlib.suppress(Exception):
+                    callback(event)
+        if stop.is_set():
+            return
+        await asyncio.sleep(0.2)
+
+
+async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None,
+                       on_progress=None) -> dict:
     job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
     request, response, script = job / "request.json", job / "response.json", job / "run.py"
+    stop = asyncio.Event()
+    tailer = None
+    if progress_file is not None and on_progress is not None:
+        tailer = asyncio.create_task(_tail_progress(Path(progress_file), on_progress, stop))
     try:
         request.write_text(
             json.dumps(payload, allow_nan=False), encoding="utf-8"
@@ -161,6 +190,9 @@ async def _run_payload(payload: dict, timeout_seconds: float) -> dict:
         reply["seconds"] = round(time.monotonic() - started, 3)
         return reply
     finally:
+        if tailer is not None:
+            stop.set()
+            await tailer
         remove_tree(job)
 
 
@@ -190,13 +222,17 @@ async def invoke_preflight(job: dict, timeout_seconds: float, workspace_path,
     )
 
 
-async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None) -> dict:
+async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
+                     progress_file=None, on_progress=None) -> dict:
     if workspace_path is None:
         root = workspace(create=True)
     else:
         root = Path(workspace_path).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-    return await _run_payload({"job": job, "workspace": str(root)}, timeout_seconds)
+    return await _run_payload(
+        {"job": job, "workspace": str(root)}, timeout_seconds,
+        progress_file=progress_file, on_progress=on_progress,
+    )
 
 
 def _wait_file(path: Path, timeout: float = 120) -> Path:
@@ -1579,6 +1615,43 @@ def _summary(result):
     return compact
 
 
+def _dispatch_step(ssa, root, job_dir, project, step):
+    action = step.get("action")
+    arguments = {key: value for key, value in step.items() if key != "action"}
+    arguments["project"] = project
+    if action == "import_images":
+        return action, _import_images(ssa, root, arguments)
+    if action == "import_textures":
+        return action, _import_textures(ssa, root, arguments)
+    if action == "create_asset":
+        return action, _create_asset(ssa, root, arguments)
+    if action == "insert_filter":
+        return action, _insert_filter(ssa, root, arguments)
+    if action == "insert_material":
+        return action, _insert_material(ssa, root, arguments)
+    if action == "set_parameters":
+        return action, _set_parameters(ssa, root, arguments)
+    if action == "apply_preset":
+        return action, _apply_preset(ssa, root, arguments)
+    if action == "set_metadata":
+        return action, _set_metadata(ssa, root, arguments)
+    if action == "activate_channels":
+        return action, _channels(ssa, root, arguments, True)
+    if action == "deactivate_channels":
+        return action, _channels(ssa, root, arguments, False)
+    if action == "set_channels":
+        return action, _set_channels(ssa, root, arguments)
+    if action == "set_blend_parameters":
+        return action, _set_blend_parameters(ssa, root, arguments)
+    if action == "remove_layer":
+        return action, _remove_layer(ssa, root, arguments)
+    if action == "import_resource":
+        return action, _import_resource(ssa, root, arguments)
+    if action == "export":
+        return action, _job_export(ssa, root, job_dir, project, step)
+    raise ValueError(f"Unknown step action: {action}")
+
+
 def execute_job(job: dict, workspace_path: str) -> dict:
     import substance_sampler as ssa
 
@@ -1625,47 +1698,40 @@ def execute_job(job: dict, workspace_path: str) -> dict:
                 "model": created.get("model", "asm"), "preset": created.get("preset"),
             })
         results = []
+        total = len(job["steps"])
+        progress = job_dir / "progress.jsonl"
+
+        def report(event):
+            with progress.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(event, default=str) + "\n")
+
         for index, step in enumerate(job["steps"]):
             if not isinstance(step, dict):
                 raise TypeError(f"Step {index} must be an object")
             action = step.get("action")
-            arguments = {key: value for key, value in step.items() if key != "action"}
-            arguments["project"] = project
-            if action == "import_images":
-                result = _import_images(ssa, root, arguments)
-            elif action == "import_textures":
-                result = _import_textures(ssa, root, arguments)
-            elif action == "create_asset":
-                result = _create_asset(ssa, root, arguments)
-            elif action == "insert_filter":
-                result = _insert_filter(ssa, root, arguments)
-            elif action == "insert_material":
-                result = _insert_material(ssa, root, arguments)
-            elif action == "set_parameters":
-                result = _set_parameters(ssa, root, arguments)
-            elif action == "apply_preset":
-                result = _apply_preset(ssa, root, arguments)
-            elif action == "set_metadata":
-                result = _set_metadata(ssa, root, arguments)
-            elif action == "activate_channels":
-                result = _channels(ssa, root, arguments, True)
-            elif action == "deactivate_channels":
-                result = _channels(ssa, root, arguments, False)
-            elif action == "set_channels":
-                result = _set_channels(ssa, root, arguments)
-            elif action == "set_blend_parameters":
-                result = _set_blend_parameters(ssa, root, arguments)
-            elif action == "remove_layer":
-                result = _remove_layer(ssa, root, arguments)
-            elif action == "import_resource":
-                result = _import_resource(ssa, root, arguments)
-            elif action == "export":
-                result = _job_export(ssa, root, job_dir, project, step)
-            else:
-                raise ValueError(f"Unknown step action: {action}")
+            started = time.monotonic()
+            report({"step": index, "total": total, "action": action,
+                    "status": "start"})
+            try:
+                action, result = _dispatch_step(
+                    ssa, root, job_dir, project, step
+                )
+            except BaseException as exc:
+                report({
+                    "step": index, "total": total, "action": action, "status": "error",
+                    "seconds": round(time.monotonic() - started, 3),
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                raise
+            seconds = round(time.monotonic() - started, 3)
+            report({"step": index, "total": total, "action": action, "status": "ok",
+                    "seconds": seconds})
             if action in mutating:
                 mutated = True
-            results.append({"index": index, "action": action, "result": _summary(result)})
+            results.append({
+                "index": index, "action": action, "seconds": seconds,
+                "result": _summary(result),
+            })
         ssa.wait_for_computation()
         if source is not None:
             if mutated:

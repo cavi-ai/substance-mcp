@@ -286,6 +286,10 @@ def probe_sampler(workspace_path=None, timeout_seconds: float = 300,
 async def validate_with_sampler_async(name, workspace_path=None,
                                       timeout_seconds: float = 300) -> dict:
     plan = validate_job_file(name, workspace_path)
+    if plan.get("source") is not None:
+        plan.setdefault("preflight_warnings", []).append(
+            "source-project filters and materials need --check-project"
+        )
     probe = await probe_sampler_async(workspace_path, timeout_seconds)
     check_sampler(plan, probe)
     plan["sampler"] = probe
@@ -375,7 +379,7 @@ def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict
         "steps": result.get("steps", []),
         "inputs": _inputs(root, job),
     }
-    manifest["outputs"] = _files(root, job_dir, {"manifest.json", "failure.json"})
+    manifest["outputs"] = _files(root, job_dir, {"manifest.json", "failure.json", "progress.jsonl"})
     (job_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
@@ -401,7 +405,7 @@ def _failure(root: Path, job_dir: Path, path: Path, error: Exception,
 
 async def run_job_file_async(name, workspace_path=None, timeout_seconds: float = 1800,
                              wait_for_app: float = 0, keep_on_failure: bool = False,
-                             lock_timeout: float = 300) -> dict:
+                             lock_timeout: float = 300, on_progress=None) -> dict:
     root = _root(workspace_path)
     path = _job_file(name, root)
     loaded = jobs.load_job(path)
@@ -420,7 +424,8 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
         )
         try:
             result = await operations.invoke_job(
-                payload, timeout_seconds, workspace_path=str(root)
+                payload, timeout_seconds, workspace_path=str(root),
+                progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )
             return _manifest(root, job_dir, path, loaded, result, started,
                              time.monotonic() - clock)
@@ -438,7 +443,8 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
 
 def run_job_file(name, workspace_path=None, timeout_seconds: float = 1800,
                  wait_for_app: float = 0, keep_on_failure: bool = False,
-                 lock_timeout: float = 300) -> dict:
+                 lock_timeout: float = 300, on_progress=None) -> dict:
     return asyncio.run(run_job_file_async(
-        name, workspace_path, timeout_seconds, wait_for_app, keep_on_failure, lock_timeout
+        name, workspace_path, timeout_seconds, wait_for_app, keep_on_failure,
+        lock_timeout, on_progress,
     ))

@@ -667,7 +667,8 @@
     ],
     "required": [
       "outputs",
-      "steps"
+      "steps",
+      "steps/0/seconds"
     ]
   },
   {

@@ -254,6 +254,8 @@ cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-sampler
 cavi-substance-sampler-mcp validate jobs/source.json --check-project
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
+cavi-substance-sampler-mcp run jobs/a.json jobs/b.json --continue-on-error
+cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --verbose
 cavi-substance-sampler-mcp schema
 cavi-substance-sampler-mcp doctor
 cavi-substance-sampler-mcp doctor --launch
@@ -287,7 +289,8 @@ cavi-substance-sampler-mcp doctor --launch
   sizes and SHA-256 hashes.
 - `validate --check-sampler` launches one read-only probe and refuses a job whose
   target preset, import option, filter, material or material model is not installed.
-  `doctor --launch` reports the same probe with target availability.
+  For source-project jobs it adds a warning that filters and materials need
+  `--check-project`. `doctor --launch` reports the same probe with target availability.
 - `validate --check-project` also copies a source project to a temporary project,
   opens it read-only, and verifies assets, layers, parameters, presets, filters,
   materials, channels and blend parameters before launch. The source stays untouched
@@ -298,8 +301,12 @@ cavi-substance-sampler-mcp doctor --launch
 - `ImportResource` steps may declare `resources` so preflight can exempt those names
   from filter/material checks. Undeclared imports skip filter/material checks and
   report a preflight warning.
-- Concurrent jobs serialize on a workspace lock. `--wait-for-app` waits for a user
-  Sampler window to close; otherwise the job fails fast.
+- `run` accepts one or more job files. `--continue-on-error` keeps going after a
+  failed job and returns the first failure code. `--verbose` streams step start/end
+  progress to stderr; the job directory also keeps `progress.jsonl`.
+- Each manifest step includes `seconds`. Concurrent jobs serialize on a workspace
+  lock. `--wait-for-app` waits for a user Sampler window to close; otherwise the job
+  fails fast.
 - Exit codes: `0` success, `2` invalid job, `3` app unavailable, `4` app running or
   lock conflict, `5` operation failure, `6` timeout.
 

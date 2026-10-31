@@ -46,8 +46,7 @@ def plain_name(value: str) -> str:
 def relative_path(value: str) -> str:
     if not isinstance(value, str) or not value or CONTROL.search(value):
         raise ValueError("path must be a non-empty printable string")
-    if "\\" in value:
-        raise ValueError("path must use forward slashes")
+    value = value.replace("\\", "/")
     path = PurePosixPath(value)
     if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
         raise ValueError("path must stay inside the workspace")

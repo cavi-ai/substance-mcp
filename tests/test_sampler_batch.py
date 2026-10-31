@@ -81,6 +81,13 @@ class JobModelTests(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(ValueError):
                 job.Job.model_validate(case)
 
+    def test_backslash_paths_normalize(self):
+        self.assertEqual(job.relative_path("photos\\albedo.png"), "photos/albedo.png")
+        data = job_data()
+        data["steps"][0]["images"] = ["photos\\albedo.png"]
+        parsed = job.Job.model_validate(data)
+        self.assertEqual(parsed.steps[0].images[0], "photos/albedo.png")
+
     def test_remove_layer_requires_confirmation(self):
         data = job_data()
         data["steps"].insert(-1, {"action": "remove_layer", "asset": "Rock", "layer": "Tiling"})
@@ -227,6 +234,116 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(plan["project_check"], "not_applicable")
         self.assertIn("sampler", plan)
         self.assertFalse((self.workspace / "jobs/new-project").exists())
+
+    def test_progress_and_timings(self):
+        path = self.write_job("progress.json", job_data(directory="jobs/progress"))
+        events = []
+        manifest = asyncio.run(batch.run_job_file_async(
+            path, self.workspace, on_progress=events.append
+        ))
+        statuses = [event.get("status") for event in events]
+        self.assertIn("start", statuses)
+        self.assertIn("ok", statuses)
+        self.assertTrue(all("seconds" in step for step in manifest["steps"]))
+        progress = self.workspace / "jobs/progress/progress.jsonl"
+        self.assertTrue(progress.is_file())
+        self.assertTrue(progress.read_text().strip())
+        outputs = [item["path"] for item in manifest["outputs"]]
+        self.assertNotIn("jobs/progress/progress.jsonl", outputs)
+
+    def test_cli_verbose_progress(self):
+        path = self.write_job("verbose.json", job_data(directory="jobs/verbose"))
+        output, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            code = cli.main([
+                "run", path, "--workspace", str(self.workspace), "--verbose", "--json",
+            ])
+        self.assertEqual(code, 0)
+        self.assertIn("step 1/", error.getvalue())
+        self.assertIn("ok", error.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["status"], "success")
+
+    def test_cli_queue(self):
+        first = self.write_job("queue1.json", job_data(directory="jobs/queue1"))
+        second = self.write_job("queue2.json", job_data(directory="jobs/queue2"))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "run", first, second, "--workspace", str(self.workspace), "--json",
+            ])
+        self.assertEqual(code, 0)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(len(data["jobs"]), 2)
+        self.assertTrue((self.workspace / "jobs/queue1/manifest.json").is_file())
+        self.assertTrue((self.workspace / "jobs/queue2/manifest.json").is_file())
+
+    def test_cli_queue_continue_on_error(self):
+        (self.workspace / "jobs/bad-existing").mkdir()
+        bad = self.write_job("bad.json", job_data(directory="jobs/bad-existing"))
+        good = self.write_job("queue-good.json", job_data(directory="jobs/queue-good"))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "run", bad, good, "--workspace", str(self.workspace), "--json",
+                "--continue-on-error",
+            ])
+        self.assertEqual(code, 2)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["status"], "failed")
+        self.assertEqual(len(data["failures"]), 1)
+        self.assertEqual(len(data["jobs"]), 1)
+        self.assertTrue((self.workspace / "jobs/queue-good/manifest.json").is_file())
+
+    def test_exit_codes(self):
+        path = self.write_job("exit.json", job_data(directory="jobs/exit"))
+        with (
+            patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(self.workspace / "missing")}),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self.assertEqual(cli.main(["run", path, "--workspace", str(self.workspace)]), 3)
+        with (
+            patch.object(batch.runner, "running", return_value=True),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self.assertEqual(cli.main(["run", path, "--workspace", str(self.workspace)]), 4)
+        lock = batch.WorkspaceLock(self.workspace, 0)
+        lock.__enter__()
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main([
+                    "run", path, "--workspace", str(self.workspace),
+                    "--lock-timeout", "0.05",
+                ]), 4)
+        finally:
+            lock.__exit__()
+        slow = self.workspace / "slow-sampler"
+        slow.write_text("#!/bin/sh\nsleep 30\n")
+        slow.chmod(0o755)
+        with (
+            patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(slow)}),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self.assertEqual(cli.main([
+                "run", path, "--workspace", str(self.workspace), "--timeout", "0.5",
+            ]), 6)
+
+    def test_wait_for_app(self):
+        with (
+            patch.object(batch.runner, "running", side_effect=[True, False, False, False]),
+            patch.object(batch.time, "sleep", return_value=None),
+        ):
+            batch.app_available(1)
+
+    def test_check_sampler_warns_on_source(self):
+        source = self.source_seed("warn-seed", material=False)
+        path = self.source_job("warn", source, [
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ])
+        plan = batch.validate_with_sampler(path, self.workspace)
+        self.assertTrue(any("check-project" in item
+                            for item in plan.get("preflight_warnings", [])))
 
     def test_run_unreal_manifest(self):
         path = self.write_job("rock.json", job_data())

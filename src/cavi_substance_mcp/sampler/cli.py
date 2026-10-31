@@ -21,17 +21,80 @@ def _print(value, as_json: bool, lines) -> None:
         print("\n".join(lines(value)))
 
 
+def _exit(exc: Exception) -> tuple[int, str]:
+    if isinstance(exc, (job.JobValidationError, FileNotFoundError, NotADirectoryError)):
+        return 2, str(exc)
+    if isinstance(exc, batch.AppUnavailable):
+        return 3, str(exc)
+    if isinstance(exc, (batch.AppRunning, batch.LockTimeout)):
+        return 4, str(exc)
+    if isinstance(exc, batch.JobTimeout):
+        return 6, str(exc)
+    if isinstance(exc, TimeoutError):
+        return 6, str(exc)
+    if isinstance(exc, batch.BatchError):
+        return exc.code, str(exc)
+    return 5, f"{type(exc).__name__}: {exc}"
+
+
+def _plan_lines(value) -> list[str]:
+    return [
+        f"job: {value['job']}",
+        f"directory: {value['directory']}",
+        f"project: {value['project']}",
+        f"steps: {', '.join(value['steps'])}",
+        "targets: " + ", ".join(item["target"] for item in value["targets"]),
+        "sampler: " + ("ok" if "sampler" in value else "not checked"),
+        "project check: " + value.get("project_check", "not checked"),
+        "warnings: " + str(len(value.get("preflight_warnings", []))
+                           + len(value.get("project_warnings", []))),
+    ]
+
+
+def _manifest_lines(value) -> list[str]:
+    return [
+        f"job: {value['job']}",
+        f"project: {value['project']}",
+        f"outputs: {len(value['outputs'])}",
+        f"seconds: {value['seconds']}",
+        f"manifest: {(Path(value['job']).parent / 'manifest.json').as_posix()}",
+    ]
+
+
+def _progress(label: str):
+    def report(event):
+        status = event.get("status")
+        step = f"{event.get('step', 0) + 1}/{event.get('total', '?')}"
+        if status == "start":
+            print(f"[{label}] step {step} {event.get('action')} start", file=sys.stderr)
+        elif status == "ok":
+            print(
+                f"[{label}] step {step} {event.get('action')} ok "
+                f"({event.get('seconds')}s)",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[{label}] step {step} {event.get('action')} error: "
+                f"{event.get('error')}",
+                file=sys.stderr,
+            )
+    return report
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="cavi-substance-sampler-mcp")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    run = commands.add_parser("run", help="Run a batch job file")
-    run.add_argument("job")
+    run = commands.add_parser("run", help="Run one or more batch job files")
+    run.add_argument("jobs", nargs="+")
     run.add_argument("--workspace")
     run.add_argument("--timeout", type=float, default=1800)
     run.add_argument("--wait-for-app", type=float, nargs="?", const=300, default=0)
     run.add_argument("--keep-on-failure", action="store_true")
     run.add_argument("--lock-timeout", type=float, default=300)
+    run.add_argument("--continue-on-error", action="store_true")
+    run.add_argument("--verbose", action="store_true")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--json", action="store_true")
 
@@ -82,58 +145,66 @@ def main(argv=None) -> int:
                 ) if "probe" in value else "probe: not run",
             ])
             return status
-        if args.command == "validate" or (args.command == "run" and args.dry_run):
-            if args.command == "validate" and args.check_project:
-                result = batch.validate_with_project(
-                    args.job, args.workspace, args.timeout
-                )
-            elif args.command == "validate" and args.check_sampler:
-                result = batch.validate_with_sampler(
-                    args.job, args.workspace, args.timeout
-                )
+        if args.command == "validate":
+            if args.check_project:
+                result = batch.validate_with_project(args.job, args.workspace, args.timeout)
+            elif args.check_sampler:
+                result = batch.validate_with_sampler(args.job, args.workspace, args.timeout)
             else:
                 result = batch.validate_job_file(args.job, args.workspace)
             result["dry_run"] = True
-            _print(result, args.json, lambda value: [
-                f"job: {value['job']}",
-                f"directory: {value['directory']}",
-                f"project: {value['project']}",
-                f"steps: {', '.join(value['steps'])}",
-                "targets: " + ", ".join(item["target"] for item in value["targets"]),
-                "sampler: " + ("ok" if "sampler" in value else "not checked"),
-                "project check: " + value.get("project_check", "not checked"),
-                "warnings: " + str(len(value.get("preflight_warnings", []))
-                                   + len(value.get("project_warnings", []))),
-            ])
+            _print(result, args.json, _plan_lines)
             return 0
-        manifest = asyncio.run(batch.run_job_file_async(
-            args.job, args.workspace, args.timeout, args.wait_for_app,
-            args.keep_on_failure, args.lock_timeout,
-        ))
-        _print(manifest, args.json, lambda value: [
-            f"job: {value['job']}",
-            f"project: {value['project']}",
-            f"outputs: {len(value['outputs'])}",
-            f"seconds: {value['seconds']}",
-            f"manifest: {(Path(value['job']).parent / 'manifest.json').as_posix()}",
+        if args.dry_run:
+            plans = []
+            for name in args.jobs:
+                try:
+                    plan = batch.validate_job_file(name, args.workspace)
+                except Exception as exc:  # noqa: BLE001 -- CLI boundary
+                    code, message = _exit(exc)
+                    return _fail(code, message)
+                plan["dry_run"] = True
+                plans.append(plan)
+            if len(plans) == 1:
+                _print(plans[0], args.json, _plan_lines)
+            else:
+                _print({"status": "success", "jobs": plans}, args.json,
+                       lambda value: [line for plan in value["jobs"]
+                                      for line in _plan_lines(plan)])
+            return 0
+
+        manifests, failures = [], []
+        for name in args.jobs:
+            try:
+                manifest = asyncio.run(batch.run_job_file_async(
+                    name, args.workspace, args.timeout, args.wait_for_app,
+                    args.keep_on_failure, args.lock_timeout,
+                    on_progress=_progress(name) if args.verbose else None,
+                ))
+            except Exception as exc:  # noqa: BLE001 -- CLI boundary
+                code, message = _exit(exc)
+                failures.append({"job": name, "code": code, "error": message})
+                if not args.continue_on_error:
+                    return _fail(code, message)
+                continue
+            manifests.append(manifest)
+        if len(args.jobs) == 1 and not failures:
+            _print(manifests[0], args.json, _manifest_lines)
+            return 0
+        summary = {
+            "status": "failed" if failures else "success",
+            "jobs": manifests,
+            "failures": failures,
+        }
+        _print(summary, args.json, lambda value: [
+            *[line for item in value["jobs"] for line in _manifest_lines(item)],
+            *[f"failed: {item['job']} ({item['code']}) {item['error']}"
+              for item in value["failures"]],
         ])
-        return 0
-    except job.JobValidationError as exc:
-        return _fail(2, str(exc))
-    except (FileNotFoundError, NotADirectoryError) as exc:
-        return _fail(2, str(exc))
-    except batch.AppUnavailable as exc:
-        return _fail(3, str(exc))
-    except (batch.AppRunning, batch.LockTimeout) as exc:
-        return _fail(4, str(exc))
-    except batch.JobTimeout as exc:
-        return _fail(6, str(exc))
-    except batch.BatchError as exc:
-        return _fail(exc.code, str(exc))
-    except TimeoutError as exc:
-        return _fail(6, str(exc))
+        return failures[0]["code"] if failures else 0
     except Exception as exc:  # noqa: BLE001 -- CLI boundary
-        return _fail(5, f"{type(exc).__name__}: {exc}")
+        code, message = _exit(exc)
+        return _fail(code, message)
 
 
 if __name__ == "__main__":

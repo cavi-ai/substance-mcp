@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -273,6 +274,30 @@ class SamplerRunnerTests(unittest.TestCase):
                 found = runner.installation()
                 self.assertTrue(found.executable.is_file())
                 self.assertEqual(found.version, "0.0.0")
+
+    @staticmethod
+    def _windows_executable():
+        return runner.Installation(
+            Path("/fake/Adobe Substance 3D Sampler.exe"), "test"
+        )
+
+    def test_running_windows(self):
+        with (
+            patch.object(runner.sys, "platform", "win32"),
+            patch.object(runner, "installation", return_value=self._windows_executable()),
+            patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, '"Adobe Substance 3D Sampler.exe","1234"\n', ""
+            )),
+        ):
+            self.assertTrue(runner.running())
+        with (
+            patch.object(runner.sys, "platform", "win32"),
+            patch.object(runner, "installation", return_value=self._windows_executable()),
+            patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, "INFO: No tasks are running\n", ""
+            )),
+        ):
+            self.assertFalse(runner.running())
 
     def test_installation_override(self):
         with tempfile.TemporaryDirectory() as folder:
