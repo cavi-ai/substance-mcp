@@ -10,6 +10,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .. import receipts
 from . import job as jobs
 from . import operations, runner, targets
 from .errors import (  # noqa: F401 -- re-exported for callers of this module
@@ -46,31 +47,27 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _files(root: Path, job_dir: Path, skip: set[str]) -> list[dict]:
-    rows = []
-    for path in sorted(job_dir.rglob("*")):
-        if not path.is_file() or path.is_symlink() or path.name in skip:
-            continue
-        rows.append({
-            "path": path.relative_to(root).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": _sha256(path),
-        })
-    return rows
+# Bookkeeping files at the top of a job directory. Per-export receipts deeper in the
+# tree are outputs, so verifying the job manifest also verifies them.
+_JOB_FILES = {"manifest.json", "failure.json", "progress.jsonl"}
+
+
+def _outputs(job_dir: Path) -> list[Path]:
+    return [
+        path for path in sorted(job_dir.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+        and not (path.parent == job_dir and path.name in _JOB_FILES)
+    ]
 
 
 def _inputs(root: Path, job: jobs.Job) -> list[dict]:
-    rows = []
+    paths = []
     for name in jobs.input_paths(job):
         path = (root / name).resolve()
         if not path.is_file():
             raise jobs.JobValidationError(f"input {name!r} does not exist")
-        rows.append({
-            "path": path.relative_to(root).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": _sha256(path),
-        })
-    return rows
+        paths.append(path)
+    return receipts.records(paths, root)
 
 
 def _job_dir(root: Path, job: jobs.Job) -> Path:
@@ -352,33 +349,27 @@ def doctor(workspace_path=None) -> dict:
     }
 
 
-def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict,
-              started: str, seconds: float) -> dict:
-    found = runner.installation()
-    manifest = {
-        "schema": 1,
-        "app_name": "sampler",
-        "operation": "build",
+def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: str,
+              seconds: float, inputs: list[dict]) -> dict:
+    manifest = receipts.build(
+        "sampler", "build", root,
+        inputs=[root / row["path"] for row in inputs], outputs=_outputs(job_dir),
+        started=started, seconds=seconds, version=runner.installation().version,
+    )
+    if manifest["inputs"] != inputs:
+        raise jobs.JobValidationError(
+            "an input changed while the job ran; its outputs cannot be attributed to it"
+        )
+    manifest.update({
         "status": "success",
         "job": (job_dir / "job.json").relative_to(root).as_posix(),
         "job_sha256": _sha256(job_dir / "job.json"),
-        "workspace": str(root),
-        "app": {
-            "executable": str(found.executable) if found.executable else None,
-            "version": found.version,
-        },
-        "started": started,
-        "seconds": round(seconds, 3),
         "project": result.get("project"),
         "source": result.get("source"),
         "assets": result.get("assets", []),
         "steps": result.get("steps", []),
-        "inputs": _inputs(root, job),
-    }
-    manifest["outputs"] = _files(root, job_dir, {"manifest.json", "failure.json", "progress.jsonl"})
-    (job_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
-    )
+    })
+    receipts.write(job_dir, manifest)
     return manifest
 
 
@@ -387,11 +378,10 @@ def _failure(root: Path, job_dir: Path, path: Path, error: BaseException,
     cancelled = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt))
     payload = {
         "schema": 1,
-        "app_name": "sampler",
+        "app": "sampler",
         "operation": "build",
         "status": "failed",
         "job": path.relative_to(root).as_posix(),
-        "workspace": str(root),
         "started": started,
         "seconds": round(seconds, 3),
         "cancelled": cancelled,
@@ -417,6 +407,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
     clock = time.monotonic()
     async with operations.exclusive(root, lock_timeout):
         app_available(wait_for_app)
+        inputs = _inputs(root, loaded)
         job_dir = _job_dir(root, loaded)
         job_dir.mkdir()
         payload = loaded.model_dump(by_alias=True)
@@ -428,8 +419,8 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )
-            return _manifest(root, job_dir, path, loaded, result, started,
-                             time.monotonic() - clock)
+            return _manifest(root, job_dir, loaded, result, started,
+                             time.monotonic() - clock, inputs)
         except BaseException as exc:
             # Cancellation and interrupts are not Exceptions; without this a cancelled
             # run left jobs/<dir> behind and a retry into that directory was refused.
