@@ -44,7 +44,7 @@ class EditSafetyTests(unittest.TestCase):
     def add_filter(self, **env):
         with patch.dict(os.environ, env):
             return self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
-                             filter="Tiling", position=0, **{})
+                             filter="Tiling", position=0)
 
     def test_edit_goes_through_a_copy_that_replaces_the_project(self):
         before = self.project.read_bytes()
