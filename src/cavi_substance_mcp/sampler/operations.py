@@ -57,9 +57,15 @@ def main():
     data = json.loads(REQUEST.read_text(encoding="utf-8"))
     try:
         sys.path.insert(0, PACKAGE_ROOT)
-        from cavi_substance_mcp.sampler.operations import execute_in_sampler, execute_job
+        from cavi_substance_mcp.sampler.operations import (
+            execute_in_sampler, execute_job, preflight_job,
+        )
 
-        if "job" in data:
+        if "preflight" in data:
+            result = preflight_job(
+                data["preflight"], data["workspace"], data["project"]
+            )
+        elif "job" in data:
             result = execute_job(data["job"], data["workspace"])
         else:
             result = execute_in_sampler(
@@ -173,6 +179,14 @@ async def invoke(operation: str, arguments: dict, timeout_seconds: float,
     return await _run_payload(
         {"operation": operation, "arguments": arguments, "workspace": str(root)},
         timeout_seconds,
+    )
+
+
+async def invoke_preflight(job: dict, timeout_seconds: float, workspace_path,
+                           project: str) -> dict:
+    root = Path(workspace_path).expanduser().resolve()
+    return await _run_payload(
+        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds
     )
 
 
@@ -387,6 +401,56 @@ def _parameter_info(item) -> dict:
     }
 
 
+def _usage_id(value):
+    if isinstance(value, str):
+        return value
+    return _get(value, "id")
+
+
+def _usage_label(value):
+    if isinstance(value, str):
+        return value
+    return _get(value, "label")
+
+
+def _usage_map(asset):
+    found = {}
+    for layer in asset.get_layers():
+        for attribute in ("output_usages", "applied_channels", "blend_applied_channels"):
+            for usage in _get(layer, attribute, []) or []:
+                uid, label = _usage_id(usage), _usage_label(usage)
+                for key in {uid, label}:
+                    if not key:
+                        continue
+                    found.setdefault(key, {})
+                    if uid:
+                        found[key][uid] = usage
+    return found
+
+
+def _resolve_usage(asset, name: str):
+    mapping = _usage_map(asset)
+    matches = mapping.get(name, {})
+    if not matches:
+        known = ", ".join(sorted(mapping)[:64]) or "none"
+        raise ValueError(f"Usage {name!r} not found; known: {known}")
+    if len(matches) > 1:
+        raise ValueError(
+            f"Usage {name!r} is ambiguous; use one of: " + ", ".join(sorted(matches))
+        )
+    return next(iter(matches.values()))
+
+
+def _usage_labels(layer):
+    labels = {}
+    for attribute in ("output_usages", "applied_channels", "blend_applied_channels"):
+        for usage in _get(layer, attribute, []) or []:
+            uid, label = _usage_id(usage), _usage_label(usage)
+            if uid and label:
+                labels[str(uid)] = label
+    return labels
+
+
 def _layer(layer) -> dict:
     parameters = [
         _parameter_info(item) for item in list(_get(layer, "parameters", []) or [])[:128]
@@ -408,6 +472,7 @@ def _layer(layer) -> dict:
         "presets": _jsonable(_get(layer, "presets")),
         "parameters": parameters,
         "blend_parameters": blend_parameters,
+        "usage_labels": _usage_labels(layer),
     }
 
 
@@ -649,6 +714,196 @@ def _probe(ssa, root, args) -> dict:
         "texture_formats": _members(ssa.MaterialExportFormat),
         "b2m_available": "image_to_material_B2M" in options,
         "targets": catalog,
+    }
+
+
+def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
+    import substance_sampler as ssa
+
+    if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
+        raise TypeError("Job must be an object with steps")
+    root = _root(workspace_path)
+    project = _input(root, project_path, PROJECT)
+    if not ssa.open_project(str(project)):
+        raise RuntimeError("Sampler could not open the preflight project")
+    ssa.wait_for_computation()
+    probe = _probe(ssa, root, {})
+    assets = {_get(item, "name"): item for item in ssa.get_project_assets()}
+    virtual_assets = set()
+    virtual_layers = {name: set() for name in assets}
+    unknown_layers = set()
+    removed = {name: set() for name in assets}
+    problems, warnings = [], []
+    declared, undeclared_import = set(), False
+    for step in job["steps"]:
+        if isinstance(step, dict) and step.get("action") == "import_resource":
+            if step.get("resources"):
+                declared.update(step["resources"])
+            else:
+                undeclared_import = True
+    project_spec = job.get("project") or {}
+    for name in project_spec.get("assets") or []:
+        if name not in assets:
+            problems.append(
+                f"asset {name!r} from project.assets is not in the source project"
+            )
+    for index, step in enumerate(job["steps"]):
+        if not isinstance(step, dict):
+            problems.append(f"step {index}: must be an object")
+            continue
+        action = step.get("action")
+        asset_name = step.get("asset")
+        prefix = f"step {index} ({action})"
+        if action == "create_asset":
+            name = step.get("name")
+            if name in assets or name in virtual_assets:
+                problems.append(f"{prefix}: asset {name!r} already exists")
+            else:
+                virtual_assets.add(name)
+                virtual_layers.setdefault(name, set())
+                unknown_layers.discard(name)
+                removed.setdefault(name, set())
+            continue
+        if action == "import_resource":
+            continue
+        if action in ("insert_filter", "insert_material"):
+            name = step.get("filter") if action == "insert_filter" else step.get("material")
+            if name not in declared:
+                if undeclared_import:
+                    warnings.append(
+                        f"{prefix}: resource check skipped for {name!r}; "
+                        "imported resources are undeclared"
+                    )
+                else:
+                    getter = ssa.get_filters if action == "insert_filter" else ssa.get_materials
+                    kind = "filter" if action == "insert_filter" else "material"
+                    if not any(_resource_name(item) == name for item in getter(name)):
+                        problems.append(f"{prefix}: {kind} {name!r} not found")
+        if action == "export":
+            names = ([step.get("asset")] if step.get("asset") else []) + (
+                step.get("assets") or []
+            )
+            for name in names:
+                if name not in assets and name not in virtual_assets:
+                    problems.append(
+                        f"{prefix}: asset {name!r} not found; assets: "
+                        + ", ".join(sorted(assets)[:64])
+                    )
+            if step.get("all_assets") and not assets and not virtual_assets:
+                problems.append(f"{prefix}: all_assets export has no assets")
+            continue
+        if not asset_name:
+            problems.append(f"{prefix}: asset is required")
+            continue
+        if asset_name in virtual_assets:
+            warnings.append(
+                f"{prefix}: asset {asset_name!r} is created earlier; structure not preflighted"
+            )
+            if action == "insert_filter":
+                virtual_layers.setdefault(asset_name, set()).add(step.get("filter"))
+            elif action == "insert_material":
+                virtual_layers.setdefault(asset_name, set()).add(step.get("material"))
+            elif action in ("import_images", "import_textures"):
+                unknown_layers.add(asset_name)
+            continue
+        asset = assets.get(asset_name)
+        if asset is None:
+            problems.append(
+                f"{prefix}: asset {asset_name!r} not found; assets: "
+                + ", ".join(sorted(assets)[:64])
+            )
+            continue
+        if action in ("import_images", "import_textures"):
+            unknown_layers.add(asset_name)
+            continue
+        if action == "insert_filter":
+            virtual_layers.setdefault(asset_name, set()).add(step.get("filter"))
+            continue
+        if action == "insert_material":
+            virtual_layers.setdefault(asset_name, set()).add(step.get("material"))
+            continue
+        if action in ("set_metadata", "activate_channels", "deactivate_channels"):
+            continue
+        if action in (
+            "set_parameters", "apply_preset", "set_channels", "set_blend_parameters",
+            "remove_layer",
+        ):
+            layer_name = step.get("layer")
+            position = step.get("position")
+            layers = list(asset.get_layers())
+            matches = [
+                item for item in layers
+                if _get(item, "name") == layer_name
+                and (position is None or _get(item, "position") == position)
+            ]
+            if len(matches) > 1:
+                problems.append(
+                    f"{prefix}: layer {layer_name!r} is ambiguous; provide position"
+                )
+                continue
+            if not matches:
+                if layer_name in removed.get(asset_name, set()):
+                    problems.append(f"{prefix}: layer {layer_name!r} was removed earlier")
+                elif (
+                    layer_name in virtual_layers.get(asset_name, set())
+                    or asset_name in unknown_layers
+                ):
+                    warnings.append(
+                        f"{prefix}: layer {layer_name!r} is created earlier; "
+                        "structure not preflighted"
+                    )
+                else:
+                    problems.append(
+                        f"{prefix}: layer {layer_name!r} not found; layers: "
+                        + ", ".join(
+                            f"{_get(item, 'name')}@{_get(item, 'position')}"
+                            for item in layers[:64]
+                        )
+                    )
+                continue
+            layer = matches[0]
+            if action == "set_parameters":
+                for identifier, value in (step.get("parameters") or {}).items():
+                    try:
+                        _parameter_value(_parameter(layer, identifier), value)
+                    except Exception as exc:  # noqa: BLE001 -- collected
+                        problems.append(f"{prefix}: {exc}")
+            elif action == "apply_preset":
+                presets = _get(layer, "presets", []) or []
+                if step.get("preset") not in presets:
+                    problems.append(
+                        f"{prefix}: preset {step.get('preset')!r} not found; presets: "
+                        + ", ".join(map(str, presets[:64]))
+                    )
+            elif action == "set_channels":
+                for name in (step.get("applies_to") or []) + (
+                    step.get("blend_applies_to") or []
+                ):
+                    try:
+                        _resolve_usage(asset, name)
+                    except Exception as exc:  # noqa: BLE001 -- collected
+                        problems.append(f"{prefix}: {exc}")
+            elif action == "set_blend_parameters":
+                blend = list(_get(layer, "blend_parameters", []) or [])
+                if not blend:
+                    problems.append(f"{prefix}: layer has no blend parameters")
+                else:
+                    for identifier, value in (step.get("parameters") or {}).items():
+                        try:
+                            _parameter_value(_parameter_in(blend, identifier), value)
+                        except Exception as exc:  # noqa: BLE001 -- collected
+                            problems.append(f"{prefix}: {exc}")
+            elif action == "remove_layer":
+                removed.setdefault(asset_name, set()).add(layer_name)
+                virtual_layers.get(asset_name, set()).discard(layer_name)
+            continue
+        problems.append(f"{prefix}: unknown action")
+    return {
+        "project": _rel(root, project),
+        "probe": probe,
+        "problems": problems,
+        "warnings": warnings,
+        "assets": sorted(assets),
     }
 
 
@@ -1031,21 +1286,26 @@ def _set_channels(ssa, root, args) -> dict:
         raise ValueError("project is required for action=set_channels")
     asset = _find_asset(ssa, asset_name)
     layer = _find_layer(asset, layer_name, position)
-    usage = _get(ssa, "Usage")
-    if usage is None:
-        raise RuntimeError("Sampler Usage type is unavailable")
-    if applies is not None:
-        layer.applies_to([usage(name) for name in applies])
-    if blend is not None:
-        layer.blend_applies_to([usage(name) for name in blend])
+    applies_objects = (
+        [_resolve_usage(asset, name) for name in applies] if applies is not None else None
+    )
+    blend_objects = (
+        [_resolve_usage(asset, name) for name in blend] if blend is not None else None
+    )
+    if applies_objects is not None:
+        layer.applies_to(applies_objects)
+    if blend_objects is not None:
+        layer.blend_applies_to(blend_objects)
     ssa.wait_for_computation()
     _save(ssa)
     return {
         "project": _rel(root, path),
         "asset": _jsonable(_get(asset, "name")),
         "layer": _layer(layer),
-        "applies_to": applies,
-        "blend_applies_to": blend,
+        "applies_to": [_usage_id(item) for item in applies_objects] if applies_objects else None,
+        "blend_applies_to": (
+            [_usage_id(item) for item in blend_objects] if blend_objects else None
+        ),
         "saved": True,
     }
 

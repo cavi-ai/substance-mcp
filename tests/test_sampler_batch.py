@@ -126,6 +126,108 @@ class BatchTests(unittest.TestCase):
         path.write_text(json.dumps(data))
         return f"jobs/{name}"
 
+    def source_seed(self, name, material=True):
+        directory = f"jobs/{name}"
+        seed = job_data(directory=directory)
+        steps = [
+            seed["steps"][0],
+            {"action": "insert_filter", "asset": "Rock", "filter": "Tiling", "position": 1},
+        ]
+        if material:
+            steps.append({"action": "insert_material", "asset": "Rock",
+                          "material": "Brick", "position": 0})
+        steps.append({"action": "export", "asset": "Rock", "target": "unreal",
+                      "resolution": 64})
+        seed["steps"] = steps
+        batch.run_job_file(self.write_job(f"{name}-seed.json", seed), self.workspace)
+        return f"{directory}/RockProject.ssa"
+
+    def source_job(self, name, source, steps):
+        return self.write_job(f"{name}.json", {
+            "schema": 1,
+            "directory": f"jobs/{name}",
+            "project": {"source": source, "name": "RockCopy", "assets": ["Rock"]},
+            "steps": steps,
+        })
+
+    def test_validate_with_project_success(self):
+        source = self.source_seed("preflight-seed")
+        digest = (self.workspace / source).read_bytes()
+        path = self.source_job("preflight", source, [
+            {"action": "set_metadata", "asset": "Rock", "author": "Eval"},
+            {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+             "parameters": {"Tiling": 3}},
+            {"action": "apply_preset", "asset": "Rock", "layer": "Tiling",
+             "preset": "Wet"},
+            {"action": "set_channels", "asset": "Rock", "layer": "Tiling",
+             "applies_to": ["baseColor"]},
+            {"action": "set_blend_parameters", "asset": "Rock", "layer": "Brick",
+             "parameters": {"Opacity": 0.5}},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ])
+        plan = batch.validate_with_project(path, self.workspace)
+        self.assertEqual(plan["project_check"], "ok")
+        self.assertEqual(plan["project_warnings"], [])
+        self.assertTrue(plan["sampler"]["targets"]["unity"]["available"])
+        self.assertFalse((self.workspace / "jobs/preflight").exists())
+        self.assertEqual((self.workspace / source).read_bytes(), digest)
+        self.assertFalse(list(self.workspace.glob(".cavi-preflight-*")))
+
+    def test_validate_with_project_failures(self):
+        source = self.source_seed("bad-seed")
+        digest = (self.workspace / source).read_bytes()
+        cases = {
+            "asset": {"action": "set_metadata", "asset": "Missing", "author": "Eval"},
+            "layer": {"action": "set_parameters", "asset": "Rock", "layer": "Missing",
+                      "parameters": {"Tiling": 3}},
+            "parameter": {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+                          "parameters": {"Missing": 3}},
+            "preset": {"action": "apply_preset", "asset": "Rock", "layer": "Tiling",
+                       "preset": "Missing"},
+            "channel": {"action": "set_channels", "asset": "Rock", "layer": "Tiling",
+                        "applies_to": ["Missing"]},
+            "filter": {"action": "insert_filter", "asset": "Rock",
+                       "filter": "Missing Filter", "position": 2},
+            "blend": {"action": "set_blend_parameters", "asset": "Rock",
+                      "layer": "Brick", "parameters": {"Missing": 0.5}},
+        }
+        for name, step in cases.items():
+            with self.subTest(name=name):
+                path = self.source_job(f"bad-{name}", source, [
+                    step,
+                    {"action": "export", "asset": "Rock", "target": "unity",
+                     "directory": "unity"},
+                ])
+                with self.assertRaises(job.JobValidationError):
+                    batch.validate_with_project(path, self.workspace)
+                self.assertEqual((self.workspace / source).read_bytes(), digest)
+                self.assertFalse(list(self.workspace.glob(".cavi-preflight-*")))
+
+    def test_cli_check_project(self):
+        source = self.source_seed("cli-preflight-seed", material=False)
+        path = self.source_job("cli-preflight", source, [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+             "parameters": {"Tiling": 3}},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "validate", path, "--workspace", str(self.workspace),
+                "--check-project", "--json",
+            ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue())["project_check"], "ok")
+
+    def test_validate_with_project_new_job_not_applicable(self):
+        path = self.write_job("new-project.json", job_data(directory="jobs/new-project"))
+        plan = batch.validate_with_project(path, self.workspace)
+        self.assertEqual(plan["project_check"], "not_applicable")
+        self.assertIn("sampler", plan)
+        self.assertFalse((self.workspace / "jobs/new-project").exists())
+
     def test_run_unreal_manifest(self):
         path = self.write_job("rock.json", job_data())
         manifest = batch.run_job_file(path, self.workspace)
@@ -309,7 +411,8 @@ class BatchTests(unittest.TestCase):
         data["steps"] = [
             {"action": "create_asset", "name": "Rock", "model": "openpbr",
              "preset": "base_material"},
-            {"action": "import_resource", "path": "assets/custom.sbsar"},
+            {"action": "import_resource", "path": "assets/custom.sbsar",
+             "resources": ["custom"]},
             {"action": "import_images", "asset": "Rock", "images": ["photos/albedo.png"],
              "position": 0},
             {"action": "insert_filter", "asset": "Rock", "filter": "custom", "position": 1},
@@ -318,10 +421,54 @@ class BatchTests(unittest.TestCase):
         path = self.write_job("resources.json", data)
         plan = batch.validate_with_sampler(path, self.workspace)
         self.assertTrue(plan["imports_resources"])
+        self.assertEqual(plan["imported_resources"], ["custom"])
+        self.assertFalse(plan["preflight_skip_resources"])
         manifest = batch.run_job_file(path, self.workspace)
         actions = [step["action"] for step in manifest["steps"]]
         self.assertEqual(actions[:3], ["create_asset", "import_resource", "import_images"])
         self.assertEqual(manifest["steps"][1]["result"]["resources"][0]["name"], "custom")
+
+    def test_import_resource_declared_preflight(self):
+        data = {
+            "schema": 1,
+            "directory": "jobs/resource-check",
+            "project": {"name": "ResourceProject",
+                        "asset": {"name": "Rock"}},
+            "steps": [
+                {"action": "import_resource", "path": "assets/custom.sbsar",
+                 "resources": ["custom"]},
+                {"action": "import_images", "asset": "Rock",
+                 "images": ["photos/albedo.png"], "position": 0},
+                {"action": "insert_filter", "asset": "Rock", "filter": "Missing Filter",
+                 "position": 1},
+                {"action": "export", "asset": "Rock", "target": "generic",
+                 "outputs": ["sbsar"]},
+            ],
+        }
+        path = self.write_job("resource-check.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "filter .* not available"):
+            batch.validate_with_sampler(path, self.workspace)
+
+    def test_import_resource_undeclared_preflight_skips(self):
+        data = {
+            "schema": 1,
+            "directory": "jobs/resource-skip",
+            "project": {"name": "ResourceProject",
+                        "asset": {"name": "Rock"}},
+            "steps": [
+                {"action": "import_resource", "path": "assets/custom.sbsar"},
+                {"action": "import_images", "asset": "Rock",
+                 "images": ["photos/albedo.png"], "position": 0},
+                {"action": "insert_filter", "asset": "Rock", "filter": "Missing Filter",
+                 "position": 1},
+                {"action": "export", "asset": "Rock", "target": "generic",
+                 "outputs": ["sbsar"]},
+            ],
+        }
+        path = self.write_job("resource-skip.json", data)
+        plan = batch.validate_with_sampler(path, self.workspace)
+        self.assertTrue(plan["preflight_skip_resources"])
+        self.assertIn("preflight_warnings", plan)
 
     def test_remove_layer(self):
         data = job_data(directory="jobs/remove")

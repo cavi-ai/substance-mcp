@@ -39,6 +39,7 @@ def main(argv=None) -> int:
     validate.add_argument("job")
     validate.add_argument("--workspace")
     validate.add_argument("--check-sampler", action="store_true")
+    validate.add_argument("--check-project", action="store_true")
     validate.add_argument("--timeout", type=float, default=300)
     validate.add_argument("--json", action="store_true")
 
@@ -82,7 +83,11 @@ def main(argv=None) -> int:
             ])
             return status
         if args.command == "validate" or (args.command == "run" and args.dry_run):
-            if args.command == "validate" and args.check_sampler:
+            if args.command == "validate" and args.check_project:
+                result = batch.validate_with_project(
+                    args.job, args.workspace, args.timeout
+                )
+            elif args.command == "validate" and args.check_sampler:
                 result = batch.validate_with_sampler(
                     args.job, args.workspace, args.timeout
                 )
@@ -96,6 +101,9 @@ def main(argv=None) -> int:
                 f"steps: {', '.join(value['steps'])}",
                 "targets: " + ", ".join(item["target"] for item in value["targets"]),
                 "sampler: " + ("ok" if "sampler" in value else "not checked"),
+                "project check: " + value.get("project_check", "not checked"),
+                "warnings: " + str(len(value.get("preflight_warnings", []))
+                                   + len(value.get("project_warnings", []))),
             ])
             return 0
         manifest = asyncio.run(batch.run_job_file_async(

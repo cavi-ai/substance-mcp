@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from cavi_substance_mcp.sampler import batch, operations, runner
+from cavi_substance_mcp.sampler import batch, job, operations, runner
 
 
 class NativeSamplerTests(unittest.TestCase):
@@ -194,6 +194,7 @@ class NativeSamplerTests(unittest.TestCase):
             seed_tiling = next(layer for layer in seeded["layers"]
                                if layer["name"] == "Tiling")
             channel = seed_tiling["applied_channels"][0]
+            channel_label = seed_tiling.get("usage_labels", {}).get(channel, channel)
             data = {
                 "schema": 1,
                 "directory": "jobs/source",
@@ -203,7 +204,7 @@ class NativeSamplerTests(unittest.TestCase):
                     {"action": "set_metadata", "asset": "Cavi", "author": "Cavi",
                      "category": "rock", "tags": ["game"], "physical_size": [1, 2, 3]},
                     {"action": "set_channels", "asset": "Cavi", "layer": "Tiling",
-                     "applies_to": [channel]},
+                     "applies_to": [channel_label]},
                     {"action": "export", "asset": "Cavi", "target": "unity",
                      "directory": "unity"},
                 ],
@@ -226,6 +227,81 @@ class NativeSamplerTests(unittest.TestCase):
                 "project": manifest["project"], "asset": "Cavi", "channels": [channel],
             }, 300))
             self.assertTrue(activated["activated"])
+
+    def test_project_preflight(self):
+        if not os.environ.get("CAVI_SAMPLER_NATIVE"):
+            self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
+        if runner.running():
+            self.skipTest("Sampler is already running; quit it before the native test")
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
+        ):
+            workspace = self._workspace(folder)
+            seed_data = {
+                "schema": 1,
+                "directory": "jobs/seed",
+                "project": {"name": "seedProject",
+                            "asset": {"name": "Cavi", "model": "openpbr",
+                                      "preset": "base_material"}},
+                "steps": [
+                    {"action": "import_textures", "asset": "Cavi",
+                     "images": {"basecolor": "maps/basecolor.png",
+                                "normal": "maps/basecolor.png"}, "position": 0},
+                    {"action": "insert_filter", "asset": "Cavi", "filter": "Tiling",
+                     "position": 1},
+                    {"action": "export", "asset": "Cavi", "target": "unreal",
+                     "resolution": 256, "outputs": ["sbsar"]},
+                ],
+            }
+            (workspace / "jobs/seed.json").write_text(json.dumps(seed_data))
+            batch.run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
+            source = workspace / "jobs/seed/seedProject.ssa"
+            digest = source.read_bytes()
+            seeded = asyncio.run(operations.invoke(
+                "inspect_asset", {"project": "jobs/seed/seedProject.ssa", "asset": "Cavi"},
+                300,
+            ))
+            tiling = next(layer for layer in seeded["layers"] if layer["name"] == "Tiling")
+            channel_label = tiling["usage_labels"][tiling["applied_channels"][0]]
+            data = {
+                "schema": 1,
+                "directory": "jobs/preflight",
+                "project": {"source": "jobs/seed/seedProject.ssa", "name": "CaviCopy",
+                            "assets": ["Cavi"]},
+                "steps": [
+                    {"action": "set_metadata", "asset": "Cavi", "author": "Cavi"},
+                    {"action": "set_parameters", "asset": "Cavi", "layer": "Tiling",
+                     "parameters": {"Threshold": 0.1}},
+                    {"action": "apply_preset", "asset": "Cavi", "layer": "Tiling",
+                     "preset": "Tiling"},
+                    {"action": "set_channels", "asset": "Cavi", "layer": "Tiling",
+                     "applies_to": [channel_label]},
+                    {"action": "export", "asset": "Cavi", "target": "unity",
+                     "directory": "unity"},
+                ],
+            }
+            (workspace / "jobs/preflight.json").write_text(json.dumps(data))
+            plan = batch.validate_with_project("jobs/preflight.json", workspace,
+                                               timeout_seconds=600)
+            self.assertEqual(plan["project_check"], "ok")
+            self.assertFalse((workspace / "jobs/preflight").exists())
+            self.assertEqual(source.read_bytes(), digest)
+            self.assertFalse(list(workspace.glob(".cavi-preflight-*")))
+            bad = json.loads(json.dumps(data))
+            bad["directory"] = "jobs/preflight-bad"
+            bad["steps"] = [
+                {"action": "set_parameters", "asset": "Cavi", "layer": "Missing",
+                 "parameters": {"Threshold": 0.1}},
+                {"action": "export", "asset": "Cavi", "target": "unity",
+                 "directory": "unity"},
+            ]
+            (workspace / "jobs/preflight-bad.json").write_text(json.dumps(bad))
+            with self.assertRaises(job.JobValidationError):
+                batch.validate_with_project("jobs/preflight-bad.json", workspace,
+                                            timeout_seconds=600)
+            self.assertEqual(source.read_bytes(), digest)
+            self.assertFalse(list(workspace.glob(".cavi-preflight-*")))
 
     def test_blend_parameters(self):
         if not os.environ.get("CAVI_SAMPLER_NATIVE"):

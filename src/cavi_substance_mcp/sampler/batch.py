@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -212,6 +213,19 @@ def validate_job_file(name, workspace_path=None) -> dict:
     plan["imports_resources"] = any(
         isinstance(step, jobs.ImportResource) for step in loaded.steps
     )
+    imported, undeclared = set(), False
+    for step in loaded.steps:
+        if isinstance(step, jobs.ImportResource):
+            if step.resources:
+                imported.update(step.resources)
+            else:
+                undeclared = True
+    plan["imported_resources"] = sorted(imported)
+    plan["preflight_skip_resources"] = undeclared
+    if undeclared:
+        plan["preflight_warnings"] = [
+            "imported resources are not declared; filter/material checks skipped"
+        ]
     return plan
 
 
@@ -232,12 +246,16 @@ def check_sampler(plan: dict, probe: dict) -> None:
     for option in plan.get("import_options", []):
         if option not in options:
             problems.append(f"import option {option!r} is not available")
-    if not plan.get("imports_resources"):
+    declared = set(plan.get("imported_resources", []))
+    skip_resources = bool(plan.get("imports_resources")) and bool(
+        plan.get("preflight_skip_resources")
+    )
+    if plan.get("source") is None and not skip_resources:
         for name in plan.get("filters", []):
-            if name not in filters:
+            if name not in declared and name not in filters:
                 problems.append(f"filter {name!r} is not available")
         for name in plan.get("materials", []):
-            if name not in materials:
+            if name not in declared and name not in materials:
                 problems.append(f"material {name!r} is not available")
     for name in plan.get("material_models", []):
         if name not in models:
@@ -276,6 +294,43 @@ async def validate_with_sampler_async(name, workspace_path=None,
 
 def validate_with_sampler(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
     return asyncio.run(validate_with_sampler_async(name, workspace_path, timeout_seconds))
+
+
+async def validate_with_project_async(name, workspace_path=None,
+                                      timeout_seconds: float = 300) -> dict:
+    root = _root(workspace_path)
+    path = _job_file(name, root)
+    loaded = jobs.load_job(path)
+    plan = validate_job_file(path, root)
+    if loaded.project.source is None:
+        probe = await probe_sampler_async(root, timeout_seconds)
+        check_sampler(plan, probe)
+        plan["sampler"] = probe
+        plan["project_check"] = "not_applicable"
+        return plan
+    temporary = Path(tempfile.mkdtemp(prefix=".cavi-preflight-", dir=root))
+    try:
+        source = (root / loaded.project.source).resolve()
+        copy = temporary / "project.ssa"
+        shutil.copy2(source, copy)
+        result = await operations.invoke_preflight(
+            loaded.model_dump(by_alias=True), timeout_seconds, str(root),
+            copy.relative_to(root).as_posix(),
+        )
+        probe = result.get("probe", {})
+        check_sampler(plan, probe)
+        plan["sampler"] = probe
+        plan["project_check"] = "failed" if result.get("problems") else "ok"
+        plan["project_warnings"] = result.get("warnings", [])
+        if result.get("problems"):
+            raise jobs.JobValidationError("; ".join(result["problems"]))
+        return plan
+    finally:
+        operations.remove_tree(temporary)
+
+
+def validate_with_project(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
+    return asyncio.run(validate_with_project_async(name, workspace_path, timeout_seconds))
 
 
 def doctor(workspace_path=None) -> dict:

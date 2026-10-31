@@ -284,8 +284,12 @@ class RemoveLayer(StrictModel):
 class ImportResource(StrictModel):
     action: Literal["import_resource"]
     path: str
+    resources: Annotated[list[ResourceName], Field(min_length=1, max_length=64)] | None = None
 
     _path = field_validator("path")(relative_path)
+    _resources = field_validator("resources")(lambda values: None if values is None else [
+        resource_name(item) for item in values
+    ])
 
 
 class Export(StrictModel):

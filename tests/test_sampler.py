@@ -145,6 +145,9 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(labeled["parameters"]["detect_edges"], 0)
         asset = self.call("inspect_asset", project="projects/Rock.ssa", asset="Rock")
         layer = next(item for item in asset["layers"] if item["name"] == "Tiling")
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.call("set_channels", project="projects/Rock.ssa", asset="Rock",
+                      layer="Tiling", applies_to=["Missing"])
         edge = next(item for item in layer["parameters"]
                     if item["identifier"] == "detect_edges")
         self.assertEqual(edge["enum_values"], [["Off", 0], ["On", 1]])

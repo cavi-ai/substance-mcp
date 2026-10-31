@@ -1054,5 +1054,61 @@
     "equals": {
       "parameters/opacity": 0.5
     }
+  },
+  {
+    "id": "build-check-project",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/preflight.json",
+      "dry_run": true,
+      "check_project": true
+    },
+    "equals": {
+      "project_check": "ok"
+    },
+    "required": [
+      "sampler",
+      "targets"
+    ],
+    "absent": [
+      "jobs/preflight"
+    ]
+  },
+  {
+    "id": "build-check-project-fail",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/preflight-bad.json",
+      "dry_run": true,
+      "check_project": true
+    },
+    "error": "not found"
+  },
+  {
+    "id": "build-check-resources",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/resources.json",
+      "dry_run": true,
+      "check_sampler": true
+    },
+    "required": [
+      "sampler"
+    ],
+    "absent": [
+      "jobs/resources"
+    ]
   }
 ]
