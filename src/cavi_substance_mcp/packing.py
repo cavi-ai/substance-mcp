@@ -14,6 +14,8 @@ USAGE = r"[A-Za-z][A-Za-z0-9_]{0,63}"
 SOURCE = rf"^(?:1-)?{USAGE}$|^(?:0(?:\.[0-9]{{1,6}})?|1(?:\.0{{1,6}})?|\.[0-9]{{1,6}})$"
 NAME = r"^[A-Za-z0-9_-]{1,96}$"
 MAX_EDGE = 8192
+# Decoded sources are float32 RGBA at most; refuse a pack that would need more than this.
+MAX_DECODED_BYTES = 2 * 1024**3
 READABLE = {".png", ".tga", ".tif", ".tiff", ".jpg", ".jpeg"}
 
 Source = Annotated[str, StringConstraints(pattern=SOURCE)]
@@ -106,6 +108,18 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
                     needed.add(usage)
     if not needed:
         raise ValueError("Packing needs at least one image source")
+    decoded = 0
+    for usage in sorted(needed):
+        with Image.open(sources[usage]) as image:
+            decoded += image.size[0] * image.size[1] * 4 * 4
+    if decoded > MAX_DECODED_BYTES:
+        raise ValueError(
+            f"Sources need {decoded / 1024**3:.1f} GiB decoded; the limit is "
+            f"{MAX_DECODED_BYTES / 1024**3:.0f} GiB. Pack fewer or smaller maps per call.")
+    last_use = {}
+    for index, item in enumerate(spec.maps):
+        for source in item.channels.values():
+            last_use[source.removeprefix("1-")] = index
     size = None
     for usage in sorted(needed):
         cache[usage] = load(sources[usage])
@@ -131,18 +145,28 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
         return np.broadcast_to(value, (height, width, 3 if rgb else 1))
 
     written = []
-    for item in spec.maps:
+    for index, item in enumerate(spec.maps):
         channels = item.channels
-        planes = ([resolve(channels["RGB"], True)] if "RGB" in channels
-                  else [resolve(channels[key], False) for key in "RGB"])
+        planes = ([(channels["RGB"], True)] if "RGB" in channels
+                  else [(channels[key], False) for key in "RGB"])
         if "A" in channels:
-            planes.append(resolve(channels["A"], False))
-        pixels = np.concatenate(planes, axis=2)
+            planes.append((channels["A"], False))
+        scale, dtype = (65535.0, np.uint16) if item.bit_depth == 16 else (255.0, np.uint8)
+        # Quantize one plane at a time into the integer image instead of building a
+        # float32 copy of the whole map.
+        pixels = np.empty((height, width, 4 if "A" in channels else 3), dtype=dtype)
+        offset = 0
+        for source, rgb in planes:
+            depth = 3 if rgb else 1
+            pixels[:, :, offset:offset + depth] = np.rint(resolve(source, rgb) * scale)
+            offset += depth
+        for usage in [key for key, last in last_use.items() if last == index]:
+            cache.pop(usage, None)
         target = directory / f"{item.name}.{item.format}"
         if item.bit_depth == 16:
-            _write_png16(target, np.rint(pixels * 65535.0).astype(np.uint16))
+            _write_png16(target, pixels)
         else:
-            Image.fromarray(np.rint(pixels * 255.0).astype(np.uint8)).save(target)
+            Image.fromarray(pixels).save(target)
         written.append({"name": item.name, "path": target, "width": width, "height": height,
                         "channels": "RGBA" if "A" in channels else "RGB",
                         "bit_depth": item.bit_depth})

@@ -82,6 +82,11 @@
 
 ### Fixed
 
+- Sampler refuses a resource that changed while it was imported instead of reporting it
+  verified.
+- Batch preflight reports a step that names a duplicated asset as ambiguous.
+- Channel packing quantizes each plane straight into the output image and frees sources
+  after their last use, and refuses packs that would decode more than 2 GiB.
 - Painter accepts schema 2 receipts as `source_manifest` and refuses to record a missing
   output; it now uses the shared receipts module instead of its own drifted copy.
 - A Designer or Sampler program whose grandchild kept its output pipe open held the call until
