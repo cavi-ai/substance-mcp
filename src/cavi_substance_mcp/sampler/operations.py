@@ -356,17 +356,53 @@ def _wait_changed(path: Path, before: int | None, timeout: float = 30) -> None:
     raise RuntimeError("Sampler did not finish saving the project")
 
 
-def _wait_files(directory: Path, timeout: float = 600) -> list[Path]:
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _missing_maps(files: list[Path], expected) -> list[str]:
+    names = [_squash(item.stem) for item in files]
+    return [name for name in expected if not any(_squash(name) in item for item in names)]
+
+
+def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float = 0.2,
+                grace: float = 3.0) -> list[Path]:
+    """Wait for a finished export: every expected map present and no file still growing.
+
+    A file counts as finished once its size is unchanged between two polls. Files that
+    are stable but still lack an expected map fail after ``grace`` seconds instead of
+    waiting out the full timeout, because the export controller has already returned.
+    """
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    previous, settled_since = None, None
+    while True:
         files = sorted(
             item for item in directory.rglob("*")
             if item.is_file() and not item.is_symlink() and item.stat().st_size
         )
-        if files:
-            return files
-        time.sleep(0.1)
-    return []
+        sizes = {item: item.stat().st_size for item in files}
+        now = time.monotonic()
+        missing = _missing_maps(files, expected)
+        if files and sizes == previous:
+            if not missing:
+                return files
+            settled_since = settled_since or now
+            if now - settled_since >= min(grace, timeout):
+                break
+        else:
+            settled_since = None
+        previous = sizes
+        if now >= deadline:
+            break
+        time.sleep(poll)
+    if not files:
+        raise RuntimeError("Sampler exported no files")
+    if missing:
+        raise RuntimeError(
+            "Sampler export is incomplete; missing maps: " + ", ".join(missing)
+            + "; found: " + ", ".join(item.name for item in files[:16])
+        )
+    raise RuntimeError("Sampler export files were still changing when the wait ended")
 
 
 def _root(value) -> Path:
@@ -1656,9 +1692,11 @@ def _export(ssa, root, args) -> dict:
             options["h_resolution"] = resolution
         asset.export_material(**options)
         controller.wait()
-        files = _wait_files(destination, wait_seconds)
-        if not files:
-            raise RuntimeError("Sampler exported no files")
+        expected = ()
+        if target_name is not None and channels is None and args.get("preset") is None:
+            # Only the target's own preset promises its map set.
+            expected = targets.target(target_name).maps
+        files = _wait_files(destination, wait_seconds, expected)
         manifest = receipts.build(
             "sampler", "export", root, inputs=[project], outputs=files,
             parameters=plan, seconds=time.monotonic() - started,

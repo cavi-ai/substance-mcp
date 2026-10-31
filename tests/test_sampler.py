@@ -137,6 +137,35 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(self.call("inspect_project", project="projects/Rock.ssa")["project"],
                          "projects/Rock.ssa")
 
+    def test_target_export_requires_every_map(self):
+        self.create_project()
+        arguments = {"project": "projects/Rock.ssa", "asset": "Rock", "target": "unreal",
+                     "format": "png", "dry_run": False}
+        with (
+            patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "missing"}),
+            self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"),
+        ):
+            self.call("export", directory="partial", wait_seconds=1, **arguments)
+        self.assertFalse((self.workspace / "partial").exists())
+        exported = self.call("export", directory="whole", **arguments)
+        self.assertEqual(
+            sorted(Path(item).name for item in exported["files"]),
+            ["Rock_basecolor.png", "Rock_normal.png", "Rock_occlusionroughnessmetallic.png"],
+        )
+        generic = self.call("export", directory="raw", project="projects/Rock.ssa",
+                            asset="Rock", target="generic", format="png", dry_run=False)
+        self.assertTrue(generic["files"])
+
+    def test_export_waits_for_files_to_stop_growing(self):
+        self.create_project()
+        with patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "growing"}):
+            exported = self.call("export", project="projects/Rock.ssa", asset="Rock",
+                                 directory="grown", format="sbsar", dry_run=False)
+        sbsar = self.workspace / "grown/Rock.sbsar"
+        self.assertEqual(sbsar.read_text(), "fake" + "-late" * 5)
+        manifest = receipts.load(self.workspace / exported["manifest"])
+        self.assertEqual(receipts.verify(manifest, self.workspace)["outputs"][0]["size"], 29)
+
     def test_create_empty_asset(self):
         self.create_project()
         made = self.call("create_asset", project="projects/Rock.ssa", name="Empty", empty=True)
