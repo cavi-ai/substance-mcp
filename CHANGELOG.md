@@ -26,9 +26,44 @@
 - `.gitignore` covers local plans, worktrees, editor state, logs, build output and Substance
   `.ssa` and `.spt` files.
 
+### Changed (breaking)
+
+- Painter: `bake` gains `action="cancel"`. Deleting a node whose subtree holds layers this
+  lease did not create requires `confirm_name`. `layer_edit` times out after 120 seconds.
+- Sampler: `sampler_build` defaults to `dry_run=true`. `sampler_asset action="delete"`
+  requires `confirm=true`, and `sampler_asset` and `sampler_layer` are annotated
+  destructive. `sampler_inspect action="project"` requires `project`. `sampler_export`
+  rejects `target` with a non-image `format` instead of switching it to PNG. Creating an
+  asset whose name already exists is refused.
+- Receipts: inputs supplied by an application, such as a Designer built-in template, are
+  recorded as schema 2 `app-resource` rows (name, SHA-256 and tool version) instead of
+  absolute paths. Receipts without such inputs stay schema 1, and both schemas are read.
+  Recording a missing file or a path outside the workspace is an error.
+- Sampler job manifests are standard receipts: workspace-relative paths only, per-export
+  receipts listed as outputs, and atomic writes. The top-level `app_name`, `workspace` and
+  `app.executable` fields are gone.
+
 ### Fixed
 
 - `serverInfo.version` reports the package version instead of the MCP SDK version.
+- Painter tool calls run off the event loop and are serialized, so a long call no longer
+  blocks other requests, and a request cancelled while queued is never sent.
+- A lost bake end event no longer blocks every later Painter call.
+- `.sbsar` imports use the bytes that were hashed.
+- `wait_ready` requires that Painter is not baking and no mesh reload is pending.
+- Failed exports and `save_copy` calls remove the directory they created.
+- Non-ASCII lease ids, enum non-members as `blend_mode`, non-boolean `dry_run` values and
+  duplicate names on rename are rejected.
+- Painter transport errors and HTTP 5xx responses are reported as unavailable, and each
+  request has a wall-clock deadline.
+- Sampler batch exports work for asset names that are not already directory-safe.
+- A cancelled batch job releases the workspace lock and removes its directory.
+- Every Sampler launch takes the workspace lock.
+- Single Sampler operations edit a copy of the project and replace it only on success.
+- A non-zero Sampler exit fails the call.
+- Target exports wait for every expected map to be complete before hashing.
+- Job validation applies the runtime's naming rules before Sampler launches.
+- A job whose input changes while it runs fails.
 
 ## 0.6.0 - 2026-10-30
 
