@@ -138,5 +138,49 @@ class DeadlineTests(unittest.TestCase):
         self.assertEqual(PainterClient(port=port).call("status", timeout=0.5), {"open": True})
 
 
+READY = {"connected": True, "open": True, "busy": False, "edition_state": True,
+         "baking": False, "mesh_reload": None}
+
+
+def scripted(*replies):
+    """Serve ok-wrapped status results, or an int HTTP status, one per request, repeating the last."""
+    queue = list(replies)
+
+    def respond(connection):
+        reply = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(reply, int):
+            connection.sendall(
+                f"HTTP/1.1 {reply} Error\r\nContent-Length: 0\r\n\r\n".encode()
+            )
+            return
+        body = json.dumps({"ok": True, "result": reply}).encode()
+        connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+        )
+
+    return respond
+
+
+class WaitReadyTransportTests(unittest.TestCase):
+    def client(self, *replies):
+        port, close = raw_server(scripted(*replies))
+        self.addCleanup(close)
+        return PainterClient(port=port)
+
+    def test_http_5xx_while_painter_starts_is_not_ready_yet(self):
+        result = self.client(503, 500, READY).wait_ready(5, 0.01)
+        self.assertTrue(result["ready"])
+
+    def test_persistent_5xx_times_out_as_not_ready(self):
+        result = self.client(503).wait_ready(0.5, 0.05)
+        self.assertFalse(result["ready"])
+        self.assertFalse(result["connected"])
+        self.assertIn("503", result["reason"])
+
+    def test_client_errors_are_still_failures(self):
+        with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+            self.client(404).wait_ready(1, 0.05)
+
+
 if __name__ == "__main__":
     unittest.main()

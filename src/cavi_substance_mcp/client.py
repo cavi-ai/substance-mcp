@@ -57,6 +57,12 @@ class PainterUnavailable(ConnectionError):
     pass
 
 
+class PainterHTTPError(RuntimeError):
+    def __init__(self, status: int):
+        super().__init__(f"Painter HTTP {status}; request was not retried")
+        self.status = status
+
+
 def _arguments(operation: str, params: dict, workspace: Path) -> str:
     if operation not in OPERATIONS:
         raise ValueError(f"Unknown operation: {operation}")
@@ -149,6 +155,11 @@ class PainterClient:
                 status = self.call("status", timeout=max(0.5, min(10.0, remaining)))
             except (PainterTimeout, PainterUnavailable) as exc:
                 status = {"connected": False, "reason": str(exc)}
+            except PainterHTTPError as exc:
+                # Painter's scripting server answers 5xx while it is starting or busy.
+                if exc.status < 500:
+                    raise
+                status = {"connected": False, "reason": str(exc)}
             ready = bool(
                 status.get("open") and not status.get("busy") and status.get("edition_state")
             )
@@ -205,7 +216,7 @@ class PainterClient:
         if len(data) > RESPONSE_LIMIT:
             raise RuntimeError("Painter response exceeds size limit")
         if response.status != 200:
-            raise RuntimeError(f"Painter HTTP {response.status}; request was not retried")
+            raise PainterHTTPError(response.status)
         try:
             result = json.loads(data.decode().strip())
             if isinstance(result, str):
