@@ -492,6 +492,10 @@ def module():
         return found
 
     def import_resources(path):
+        # A sibling "<file>.swap" stands for a file replaced while Sampler imports it.
+        swap = Path(str(path) + ".swap")
+        if swap.exists():
+            Path(path).write_bytes(swap.read_bytes())
         found = [Resource(Path(path).stem)]
         state.imported.extend(found)
         return found

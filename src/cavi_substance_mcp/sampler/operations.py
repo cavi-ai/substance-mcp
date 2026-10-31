@@ -1281,6 +1281,9 @@ def _import_resource(ssa, root, args) -> dict:
             raise ValueError("resource sha256 does not match expected_sha256")
         source = source or actual
     resources = ssa.import_resources(str(path))
+    if source is not None and receipts.sha256_file(path) != source["sha256"]:
+        # Sampler read the file after it was hashed; refuse rather than report it verified.
+        raise ValueError(f"{rel(root, path)} changed while it was imported; nothing was saved")
     result = {
         "path": rel(root, path),
         "resources": [
