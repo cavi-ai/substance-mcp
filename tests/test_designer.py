@@ -281,7 +281,7 @@ class ServerTests(unittest.TestCase):
         from cavi_substance_mcp.designer.server import mcp
 
         tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
-        self.assertEqual(set(tools), {"designer_status", "material", "bake", "sampler"})
+        self.assertEqual(set(tools), {"designer_status", "material", "bake"})
         self.assertTrue(tools["designer_status"].annotations.readOnlyHint)
         actions = tools["material"].inputSchema["properties"]["action"]["enum"]
         self.assertEqual(actions, ["info", "cook", "render", "pack"])

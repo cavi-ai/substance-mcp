@@ -60,12 +60,8 @@ async def exercise(mode, env, workspace):
             ):
                 raise AssertionError(f"Missing safety coverage: {tool.name}")
         for case in selected:
-            idle = None
             try:
                 protected = fingerprint(workspace, workspace.parent / "outside")
-                if case.get("while_running"):
-                    idle = await asyncio.create_subprocess_exec(env["CAVI_SAMPLER_EXE"], "--idle")
-                    await asyncio.sleep(0.5)
                 reply = await session.call_tool(case["tool"], case["arguments"])
                 error = "\n".join(getattr(item, "text", "") for item in reply.content)
                 if case.get("error"):
@@ -92,10 +88,6 @@ async def exercise(mode, env, workspace):
             except (AssertionError, KeyError, TypeError, ValueError, OSError) as exc:
                 results.append({"id": case["id"], "tool": case["tool"], "kind": case["kind"],
                                 "passed": False, "reason": str(exc)})
-            finally:
-                if idle is not None:
-                    idle.kill()
-                    await idle.wait()
     return results
 
 
@@ -123,16 +115,6 @@ def fixtures(output: Path) -> Path:
         Image.new("RGB" if isinstance(value, tuple) else "L", (32, 32), value).save(
             workspace / f"maps/{name}.png")
     Image.new("L", (16, 16), 1).save(workspace / "maps/small.png")
-    photos = workspace / "photos"
-    photos.mkdir()
-    for name in ("photo", "angle0", "angle1", "angle2", "angle3", "hang", "fail", "silent",
-                 "noscript"):
-        Image.new("RGB", (64, 64), (120, 90, 70)).save(photos / f"{name}.png")
-    Image.new("RGB", (64, 64)).save(outside / "photo.png")
-    (workspace / "projects").mkdir()
-    for name, assets in {"scene": ["rock"], "multi": ["a", "b"], "silent": ["silent"]}.items():
-        (workspace / f"projects/{name}.ssa").write_text(json.dumps({"assets": assets}))
-    (outside / "scene.ssa").write_text(json.dumps({"assets": ["rock"]}))
     for name, text in {"low": "low", "high": "high", "silent": "fake-bake-silent",
                        "hang": "fake-bake-hang"}.items():
         (workspace / f"meshes/{name}.fbx").write_text(text)
@@ -151,30 +133,23 @@ def main():
     output = Path(tempfile.mkdtemp(prefix=f"designer-{args.mode}-", dir=output_root))
     workspace = fixtures(output)
     env = dict(os.environ)
-    for key in ("CAVI_DESIGNER_APP", "CAVI_SAMPLER_APP", "CAVI_SAMPLER_BIN"):
+    for key in ("CAVI_DESIGNER_APP", "CAVI_DESIGNER_BIN_DIR"):
         env.pop(key, None)
     env.update({"MCPEVAL_HOME": str(output / "store"), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
     if args.mode == "simulated":
         from designer_fake_cli import install
-        from designer_sampler_fake import install as install_sampler
 
         env["CAVI_DESIGNER_APP"] = str(install(output / "app"))
-        env.pop("CAVI_DESIGNER_BIN_DIR", None)
-        sampler_app = install_sampler(output / "sampler")
-        env["CAVI_SAMPLER_APP"] = str(sampler_app)
-        env["CAVI_SAMPLER_EXE"] = str(sampler_app / "Contents/MacOS/Adobe Substance 3D Sampler")
     else:
         (output / "no-designer").mkdir()
         env["CAVI_DESIGNER_BIN_DIR"] = str(output / "no-designer")
-        env["CAVI_SAMPLER_BIN"] = str(output / "no-designer")
     results = asyncio.run(exercise(args.mode, env, workspace))
     report = {
         "mode": args.mode,
         "application": APP,
         "cases": results,
         "native_evidence": False,
-        "native_status": ("fake CLIs or no CLIs; run tests/test_designer_native.py and "
-                          "tests/test_designer_sampler_native.py for native"),
+        "native_status": "fake CLIs or no CLIs; run tests/test_designer_native.py for native",
         "model_evaluation": "not supported",
     }
     (output / "cases.json").write_text(json.dumps(report, indent=2) + "\n")

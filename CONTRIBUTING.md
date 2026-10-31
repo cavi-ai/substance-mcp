@@ -40,13 +40,12 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   the `receipts` commands.
 - Designer server: `src/cavi_substance_mcp/designer/`. `server.py` holds the tools,
   `operations.py` the workspace-confined operations and `runner.py` the bounded CLI runner.
-  `sampler.py` and `sampler_worker.py` are the deprecated Sampler helper.
 - Sampler server and batch CLI: `src/cavi_substance_mcp/sampler/`. `server.py` holds the
   tools, `operations.py` the scripts that run inside Sampler, `job.py` the batch job model,
   `batch.py` and `cli.py` the batch runner, and `targets.py` the engine targets.
 - Shared code: `receipts.py` for receipts and `packing.py` for channel packing.
 - `evals/`: `painter_simulator.py` (simulated Painter API), `designer_fake_cli.py`,
-  `designer_sampler_fake.py` and `sampler_fake_cli.py` (fake executables), the corpora
+  `sampler_fake_cli.py` (fake executables), the corpora
   (`cases.json`, `designer_cases.json`, `sampler_cases.json`), the mcp-eval manifests
   (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`).
 - `tests/`: unit tests. `examples/`: synthetic job files and handoff walkthroughs.
