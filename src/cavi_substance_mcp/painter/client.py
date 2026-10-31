@@ -48,7 +48,14 @@ OPERATION_TIMEOUTS = {"layer_edit": 120.0, **dict.fromkeys(SLOW_OPERATIONS, SLOW
 # How long status waits for a request already in flight before reporting it instead.
 STATUS_QUEUE_SECONDS = 0.5
 RESPONSE_LIMIT = 8 * 1024 * 1024
-SOURCE = Path(__file__).with_name("operations.py").read_text(encoding="utf-8")
+# The payload is one exec'd string: the shared receipts module first, then the Painter
+# operations, which find it under the name ``receipts``.
+_RECEIPTS = Path(__file__).parents[1].joinpath("receipts.py").read_text(encoding="utf-8")
+SOURCE = (
+    "receipts = __import__('types').ModuleType('cavi_receipts')\n"
+    f"exec(compile({_RECEIPTS!r}, 'cavi_receipts', 'exec'), receipts.__dict__)\n"
+    + Path(__file__).with_name("operations.py").read_text(encoding="utf-8")
+)
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()
 CACHE_ATTR = "_cavi_mcp_payloads"
 CACHE_LIMIT = 8

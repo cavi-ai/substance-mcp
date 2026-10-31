@@ -82,6 +82,8 @@
 
 ### Fixed
 
+- Painter accepts schema 2 receipts as `source_manifest` and refuses to record a missing
+  output; it now uses the shared receipts module instead of its own drifted copy.
 - A Designer or Sampler program whose grandchild kept its output pipe open held the call until
   the timeout and then reported a timeout for a run that had already finished. A call now ends
   when the process exits.

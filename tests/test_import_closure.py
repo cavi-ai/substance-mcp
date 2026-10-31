@@ -163,10 +163,14 @@ class StaticImportTests(unittest.TestCase):
                     )
 
     def test_the_painter_payload_imports_nothing_from_the_package(self):
+        # The one exception is the host-side fallback for the receipts module, which the
+        # payload bundle defines before the operations run.
         for top, level, module in imported_names(PACKAGE / "painter/operations.py"):
             with self.subTest(module=module):
-                self.assertEqual(level, 0)
-                self.assertNotEqual(top, "cavi_substance_mcp")
+                if level:
+                    self.assertEqual((level, module or "receipts"), (2, "receipts"))
+                else:
+                    self.assertNotEqual(top, "cavi_substance_mcp")
 
     def test_relative_imports_stay_inside_the_in_app_set(self):
         in_app = {"receipts", "core", "core.workspace", "sampler.names", "sampler.targets",

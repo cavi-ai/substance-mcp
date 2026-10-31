@@ -8,12 +8,12 @@ from evals.painter_simulator import PainterSimulator
 
 class OwnershipTests(unittest.TestCase):
     def test_cached_clients_can_execute_the_self_contained_status_payload(self):
-        from cavi_substance_mcp.painter import operations as painter_operations
+        from cavi_substance_mcp.painter.client import SOURCE
 
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("dirty-unsaved")
             namespace = {}
-            exec(Path(painter_operations.__file__).read_text(), namespace)  # noqa: S102 -- trusted payload in simulator
+            exec(SOURCE, namespace)  # noqa: S102 -- trusted payload in simulator
             reply = namespace["execute"]("status", {}, folder)
             self.assertTrue(reply["ok"])
             result = reply["result"]
