@@ -271,6 +271,29 @@ def remove_tree(path):
     return [*left, str(path)]
 
 
+@contextmanager
+def new_output_directory(folder):
+    """Create `folder` for one operation's output; remove it again if the operation fails.
+
+    A directory that already existed (FileExistsError) is never touched. One that holds a
+    receipt manifest is a completed output and is kept. If removal fails, the leftovers are
+    named in the error.
+    """
+    folder.mkdir(mode=0o700)
+    try:
+        yield folder
+    except BaseException as exc:
+        if (folder / RECEIPT_MANIFEST).exists():
+            raise
+        left = remove_tree(folder)
+        if not isinstance(exc, Exception):
+            raise
+        note = (f"could not remove the incomplete output: {', '.join(left)}" if left
+                else "incomplete output directory removed")
+        reason = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
+        raise RuntimeError(f"{reason}; {note}") from exc
+
+
 def texture_resolution(value):
     if value is None:
         return None
@@ -574,17 +597,17 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
     if operation == "save_copy":
         folder = export_destination(root(), required(params, "directory"))
         started = time.monotonic()
-        folder.mkdir(mode=0o700)
-        path = folder / "project.spp"
-        project.save_as_copy(str(path), project.ProjectSaveMode.Full)
-        if not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError("Painter did not produce a saved project copy")
-        manifest = _receipt_build(
-            "painter", "save_copy", root(), outputs=[path],
-            parameters={"directory": required(params, "directory")},
-            seconds=time.monotonic() - started, version=_painter_version(),
-        )
-        manifest_path = _receipt_write(folder, manifest)
+        with new_output_directory(folder):
+            path = folder / "project.spp"
+            project.save_as_copy(str(path), project.ProjectSaveMode.Full)
+            if not path.is_file() or path.stat().st_size == 0:
+                raise RuntimeError("Painter did not produce a saved project copy")
+            manifest = _receipt_build(
+                "painter", "save_copy", root(), outputs=[path],
+                parameters={"directory": required(params, "directory")},
+                seconds=time.monotonic() - started, version=_painter_version(),
+            )
+            manifest_path = _receipt_write(folder, manifest)
         return {"path": str(path), "bytes": path.stat().st_size,
                 "manifest": str(manifest_path)}
     if operation == "export_textures":
@@ -918,38 +941,34 @@ def _export(params, root):
     if flag(params, "dry_run", True):
         return {"dry_run": True, "files": [str(path) for path in files],
                 "provenance": provenance}
-    folder.mkdir(mode=0o700)
-    result = export.export_project_textures(config)
-    actual = [Path(path).resolve() for paths in result.textures.values() for path in paths]
-    if result.status != export.ExportStatus.Success:
-        raise RuntimeError(
-            f"Export status: {result.status.name}; {result.message}. Partial output may exist."
+    with new_output_directory(folder):
+        result = export.export_project_textures(config)
+        actual = [Path(path).resolve() for paths in result.textures.values() for path in paths]
+        if result.status != export.ExportStatus.Success:
+            raise RuntimeError(f"Export status: {result.status.name}; {result.message}.")
+        if not actual or any(
+            not path.is_relative_to(folder) or not path.is_file() or path.stat().st_size == 0
+            for path in actual
+        ):
+            raise RuntimeError("Export output does not match the requested directory")
+        inputs = []
+        try:
+            file_path = project.file_path()
+        except Exception:  # noqa: BLE001 -- unsaved or unavailable project path
+            file_path = None
+        if file_path and Path(file_path).resolve().is_relative_to(root()):
+            inputs.append(Path(file_path))
+        manifest = _receipt_build(
+            "painter", "export", root(), inputs=inputs, outputs=actual,
+            parameters={"preset": preset, "maps": specs,
+                        "texture_sets": [item.name() for item in sets],
+                        "resolution": params.get("resolution"), "file_format": fmt,
+                        "bit_depth": depth, "padding": padding,
+                        "dilation_distance": dilation, "udim_tiles": tiles},
+            seconds=time.monotonic() - started, version=_painter_version(),
+            provenance=provenance,
         )
-    if not actual or any(
-        not path.is_relative_to(folder) or not path.is_file() or path.stat().st_size == 0
-        for path in actual
-    ):
-        raise RuntimeError(
-            "Export output does not match the requested directory; inspect partial output"
-        )
-    inputs = []
-    try:
-        file_path = project.file_path()
-    except Exception:  # noqa: BLE001 -- unsaved or unavailable project path
-        file_path = None
-    if file_path and Path(file_path).resolve().is_relative_to(root()):
-        inputs.append(Path(file_path))
-    manifest = _receipt_build(
-        "painter", "export", root(), inputs=inputs, outputs=actual,
-        parameters={"preset": preset, "maps": specs,
-                    "texture_sets": [item.name() for item in sets],
-                    "resolution": params.get("resolution"), "file_format": fmt,
-                    "bit_depth": depth, "padding": padding,
-                    "dilation_distance": dilation, "udim_tiles": tiles},
-        seconds=time.monotonic() - started, version=_painter_version(),
-        provenance=provenance,
-    )
-    manifest_path = _receipt_write(folder, manifest)
+        manifest_path = _receipt_write(folder, manifest)
     return {
         "dry_run": False,
         "status": result.status.name,

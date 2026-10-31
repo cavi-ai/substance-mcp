@@ -795,6 +795,11 @@ class PainterSimulator:
             open_project()
 
         def save_copy(path, mode):
+            if self.state == "save-copy-empty":
+                return  # Painter returns without producing a file
+            if self.state == "save-copy-failure":
+                Path(path).write_bytes(b"partial")
+                raise RuntimeError("simulated save failure")
             Path(path).write_bytes(b"simulated-spp")
 
         def file_path():

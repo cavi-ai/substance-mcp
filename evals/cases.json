@@ -1105,7 +1105,10 @@
    "simulated"
   ],
   "setup": "failed-export",
-  "error": "Partial output"
+  "error": "incomplete output directory removed",
+  "absent": [
+   "failed-export"
+  ]
  },
  {
   "id": "empty-export",
@@ -1120,7 +1123,64 @@
    "simulated"
   ],
   "setup": "empty-export",
-  "error": "output"
+  "error": "output",
+  "absent": [
+   "empty-export"
+  ]
+ },
+ {
+  "id": "failed-export-retry",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "failed-export",
+   "preset": "resource://eval-preset",
+   "dry_run": false
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/dry_run": false,
+   "/status": "Success"
+  },
+  "files": [
+   "failed-export/Body.png"
+  ]
+ },
+ {
+  "id": "save-copy-failure-cleaned",
+  "tool": "project",
+  "arguments": {
+   "action": "save_copy",
+   "directory": "copy-failed"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "save-copy-failure",
+  "error": "incomplete output directory removed",
+  "absent": [
+   "copy-failed"
+  ]
+ },
+ {
+  "id": "save-copy-failure-retry",
+  "tool": "project",
+  "arguments": {
+   "action": "save_copy",
+   "directory": "copy-failed"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "files": [
+   "copy-failed/project.spp"
+  ]
  },
  {
   "id": "read-after-error",
