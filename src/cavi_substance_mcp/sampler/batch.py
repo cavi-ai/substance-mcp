@@ -195,7 +195,7 @@ def check_sampler(plan: dict, probe: dict) -> None:
 async def probe_sampler_async(workspace_path=None, timeout_seconds: float = 300,
                             lock_timeout: float = 30) -> dict:
     root = _root(workspace_path)
-    async with WorkspaceLock(root, lock_timeout):
+    async with operations.exclusive(root, lock_timeout):
         app_available(0)
         return await operations.invoke(
             "probe", {}, timeout_seconds, workspace_path=str(root)
@@ -415,7 +415,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
     jobs.validate_paths(loaded, root)
     started = datetime.now(UTC).isoformat()
     clock = time.monotonic()
-    async with WorkspaceLock(root, lock_timeout):
+    async with operations.exclusive(root, lock_timeout):
         app_available(wait_for_app)
         job_dir = _job_dir(root, loaded)
         job_dir.mkdir()

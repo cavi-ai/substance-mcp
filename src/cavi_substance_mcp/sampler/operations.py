@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import math
 import os
@@ -14,6 +15,8 @@ from pathlib import Path
 from .. import receipts
 from ..painter_operations import export_destination, input_file, remove_tree
 from . import runner, targets
+from .errors import AppRunning
+from .lock import WorkspaceLock
 
 PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
@@ -34,6 +37,8 @@ IMPORT_OPTIONS = (
     "use_as_environment",
 )
 RESPONSE_LIMIT = 8 * 1024 * 1024
+LOCK_WAIT = 60
+_HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
 BLEND_MODES = (
@@ -137,8 +142,43 @@ async def _tail_progress(path: Path, callback, stop: asyncio.Event):
         await asyncio.sleep(0.2)
 
 
+@contextlib.asynccontextmanager
+async def exclusive(root, lock_timeout: float = LOCK_WAIT):
+    """Hold the workspace lock for one or more Sampler launches.
+
+    Every launch goes through this, so single-operation tools, preflight checks and
+    batch jobs never run Sampler concurrently. Re-entrant within one task so a batch
+    job can hold the lock across its directory setup and the launch itself.
+    """
+    root = Path(root)
+    key = str(root.resolve())
+    if key in _HELD.get():
+        yield
+        return
+    async with WorkspaceLock(root, lock_timeout):
+        token = _HELD.set(_HELD.get() | {key})
+        try:
+            yield
+        finally:
+            _HELD.reset(token)
+
+
 async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None,
-                       on_progress=None) -> dict:
+                       on_progress=None, lock_timeout: float = LOCK_WAIT,
+                       aliases=None) -> dict:
+    async with exclusive(payload["workspace"], lock_timeout):
+        # Checked under the lock, immediately before launching, so two of our own
+        # launches cannot race each other between the check and the start.
+        if runner.running():
+            raise AppRunning(
+                "Sampler is already running. Save and quit it; Sampler runs startup "
+                "scripts only when no other instance is active."
+            )
+        return await _launch(payload, timeout_seconds, progress_file, on_progress, aliases)
+
+
+async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
+                  on_progress=None, aliases=None) -> dict:
     job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
     request, response, script = job / "request.json", job / "response.json", job / "run.py"
     stop = asyncio.Event()
@@ -198,33 +238,30 @@ async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None
 
 
 async def invoke(operation: str, arguments: dict, timeout_seconds: float,
-                 workspace_path=None) -> dict:
+                 workspace_path=None, lock_timeout: float = LOCK_WAIT) -> dict:
     if workspace_path is None:
         root = workspace(create=True)
     else:
         root = Path(workspace_path).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-    if runner.running():
-        raise RuntimeError(
-            "Sampler is already running. Save and quit it; Sampler runs startup scripts only "
-            "when no other instance is active."
-        )
     return await _run_payload(
         {"operation": operation, "arguments": arguments, "workspace": str(root)},
-        timeout_seconds,
+        timeout_seconds, lock_timeout=lock_timeout,
     )
 
 
 async def invoke_preflight(job: dict, timeout_seconds: float, workspace_path,
-                           project: str) -> dict:
+                           project: str, lock_timeout: float = LOCK_WAIT) -> dict:
     root = Path(workspace_path).expanduser().resolve()
     return await _run_payload(
-        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds
+        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds,
+        lock_timeout=lock_timeout,
     )
 
 
 async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
-                     progress_file=None, on_progress=None) -> dict:
+                     progress_file=None, on_progress=None,
+                     lock_timeout: float = LOCK_WAIT) -> dict:
     if workspace_path is None:
         root = workspace(create=True)
     else:
@@ -232,7 +269,7 @@ async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
         root.mkdir(parents=True, exist_ok=True)
     return await _run_payload(
         {"job": job, "workspace": str(root)}, timeout_seconds,
-        progress_file=progress_file, on_progress=on_progress,
+        progress_file=progress_file, on_progress=on_progress, lock_timeout=lock_timeout,
     )
 
 
