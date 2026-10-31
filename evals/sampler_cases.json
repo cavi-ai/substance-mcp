@@ -905,5 +905,154 @@
     "files": [
       "jobs/b2m/manifest.json"
     ]
+  },
+  {
+    "id": "build-check-sampler",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/check.json",
+      "dry_run": true,
+      "check_sampler": true
+    },
+    "equals": {
+      "dry_run": true
+    },
+    "required": [
+      "sampler",
+      "targets"
+    ],
+    "absent": [
+      "jobs/check"
+    ]
+  },
+  {
+    "id": "build-check-missing-filter",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/missing-filter.json",
+      "dry_run": true,
+      "check_sampler": true
+    },
+    "error": "not available"
+  },
+  {
+    "id": "build-source",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/source.json"
+    },
+    "equals": {
+      "status": "success",
+      "source": "projects/Rock.ssa",
+      "project": "jobs/source/RockCopy.ssa"
+    },
+    "files": [
+      "jobs/source/manifest.json",
+      "jobs/source/RockCopy.ssa"
+    ],
+    "required": [
+      "outputs",
+      "steps"
+    ]
+  },
+  {
+    "id": "asset-set-metadata",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "set_metadata",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "metadata": {
+        "author": "Eval",
+        "category": "rock",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "equals": {
+      "metadata/author": "Eval",
+      "metadata/category": "rock"
+    }
+  },
+  {
+    "id": "asset-activate-channels",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "activate_channels",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "channels": [
+        "normal"
+      ]
+    },
+    "equals": {
+      "activated": true,
+      "channels": [
+        "normal"
+      ]
+    }
+  },
+  {
+    "id": "layer-set-channels",
+    "tool": "sampler_layer",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "set_channels",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "layer": "Equalize",
+      "applies_to": [
+        "baseColor"
+      ]
+    },
+    "equals": {
+      "applies_to": [
+        "baseColor"
+      ]
+    }
+  },
+  {
+    "id": "layer-set-blend-parameters",
+    "tool": "sampler_layer",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "set_blend_parameters",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock",
+      "layer": "Brick",
+      "parameters": {
+        "Opacity": 0.5
+      }
+    },
+    "equals": {
+      "parameters/opacity": 0.5
+    }
   }
 ]

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
 RESOURCE_FILES = {".sbsar", ".sbs"}
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
 NAME = re.compile(r"^[^/\\<>:\"|?*\x00-\x1f\x7f]{1,96}$")
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
 FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
@@ -300,6 +302,16 @@ def _get(value, name, default=None):
         return default
 
 
+def _call(value, name):
+    method = _get(value, name)
+    if not callable(method):
+        return None
+    try:
+        return method()
+    except Exception:  # noqa: BLE001 -- optional native methods
+        return None
+
+
 def _enum(value):
     if value is None:
         return None
@@ -359,20 +371,29 @@ def _asset(asset) -> dict:
     }
 
 
+def _parameter_info(item) -> dict:
+    return {
+        "identifier": _jsonable(_get(item, "identifier")),
+        "label": _jsonable(_get(item, "label")),
+        "type": _enum(_get(item, "type")),
+        "widget": _enum(_get(item, "widget_type")),
+        "value": _jsonable(_get(item, "value")),
+        "default": _jsonable(_get(item, "default_value")),
+        "min": _jsonable(_get(item, "min_value")),
+        "max": _jsonable(_get(item, "max_value")),
+        "enum_values": _jsonable(_call(item, "enum_values")),
+        "value_labels": _jsonable(_call(item, "value_labels")),
+        "visible": bool(_get(item, "visible", False)),
+    }
+
+
 def _layer(layer) -> dict:
-    parameters = []
-    for item in list(_get(layer, "parameters", []) or [])[:128]:
-        parameters.append({
-            "identifier": _jsonable(_get(item, "identifier")),
-            "label": _jsonable(_get(item, "label")),
-            "type": _enum(_get(item, "type")),
-            "widget": _enum(_get(item, "widget_type")),
-            "value": _jsonable(_get(item, "value")),
-            "default": _jsonable(_get(item, "default_value")),
-            "min": _jsonable(_get(item, "min_value")),
-            "max": _jsonable(_get(item, "max_value")),
-            "visible": bool(_get(item, "visible", False)),
-        })
+    parameters = [
+        _parameter_info(item) for item in list(_get(layer, "parameters", []) or [])[:128]
+    ]
+    blend_parameters = [
+        _parameter_info(item) for item in list(_get(layer, "blend_parameters", []) or [])[:128]
+    ]
     return {
         "name": _jsonable(_get(layer, "name")),
         "type": _enum(_get(layer, "type")),
@@ -386,6 +407,7 @@ def _layer(layer) -> dict:
         "image_names": _jsonable(_get(layer, "image_names")),
         "presets": _jsonable(_get(layer, "presets")),
         "parameters": parameters,
+        "blend_parameters": blend_parameters,
     }
 
 
@@ -409,8 +431,7 @@ def _find_layer(asset, name: str, position: int | None = None):
     return matches[0]
 
 
-def _parameter(layer, identifier: str):
-    parameters = list(_get(layer, "parameters", []) or [])
+def _parameter_in(parameters, identifier: str):
     matches = [item for item in parameters if _get(item, "identifier") == identifier]
     if not matches:
         matches = [item for item in parameters if _get(item, "label") == identifier]
@@ -422,6 +443,10 @@ def _parameter(layer, identifier: str):
     if len(matches) > 1:
         raise ValueError(f"Parameter {identifier!r} is ambiguous")
     return matches[0]
+
+
+def _parameter(layer, identifier: str):
+    return _parameter_in(list(_get(layer, "parameters", []) or []), identifier)
 
 
 def _bounds(parameter, value) -> None:
@@ -451,6 +476,18 @@ def _parameter_value(parameter, value):
     if not match:
         raise ValueError(f"{identifier} has unsupported type {kind}")
     size = int(match.group(2) or 1)
+    if size == 1 and match.group(1) == "integer" and isinstance(value, str):
+        labels = _call(parameter, "enum_values") or []
+        found = None
+        for entry in labels:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2 and str(entry[0]) == value:
+                found = entry[1]
+                break
+        if found is None:
+            names = ", ".join(str(entry[0]) for entry in labels[:64]
+                              if isinstance(entry, (list, tuple)) and entry) or "none"
+            raise ValueError(f"{identifier} has no label {value!r}; labels: {names}")
+        value = found
     items = value if isinstance(value, list) else [value]
     if len(items) != size:
         raise ValueError(f"{identifier} expects {size} value(s)")
@@ -599,6 +636,11 @@ def _probe(ssa, root, args) -> dict:
     return {
         "app_version": _jsonable(_get(ssa, "__version__")),
         "export_presets": presets,
+        "filters": sorted({_resource_name(item) for item in ssa.get_filters("")})[:2000],
+        "materials": sorted({_resource_name(item) for item in ssa.get_materials("")})[:2000],
+        "texture_generators": sorted({
+            _resource_name(item) for item in ssa.get_texture_generators("")
+        })[:2000],
         "import_options": options,
         "material_models": _members(ssa.MaterialModel),
         "predefined_presets": _members(ssa.PredefinedPreset),
@@ -884,6 +926,168 @@ def _apply_preset(ssa, root, args) -> dict:
     }
 
 
+def _set_metadata(ssa, root, args) -> dict:
+    asset_name = _name(args.get("asset"), "asset")
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=set_metadata")
+    asset = _find_asset(ssa, asset_name)
+    metadata = _get(asset, "metadata")
+    if metadata is None:
+        raise RuntimeError("Sampler asset has no metadata object")
+    author = args.get("author")
+    category = args.get("category")
+    description = args.get("description")
+    tags = args.get("tags")
+    physical = args.get("physical_size")
+    custom = args.get("custom_metadata")
+    if all(value is None for value in (author, category, description, tags, physical, custom)):
+        raise ValueError("set_metadata needs at least one field")
+    if author is not None:
+        metadata.author = str(author)
+    if category is not None:
+        metadata.category = str(category)
+    if description is not None:
+        metadata.description = str(description)
+    if tags is not None:
+        if not isinstance(tags, list) or len(tags) > 64 or any(
+            not isinstance(item, str) or len(item) > 64 for item in tags
+        ):
+            raise ValueError("tags must be a list of up to 64 short strings")
+        metadata.tags = list(tags)
+    if physical is not None:
+        if (
+            not isinstance(physical, (list, tuple))
+            or len(physical) != 3
+            or any(type(item) not in (int, float) or not math.isfinite(item)
+                   for item in physical)
+        ):
+            raise ValueError("physical_size must be three finite numbers")
+        metadata.physical_size = tuple(float(item) for item in physical)
+    if custom is not None:
+        if not isinstance(custom, dict) or len(custom) > 64:
+            raise ValueError("custom_metadata must be an object with at most 64 entries")
+        for key, value in custom.items():
+            if not isinstance(key, str) or not isinstance(value, (bool, int, float, str, type(None))):
+                raise TypeError("custom_metadata keys and values must be simple JSON values")
+        metadata.custom_metadata = dict(custom)
+    ssa.wait_for_computation()
+    _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "metadata": _metadata(asset),
+        "saved": True,
+    }
+
+
+def _channels(ssa, root, args, activate: bool) -> dict:
+    asset_name = _name(args.get("asset"), "asset")
+    channels = _list(args.get("channels"), "channels", 64)
+    for item in channels:
+        if not isinstance(item, str) or not USAGE.fullmatch(item):
+            raise ValueError(f"Invalid channel name: {item}")
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for channel changes")
+    asset = _find_asset(ssa, asset_name)
+    method = _get(asset, "activate_channels" if activate else "deactivate_channels")
+    if not callable(method):
+        raise TypeError("Sampler asset does not support channel changes")
+    method(channels)
+    ssa.wait_for_computation()
+    _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "channels": channels,
+        "activated": activate,
+        "saved": True,
+    }
+
+
+def _set_channels(ssa, root, args) -> dict:
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    applies = args.get("applies_to")
+    blend = args.get("blend_applies_to")
+    if applies is None and blend is None:
+        raise ValueError("set_channels needs applies_to or blend_applies_to")
+    for label, values in (("applies_to", applies), ("blend_applies_to", blend)):
+        if values is not None:
+            values = _list(values, label, 64)
+            for item in values:
+                if not isinstance(item, str) or not USAGE_LABEL.fullmatch(item):
+                    raise ValueError(f"Invalid usage label: {item}")
+            if label == "applies_to":
+                applies = values
+            else:
+                blend = values
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=set_channels")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    usage = _get(ssa, "Usage")
+    if usage is None:
+        raise RuntimeError("Sampler Usage type is unavailable")
+    if applies is not None:
+        layer.applies_to([usage(name) for name in applies])
+    if blend is not None:
+        layer.blend_applies_to([usage(name) for name in blend])
+    ssa.wait_for_computation()
+    _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "layer": _layer(layer),
+        "applies_to": applies,
+        "blend_applies_to": blend,
+        "saved": True,
+    }
+
+
+def _set_blend_parameters(ssa, root, args) -> dict:
+    values = args.get("parameters")
+    if not isinstance(values, dict) or not values or len(values) > 64:
+        raise ValueError("parameters must be a non-empty object with at most 64 entries")
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=set_blend_parameters")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    blend_parameters = list(_get(layer, "blend_parameters", []) or [])
+    if not blend_parameters:
+        raise ValueError("layer has no blend parameters")
+    applied, changed = {}, False
+    for identifier, value in values.items():
+        parameter = _parameter_in(blend_parameters, identifier)
+        converted = _parameter_value(parameter, value)
+        if _jsonable(_get(parameter, "value")) != _jsonable(converted):
+            parameter.value = converted
+            changed = True
+        applied[_get(parameter, "identifier")] = _jsonable(converted)
+    ssa.wait_for_computation()
+    if changed:
+        _save(ssa)
+    return {
+        "project": _rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "layer": _layer(layer),
+        "parameters": applied,
+        "changed": changed,
+        "saved": changed,
+    }
+
+
 def _remove_layer(ssa, root, args) -> dict:
     asset_name = _name(args.get("asset"), "asset")
     layer_name = _resource_label(args.get("layer"), "layer")
@@ -1125,13 +1329,35 @@ def execute_job(job: dict, workspace_path: str) -> dict:
     if job_dir == root or not job_dir.is_relative_to(root) or not job_dir.is_dir():
         raise ValueError("job directory must be an existing directory inside the workspace")
     project_spec = job.get("project") or {}
-    project_name = _name(project_spec.get("name"), "project name")
-    project_path = job_dir / f"{project_name}.ssa"
+    source = project_spec.get("source")
+    source_rel = None
+    mutating = {
+        "create_asset", "import_images", "import_textures", "insert_filter",
+        "insert_material", "set_parameters", "apply_preset", "set_metadata",
+        "activate_channels", "deactivate_channels", "set_channels",
+        "set_blend_parameters", "remove_layer",
+    }
     _BATCH["active"] = True
-    _CURRENT["path"] = project_path.resolve()
     try:
-        ssa.create_project(project_name, str(project_path))
+        if source is not None:
+            source_path = _input(root, source, PROJECT)
+            copy_name = _name(
+                project_spec.get("name") or source_path.stem, "project name"
+            )
+            project_path = job_dir / f"{copy_name}.ssa"
+            shutil.copy2(source_path, project_path)
+            if not ssa.open_project(str(project_path)):
+                raise RuntimeError("Sampler could not open the copied project")
+            ssa.wait_for_computation()
+            source_rel = _rel(root, source_path)
+            mutated = False
+        else:
+            project_name = _name(project_spec.get("name"), "project name")
+            project_path = job_dir / f"{project_name}.ssa"
+            ssa.create_project(project_name, str(project_path))
+            mutated = project_spec.get("asset") is not None
         project = _rel(root, project_path)
+        _CURRENT["path"] = project_path.resolve()
         created = project_spec.get("asset")
         if created is not None:
             _create_asset(ssa, root, {
@@ -1159,6 +1385,16 @@ def execute_job(job: dict, workspace_path: str) -> dict:
                 result = _set_parameters(ssa, root, arguments)
             elif action == "apply_preset":
                 result = _apply_preset(ssa, root, arguments)
+            elif action == "set_metadata":
+                result = _set_metadata(ssa, root, arguments)
+            elif action == "activate_channels":
+                result = _channels(ssa, root, arguments, True)
+            elif action == "deactivate_channels":
+                result = _channels(ssa, root, arguments, False)
+            elif action == "set_channels":
+                result = _set_channels(ssa, root, arguments)
+            elif action == "set_blend_parameters":
+                result = _set_blend_parameters(ssa, root, arguments)
             elif action == "remove_layer":
                 result = _remove_layer(ssa, root, arguments)
             elif action == "import_resource":
@@ -1167,19 +1403,29 @@ def execute_job(job: dict, workspace_path: str) -> dict:
                 result = _job_export(ssa, root, job_dir, project, step)
             else:
                 raise ValueError(f"Unknown step action: {action}")
+            if action in mutating:
+                mutated = True
             results.append({"index": index, "action": action, "result": _summary(result)})
         ssa.wait_for_computation()
-        ssa.save_project_as(str(project_path))
-        _wait_file(project_path)
+        if source is not None:
+            if mutated:
+                before = project_path.stat().st_mtime_ns
+                ssa.save_project_as(str(project_path))
+                _wait_changed(project_path, before)
+        else:
+            ssa.save_project_as(str(project_path))
+            _wait_file(project_path)
     finally:
         _BATCH["active"] = False
         _CURRENT["path"] = None
     return {
         "directory": _rel(root, job_dir),
         "project": project,
+        "source": source_rel,
         "assets": [_asset(item) for item in ssa.get_project_assets()],
         "steps": results,
     }
+
 
 
 def execute_in_sampler(operation: str, arguments: dict, workspace_path: str) -> dict:
@@ -1203,6 +1449,11 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str) -> 
         "insert_material": _insert_material,
         "set_parameters": _set_parameters,
         "apply_preset": _apply_preset,
+        "set_metadata": _set_metadata,
+        "activate_channels": lambda ssa, root, args: _channels(ssa, root, args, True),
+        "deactivate_channels": lambda ssa, root, args: _channels(ssa, root, args, False),
+        "set_channels": _set_channels,
+        "set_blend_parameters": _set_blend_parameters,
         "remove_layer": _remove_layer,
         "import_resource": _import_resource,
         "export": _export,

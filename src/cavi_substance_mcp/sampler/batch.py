@@ -182,6 +182,7 @@ def validate_job_file(name, workspace_path=None) -> dict:
     loaded = jobs.load_job(path)
     plan = jobs.validate_paths(loaded, root)
     plan["job"] = path.relative_to(root).as_posix()
+    plan["source"] = loaded.project.source
     plan["targets"] = [
         {
             "target": step.target,
@@ -195,12 +196,31 @@ def validate_job_file(name, workspace_path=None) -> dict:
     plan["import_options"] = sorted({
         step.import_option for step in loaded.steps if isinstance(step, jobs.ImportImages)
     })
+    plan["filters"] = sorted({
+        step.filter for step in loaded.steps if isinstance(step, jobs.InsertFilter)
+    })
+    plan["materials"] = sorted({
+        step.material for step in loaded.steps if isinstance(step, jobs.InsertMaterial)
+    })
+    models = set()
+    if loaded.project.asset is not None:
+        models.add(loaded.project.asset.model)
+    for step in loaded.steps:
+        if isinstance(step, jobs.CreateAsset):
+            models.add(step.model)
+    plan["material_models"] = sorted(models)
+    plan["imports_resources"] = any(
+        isinstance(step, jobs.ImportResource) for step in loaded.steps
+    )
     return plan
 
 
 def check_sampler(plan: dict, probe: dict) -> None:
     installed = set(probe.get("export_presets", []))
     options = set(probe.get("import_options", []))
+    filters = set(probe.get("filters", []))
+    materials = set(probe.get("materials", []))
+    models = set(probe.get("material_models", []))
     problems = []
     for item in plan.get("targets", []):
         preset = item.get("preset")
@@ -212,26 +232,50 @@ def check_sampler(plan: dict, probe: dict) -> None:
     for option in plan.get("import_options", []):
         if option not in options:
             problems.append(f"import option {option!r} is not available")
+    if not plan.get("imports_resources"):
+        for name in plan.get("filters", []):
+            if name not in filters:
+                problems.append(f"filter {name!r} is not available")
+        for name in plan.get("materials", []):
+            if name not in materials:
+                problems.append(f"material {name!r} is not available")
+    for name in plan.get("material_models", []):
+        if name not in models:
+            problems.append(f"material model {name!r} is not available")
     if problems:
         raise jobs.JobValidationError("; ".join(problems))
 
 
+async def probe_sampler_async(workspace_path=None, timeout_seconds: float = 300,
+                            lock_timeout: float = 30) -> dict:
+    root = _root(workspace_path)
+    lock = WorkspaceLock(root, lock_timeout)
+    await asyncio.to_thread(lock.__enter__)
+    try:
+        app_available(0)
+        return await operations.invoke(
+            "probe", {}, timeout_seconds, workspace_path=str(root)
+        )
+    finally:
+        lock.__exit__()
+
+
 def probe_sampler(workspace_path=None, timeout_seconds: float = 300,
                   lock_timeout: float = 30) -> dict:
-    root = _root(workspace_path)
-    with WorkspaceLock(root, lock_timeout):
-        app_available(0)
-        return asyncio.run(operations.invoke(
-            "probe", {}, timeout_seconds, workspace_path=str(root)
-        ))
+    return asyncio.run(probe_sampler_async(workspace_path, timeout_seconds, lock_timeout))
 
 
-def validate_with_sampler(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
+async def validate_with_sampler_async(name, workspace_path=None,
+                                      timeout_seconds: float = 300) -> dict:
     plan = validate_job_file(name, workspace_path)
-    probe = probe_sampler(workspace_path, timeout_seconds)
+    probe = await probe_sampler_async(workspace_path, timeout_seconds)
     check_sampler(plan, probe)
     plan["sampler"] = probe
     return plan
+
+
+def validate_with_sampler(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
+    return asyncio.run(validate_with_sampler_async(name, workspace_path, timeout_seconds))
 
 
 def doctor(workspace_path=None) -> dict:
@@ -271,6 +315,7 @@ def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict
         "started": started,
         "seconds": round(seconds, 3),
         "project": result.get("project"),
+        "source": result.get("source"),
         "assets": result.get("assets", []),
         "steps": result.get("steps", []),
         "inputs": _inputs(root, job),

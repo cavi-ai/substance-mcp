@@ -119,6 +119,42 @@ class SamplerTests(unittest.TestCase):
                              wait_seconds=1)
         self.assertEqual(exported["files"], ["waited/Rock.sbsar"])
 
+    def test_metadata_channels_and_blend(self):
+        self.create_project()
+        metadata = self.call("set_metadata", project="projects/Rock.ssa", asset="Rock",
+                             author="Cavi", category="rock", description="test",
+                             tags=["game"], physical_size=[1.0, 2.0, 3.0],
+                             custom_metadata={"engine": "unreal"})
+        self.assertEqual(metadata["metadata"]["author"], "Cavi")
+        self.assertEqual(metadata["metadata"]["tags"], ["game"])
+        self.assertEqual(metadata["metadata"]["physical_size"], [1.0, 2.0, 3.0])
+        activated = self.call("activate_channels", project="projects/Rock.ssa", asset="Rock",
+                              channels=["normal", "height"])
+        self.assertTrue(activated["activated"])
+        self.assertEqual(activated["channels"], ["normal", "height"])
+        deactivated = self.call("deactivate_channels", project="projects/Rock.ssa",
+                                asset="Rock", channels=["height"])
+        self.assertFalse(deactivated["activated"])
+        self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
+                  filter="Tiling", position=0)
+        channels = self.call("set_channels", project="projects/Rock.ssa", asset="Rock",
+                             layer="Tiling", applies_to=["baseColor"])
+        self.assertEqual(channels["applies_to"], ["baseColor"])
+        labeled = self.call("set_parameters", project="projects/Rock.ssa", asset="Rock",
+                            layer="Tiling", parameters={"Detect Edges": "Off"})
+        self.assertEqual(labeled["parameters"]["detect_edges"], 0)
+        asset = self.call("inspect_asset", project="projects/Rock.ssa", asset="Rock")
+        layer = next(item for item in asset["layers"] if item["name"] == "Tiling")
+        edge = next(item for item in layer["parameters"]
+                    if item["identifier"] == "detect_edges")
+        self.assertEqual(edge["enum_values"], [["Off", 0], ["On", 1]])
+        self.assertIn("baseColor", layer["applied_channels"])
+        self.call("insert_material", project="projects/Rock.ssa", asset="Rock",
+                  material="Brick", position=0)
+        blended = self.call("set_blend_parameters", project="projects/Rock.ssa",
+                            asset="Rock", layer="Brick", parameters={"Opacity": 0.5})
+        self.assertEqual(blended["parameters"]["opacity"], 0.5)
+
     def test_layer_mutations_and_export(self):
         self.create_project()
         imported = self.call(

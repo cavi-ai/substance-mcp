@@ -21,6 +21,12 @@ class Resource:
         return f"Resource({self.name})"
 
 
+class Usage:
+    def __init__(self, name):
+        self.id = name
+        self.label = name
+
+
 class Parameter:
     def __init__(self, identifier, label, value=None, kind="float"):
         self.identifier = identifier
@@ -44,10 +50,21 @@ class Parameter:
         if self._data is not None:
             self._data[2] = value
 
+    def enum_values(self):
+        if self.type.startswith("integer"):
+            return [["Off", 0], ["On", 1]]
+        return []
+
+    def value_labels(self):
+        size = {"float2": 2, "float3": 3, "float4": 4,
+                "integer2": 2, "integer3": 3, "integer4": 4}.get(self.type)
+        return ["XYZW"[index] for index in range(size)] if size else []
+
 
 class Layer:
-    def __init__(self, data):
+    def __init__(self, data, state=None):
         self.data = data
+        self.state = state
 
     @property
     def name(self):
@@ -85,6 +102,31 @@ class Layer:
     def presets(self):
         return list(self.data.get("presets", []))
 
+    @property
+    def blend_parameters(self):
+        found = []
+        for item in self.data.get("blend_parameters", []):
+            parameter = Parameter(*item)
+            parameter._data = item
+            found.append(parameter)
+        return found
+
+    def applies_to(self, channel_names):
+        self.data["applied_channels"] = [
+            getattr(item, "id", str(item)) for item in channel_names
+        ]
+        if self.state is not None:
+            self.state.save()
+        return True
+
+    def blend_applies_to(self, channel_names):
+        self.data["blend_applied_channels"] = [
+            getattr(item, "id", str(item)) for item in channel_names
+        ]
+        if self.state is not None:
+            self.state.save()
+        return True
+
     def apply_preset(self, preset_name):
         if preset_name not in self.presets:
             return False
@@ -104,16 +146,64 @@ class Layer:
 class Metadata:
     def __init__(self, data):
         self.data = data
-        self.author = "fake"
-        self.category = "material"
-        self.description = "fake asset"
-        self.tags = []
-        self.physical_size = (1.0, 1.0, 1.0)
-        self.custom_metadata = {}
+        self.data.setdefault("author", "fake")
+        self.data.setdefault("category", "material")
+        self.data.setdefault("description", "fake asset")
+        self.data.setdefault("tags", [])
+        self.data.setdefault("physical_size", [1.0, 1.0, 1.0])
+        self.data.setdefault("custom_metadata", {})
 
     @property
     def name(self):
         return self.data["name"]
+
+    @property
+    def author(self):
+        return self.data['author']
+
+    @author.setter
+    def author(self, value):
+        self.data['author'] = value
+
+    @property
+    def category(self):
+        return self.data['category']
+
+    @category.setter
+    def category(self, value):
+        self.data['category'] = value
+
+    @property
+    def description(self):
+        return self.data['description']
+
+    @description.setter
+    def description(self, value):
+        self.data['description'] = value
+
+    @property
+    def tags(self):
+        return self.data['tags']
+
+    @tags.setter
+    def tags(self, value):
+        self.data['tags'] = value
+
+    @property
+    def physical_size(self):
+        return tuple(self.data['physical_size'])
+
+    @physical_size.setter
+    def physical_size(self, value):
+        self.data['physical_size'] = list(value)
+
+    @property
+    def custom_metadata(self):
+        return self.data['custom_metadata']
+
+    @custom_metadata.setter
+    def custom_metadata(self, value):
+        self.data['custom_metadata'] = value
 
 
 class Asset:
@@ -150,7 +240,7 @@ class Asset:
         return Resource(self.name)
 
     def get_layers(self):
-        return [Layer(item) for item in self.data.get("layers", [])]
+        return [Layer(item, self.state) for item in self.data.get("layers", [])]
 
     def _insert(self, layer, position, insert_above):
         layers = self.data.setdefault("layers", [])
@@ -161,7 +251,7 @@ class Asset:
         for number, item in enumerate(layers):
             item["position"] = number
         self.state.save()
-        return Layer(layer)
+        return Layer(layer, self.state)
 
     def import_images(self, images, position, import_option, insert_above=False, **_):
         layer = {
@@ -195,7 +285,8 @@ class Asset:
             "output_usages": ["baseColor"],
             "applied_channels": ["baseColor"],
             "parameters": [["opacity", "Opacity", 1.0, "float"],
-                           ["tiling", "Tiling", 1.0, "float"]],
+                           ["tiling", "Tiling", 1.0, "float"],
+                           ["detect_edges", "Detect Edges", 1, "integer"]],
             "presets": ["Default", "Wet"],
         }
         return self._insert(layer, position, insert_above)
@@ -209,6 +300,7 @@ class Asset:
             "blend_mode": blend_mode,
             "blend_applied_channels": ["baseColor"],
             "parameters": [],
+            "blend_parameters": [["opacity", "Opacity", 1.0, "float"]],
             "presets": ["Default"],
         }
         return self._insert(layer, position, insert_above)
@@ -453,6 +545,7 @@ def module():
         "Layer": Layer,
         "Resource": Resource,
         "Parameter": Parameter,
+        "Usage": Usage,
     }.items():
         setattr(module, name, value)
     return module

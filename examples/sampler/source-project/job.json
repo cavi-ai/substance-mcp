@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "directory": "jobs/rock-variants",
+  "project": {
+    "source": "projects/Rock.ssa",
+    "name": "RockCopy",
+    "assets": ["Rock"]
+  },
+  "steps": [
+    {
+      "action": "set_metadata",
+      "asset": "Rock",
+      "author": "Cavi",
+      "category": "rock",
+      "tags": ["game", "pbr"]
+    },
+    {
+      "action": "export",
+      "asset": "Rock",
+      "target": "unity",
+      "directory": "unity"
+    },
+    {
+      "action": "export",
+      "asset": "Rock",
+      "target": "blender",
+      "directory": "blender"
+    }
+  ]
+}
