@@ -184,6 +184,47 @@ def fixtures(output: Path) -> Path:
         ],
     }
     (workspace / "jobs/source.json").write_text(json.dumps(source))
+    preflight = {
+        "schema": 1,
+        "directory": "jobs/preflight",
+        "project": {"source": "projects/Rock.ssa", "name": "RockCopy",
+                    "assets": ["Rock"]},
+        "steps": [
+            {"action": "set_metadata", "asset": "Rock", "author": "Eval"},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ],
+    }
+    (workspace / "jobs/preflight.json").write_text(json.dumps(preflight))
+    preflight_bad = {
+        "schema": 1,
+        "directory": "jobs/preflight-bad",
+        "project": {"source": "projects/Rock.ssa", "name": "RockCopy",
+                    "assets": ["Rock"]},
+        "steps": [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Missing",
+             "parameters": {"x": 1}},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ],
+    }
+    (workspace / "jobs/preflight-bad.json").write_text(json.dumps(preflight_bad))
+    resources = {
+        "schema": 1,
+        "directory": "jobs/resources",
+        "project": {"name": "ResourceProject", "asset": {"name": "Rock"}},
+        "steps": [
+            {"action": "import_resource", "path": "assets/custom.sbsar",
+             "resources": ["custom"]},
+            {"action": "import_images", "asset": "Rock",
+             "images": ["maps/basecolor.png"], "position": 0},
+            {"action": "insert_filter", "asset": "Rock", "filter": "custom",
+             "position": 1},
+            {"action": "export", "asset": "Rock", "target": "generic",
+             "outputs": ["sbsar"]},
+        ],
+    }
+    (workspace / "jobs/resources.json").write_text(json.dumps(resources))
     install(output / "app")
     return workspace
 

@@ -41,6 +41,7 @@ TargetName = Literal["unreal", "unity", "blender", "generic"]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
 JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
 ChannelName = Annotated[str, Field(min_length=1, max_length=64)]
+ResourceNameArg = Annotated[str, Field(min_length=1, max_length=128)]
 
 
 class AssetMetadata(BaseModel):
@@ -60,7 +61,7 @@ INSPECT_PARAMS = {
 ASSET_PARAMS = {
     "create": {"project", "name", "model", "preset", "empty"},
     "delete": {"project", "asset"},
-    "import_resource": {"project", "path"},
+    "import_resource": {"project", "path", "resources"},
     "set_metadata": {"project", "asset", "metadata"},
     "activate_channels": {"project", "asset", "channels"},
     "deactivate_channels": {"project", "asset", "channels"},
@@ -150,6 +151,7 @@ async def sampler_asset(
     metadata: AssetMetadata | None = None,
     channels: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
     path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
+    resources: Annotated[list[ResourceNameArg] | None, Field(min_length=1, max_length=64)] = None,
     images: list[str] | dict[str, str] | None = None,
     position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
     import_option: ImportOption = "use_as_bitmap",
@@ -163,7 +165,8 @@ async def sampler_asset(
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
         "empty": empty, "metadata": metadata, "channels": channels, "path": path,
-        "images": images, "position": position, "import_option": import_option,
+        "resources": resources, "images": images, "position": position,
+        "import_option": import_option,
         "insert_above": insert_above, "filter": filter, "material": material,
         "blend_mode": blend_mode,
     }
@@ -174,7 +177,7 @@ async def sampler_asset(
     if action not in ("activate_channels", "deactivate_channels"):
         values["channels"] = None
     if action != "import_resource":
-        values["path"] = None
+        values["path"], values["resources"] = None, None
     if action != "import_images":
         values["import_option"] = None
     if action != "insert_material":
@@ -216,6 +219,8 @@ async def sampler_asset(
             arguments["preset"] = preset
     if action == "import_resource":
         arguments["path"] = path
+        if resources is not None:
+            arguments["resources"] = resources
     if action == "set_metadata":
         arguments.update(metadata.model_dump(exclude_none=True))
     if action in ("activate_channels", "deactivate_channels"):
@@ -342,13 +347,16 @@ async def sampler_build(
     job: JobFile,
     dry_run: StrictBool = False,
     check_sampler: StrictBool = False,
+    check_project: StrictBool = False,
     timeout_seconds: Timeout = 1800,
 ) -> dict[str, Any]:
     """Validate or run a batch job file and return its manifest or plan."""
-    if check_sampler and not dry_run:
-        raise ValueError("check_sampler is only valid with dry_run=true")
+    if (check_sampler or check_project) and not dry_run:
+        raise ValueError("check_sampler and check_project are only valid with dry_run=true")
     root = operations.workspace()
     if dry_run:
+        if check_project:
+            return {**await batch.validate_with_project_async(job, root), "dry_run": True}
         if check_sampler:
             return {**await batch.validate_with_sampler_async(job, root), "dry_run": True}
         return {**batch.validate_job_file(job, root), "dry_run": True}

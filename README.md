@@ -224,10 +224,10 @@ run startup scripts.
 | `sampler_status` | executable, version, scripts folder, workspace, running state |
 | `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators, export presets, material models, predefined presets, import options and target availability |
 | `sampler_project` | `create` `name` + new `directory`; `save_as` `project` + new `directory` |
-| `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource`, `set_metadata`, `activate_channels`, `deactivate_channels`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
-| `sampler_layer` | `set_parameters`, `apply_preset`, `set_channels`, `set_blend_parameters`, `remove`; removal needs `confirm=true` |
+| `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource` (optional declared `resources`), `set_metadata`, `activate_channels`, `deactivate_channels`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
+| `sampler_layer` | `set_parameters`, `apply_preset`, `set_channels` (IDs or unambiguous labels), `set_blend_parameters`, `remove`; removal needs `confirm=true` |
 | `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`, `wait_seconds`; `dry_run` defaults to true |
-| `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe |
+| `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe; `check_project` adds source-project layer/parameter checks |
 
 ### Engine targets
 
@@ -252,6 +252,7 @@ A job runs every step in one Sampler launch and writes one atomic directory:
 ```sh
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-sampler
+cavi-substance-sampler-mcp validate jobs/source.json --check-project
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
 cavi-substance-sampler-mcp schema
 cavi-substance-sampler-mcp doctor
@@ -287,7 +288,16 @@ cavi-substance-sampler-mcp doctor --launch
 - `validate --check-sampler` launches one read-only probe and refuses a job whose
   target preset, import option, filter, material or material model is not installed.
   `doctor --launch` reports the same probe with target availability.
-- `sampler_build(dry_run=true, check_sampler=true)` runs the same preflight from MCP.
+- `validate --check-project` also copies a source project to a temporary project,
+  opens it read-only, and verifies assets, layers, parameters, presets, filters,
+  materials, channels and blend parameters before launch. The source stays untouched
+  and the temporary directory is removed.
+- `sampler_build(dry_run=true, check_sampler=true, check_project=true)` runs the same
+  preflight from MCP. `check_project` is only meaningful for source-project jobs;
+  new-project jobs report `project_check: not_applicable` and still get global checks.
+- `ImportResource` steps may declare `resources` so preflight can exempt those names
+  from filter/material checks. Undeclared imports skip filter/material checks and
+  report a preflight warning.
 - Concurrent jobs serialize on a workspace lock. `--wait-for-app` waits for a user
   Sampler window to close; otherwise the job fails fast.
 - Exit codes: `0` success, `2` invalid job, `3` app unavailable, `4` app running or
@@ -321,6 +331,10 @@ opening it. The source file is never opened by Sampler and stays byte-identical.
 - `name` defaults to the source stem; the copy is written into the job directory.
 - `assets` is optional. When present, step asset references are validated before
   launch; when absent, runtime remains authoritative.
+- `validate --check-project` verifies the source copy's assets, layers, parameters,
+  presets, filters, materials, channels and blend parameters without mutating the
+  source. Use it for source jobs; `--check-sampler` alone defers project-local
+  filter/material checks to this pass.
 - Source and project copy hashes are recorded in the manifest.
 - `project.asset` cannot be combined with `source`; use `create_asset` steps.
 
@@ -337,8 +351,9 @@ opening it. The source file is never opened by Sampler and stays byte-identical.
 
 - `sampler_inspect asset` reports `enum_values` and `value_labels`; integer and enum
   parameters can be set by label as well as by number.
-- `applies_to` and `blend_applies_to` use channel IDs from the inspected layer
-  (`applied_channels`/`output_usages`), not display labels.
+- `applies_to` and `blend_applies_to` accept canonical channel IDs and unambiguous
+  labels from the inspected layer (`applied_channels`/`output_usages`/`usage_labels`).
+  Unknown or ambiguous names are rejected.
 - Blend mode is read-only after insertion. Choose it with `insert_material`; the
   authoring steps cover applies-to channels and blend parameters. Inspect a layer's
   `blend_parameters` for the available identifiers; they depend on the blend mode.
@@ -353,13 +368,15 @@ Limitations:
 - Sampler may rewrite the metadata author to the signed-in account when saving.
 - Engine presets are matched by display name. Localized Sampler installs may need an
   explicit `preset` override.
+- Project-aware preflight is limited to source-project jobs. New-project layers and
+  parameters are still validated only at runtime.
 - `sampler_status` reports `running: null` where process inspection is unavailable.
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.
-- Native project creation, source-project copies, metadata, channel activation,
-  layer applies-to channels, blend parameters, preset application, layer removal,
-  B2M image import, Unreal/Unity/Blender target exports and manifest generation were
-  checked with Sampler 6.0.4 on macOS.
+- Native project creation, source-project copies, source-project preflight, metadata,
+  channel activation, layer applies-to channels, blend parameters, preset application,
+  layer removal, B2M image import, Unreal/Unity/Blender target exports and manifest
+  generation were checked with Sampler 6.0.4 on macOS.
 - Native use requires a licensed Sampler installation and a closed application.
 
 ```sh
