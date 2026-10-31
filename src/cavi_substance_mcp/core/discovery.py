@@ -17,7 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 from . import proc
@@ -65,7 +65,9 @@ def default_location(key: str) -> Path:
     table = DEFAULTS[key]
     text = table.get(platform_name(), table["linux"])
     programs = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-    return Path(text.format(programs=programs))
+    text = text.format(programs=programs)
+    # A macOS or Linux location keeps forward slashes even when built on Windows.
+    return Path(text) if text.startswith(programs) or os.sep == "/" else PurePosixPath(text)
 
 
 def bundle_of(path) -> Path | None:

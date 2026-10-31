@@ -209,6 +209,8 @@ def unit_value(value):
 
 def export_destination(workspace: Path, name: str) -> Path:
     root = workspace.expanduser().resolve(strict=True)
+    if "\x00" in str(name):
+        raise ValueError("Output must remain inside the workspace")
     path = (root / name).resolve()
     if path == root or not path.is_relative_to(root):
         raise ValueError("Output must remain inside the workspace")
@@ -221,6 +223,8 @@ def export_destination(workspace: Path, name: str) -> Path:
 
 def input_file(workspace: Path, name: str, extensions: set[str]) -> Path:
     root = workspace.expanduser().resolve(strict=True)
+    if "\x00" in str(name):
+        raise ValueError("Input must be a supported file inside the workspace")
     path = (root / name).resolve(strict=True)
     if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in extensions:
         raise ValueError("Input must be a supported file inside the workspace")
