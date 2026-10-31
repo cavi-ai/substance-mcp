@@ -46,7 +46,7 @@ INSPECT_PARAMS = {
     "catalog": {"query"},
 }
 ASSET_PARAMS = {
-    "create": {"project", "name", "model", "preset"},
+    "create": {"project", "name", "model", "preset", "empty"},
     "delete": {"project", "asset"},
     "import_resource": {"project", "path"},
     "import_images": {"project", "asset", "images", "position", "import_option", "insert_above"},
@@ -82,7 +82,7 @@ async def sampler_inspect(
     query: Query = "",
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """project lists assets; asset lists layers and parameters; catalog lists resources."""
+    """project lists assets; asset lists layers; catalog lists resources and targets."""
     given = {"project": project, "asset": asset, "query": query or None}
     unexpected = extras(action, given, INSPECT_PARAMS)
     if unexpected:
@@ -130,6 +130,7 @@ async def sampler_asset(
     name: PlainName | None = None,
     model: Literal["asm", "openpbr"] = "asm",
     preset: Annotated[str | None, Field(max_length=128)] = None,
+    empty: StrictBool = False,
     path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
     images: list[str] | dict[str, str] | None = None,
     position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
@@ -143,12 +144,12 @@ async def sampler_asset(
     """Create assets and resources or add, remove and extend asset layers."""
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
-        "path": path, "images": images, "position": position,
+        "empty": empty, "path": path, "images": images, "position": position,
         "import_option": import_option, "insert_above": insert_above, "filter": filter,
         "material": material, "blend_mode": blend_mode,
     }
     if action != "create":
-        values["model"], values["preset"] = None, None
+        values["model"], values["preset"], values["empty"] = None, None, None
     if action != "import_resource":
         values["path"] = None
     if action != "import_images":
@@ -181,6 +182,7 @@ async def sampler_asset(
     if action == "create":
         arguments["name"] = name
         arguments["model"] = model
+        arguments["empty"] = empty
         if preset is not None:
             arguments["preset"] = preset
     if action == "import_resource":
@@ -254,6 +256,7 @@ async def sampler_export(
     resolution: Annotated[StrictInt | None, Field(ge=64, le=8192)] = None,
     material_type: MaterialType = "standard",
     subfolder: StrictBool = False,
+    wait_seconds: Annotated[StrictInt, Field(ge=1, le=3600)] = 600,
     dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
@@ -263,7 +266,8 @@ async def sampler_export(
     return await operations.invoke("export", {
         "project": project, "directory": directory, "asset": asset, "target": target,
         "format": format, "preset": preset, "channels": channels, "resolution": resolution,
-        "material_type": material_type, "subfolder": subfolder, "dry_run": dry_run,
+        "material_type": material_type, "subfolder": subfolder, "wait_seconds": wait_seconds,
+        "dry_run": dry_run,
     }, timeout_seconds)
 
 

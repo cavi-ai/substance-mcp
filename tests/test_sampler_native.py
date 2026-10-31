@@ -16,6 +16,72 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.installation().executable is None:
             self.skipTest("Substance 3D Sampler is not installed")
 
+    def _workspace(self, folder):
+        workspace = Path(folder)
+        (workspace / "maps").mkdir()
+        (workspace / "jobs").mkdir()
+        Image.new("RGB", (256, 256), (200, 100, 50)).save(workspace / "maps/basecolor.png")
+        return workspace
+
+    def _write_job(self, workspace, name, target, import_option="use_as_bitmap",
+                   outputs=None, empty_asset=False):
+        if empty_asset:
+            project = {"name": f"{name}Project"}
+            steps = [
+                {"action": "create_asset", "name": "Cavi", "empty": True},
+            ]
+        else:
+            project = {
+                "name": f"{name}Project",
+                "asset": {"name": "Cavi", "model": "openpbr", "preset": "base_material"},
+            }
+            steps = []
+        steps.extend([
+            {"action": "import_images", "asset": "Cavi",
+             "images": ["maps/basecolor.png"], "position": 0,
+             "import_option": import_option},
+            {"action": "export", "asset": "Cavi", "target": target, "resolution": 256},
+        ])
+        if outputs is not None:
+            steps[-1]["outputs"] = outputs
+        data = {"schema": 1, "directory": f"jobs/{name}", "project": project, "steps": steps}
+        path = workspace / "jobs" / f"{name}.json"
+        path.write_text(json.dumps(data))
+        return f"jobs/{name}.json"
+
+    def test_probe_targets_and_b2m(self):
+        if not os.environ.get("CAVI_SAMPLER_NATIVE"):
+            self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
+        if runner.running():
+            self.skipTest("Sampler is already running; quit it before the native test")
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = self._workspace(folder)
+            probe = asyncio.run(operations.invoke("probe", {}, 300))
+            self.assertTrue(probe["b2m_available"])
+            self.assertIn("openpbr", probe["material_models"])
+            self.assertIn("base_material", probe["predefined_presets"])
+            available = [
+                target for target in ("unity", "blender")
+                if probe["targets"][target]["available"]
+            ]
+            self.assertTrue(available, "none of the Unity or Blender presets are installed")
+            for target in available:
+                with self.subTest(target=target):
+                    job = self._write_job(workspace, target, target)
+                    manifest = batch.run_job_file(job, workspace, timeout_seconds=600)
+                    self.assertEqual(manifest["status"], "success")
+                    paths = [item["path"] for item in manifest["outputs"]]
+                    self.assertTrue(any(item.endswith(".sbsar") for item in paths))
+                    self.assertTrue(any(item.endswith(".png") for item in paths))
+            job = self._write_job(
+                workspace, "b2m", "generic", import_option="image_to_material_B2M",
+                outputs=["sbsar"], empty_asset=True,
+            )
+            manifest = batch.run_job_file(job, workspace, timeout_seconds=600)
+            self.assertEqual(manifest["status"], "success")
+            paths = [item["path"] for item in manifest["outputs"]]
+            self.assertTrue(any(item.endswith(".sbsar") for item in paths))
+
     def test_status(self):
         status = operations.status()
         self.assertTrue(status["available"])

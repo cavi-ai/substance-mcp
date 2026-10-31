@@ -156,8 +156,13 @@ async def _run_payload(payload: dict, timeout_seconds: float) -> dict:
         remove_tree(job)
 
 
-async def invoke(operation: str, arguments: dict, timeout_seconds: float) -> dict:
-    root = workspace(create=True)
+async def invoke(operation: str, arguments: dict, timeout_seconds: float,
+                 workspace_path=None) -> dict:
+    if workspace_path is None:
+        root = workspace(create=True)
+    else:
+        root = Path(workspace_path).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
     if runner.running():
         raise RuntimeError(
             "Sampler is already running. Save and quit it; Sampler runs startup scripts only "
@@ -196,7 +201,7 @@ def _wait_changed(path: Path, before: int | None, timeout: float = 30) -> None:
     raise RuntimeError("Sampler did not finish saving the project")
 
 
-def _wait_files(directory: Path, timeout: float = 120) -> list[Path]:
+def _wait_files(directory: Path, timeout: float = 600) -> list[Path]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         files = sorted(
@@ -303,6 +308,20 @@ def _enum(value):
         return name
     text = str(value)
     return text.rsplit(".", 1)[-1].rsplit(":", 1)[-1].strip("<> ")
+
+
+def _members(enum) -> list[str]:
+    members = _get(enum, "__members__")
+    if isinstance(members, dict):
+        return sorted(str(name) for name in members)
+    found = []
+    for name in dir(enum):
+        if name.startswith("_"):
+            continue
+        value = _get(enum, name)
+        if isinstance(value, enum) or (isinstance(value, str) and value == name):
+            found.append(name)
+    return sorted(set(found))
 
 
 def _usage(value):
@@ -556,8 +575,39 @@ def _catalog(ssa, root, args) -> dict:
     ):
         names = {_resource_name(item) for item in getter(query)}
         result[key] = sorted(names)[:256]
-    result["export_targets"] = targets.catalog()
+    presets = sorted({_resource_name(item) for item in ssa.get_export_presets("")})
+    result["material_models"] = _members(ssa.MaterialModel)
+    result["predefined_presets"] = _members(ssa.PredefinedPreset)
+    result["import_options"] = _members(ssa.ImageImportOption)
+    result["blend_modes"] = _members(ssa.BlendMode)
+    result["material_types"] = _members(ssa.MaterialType)
+    result["texture_formats"] = _members(ssa.MaterialExportFormat)
+    result["b2m_available"] = "image_to_material_B2M" in result["import_options"]
+    catalog = targets.catalog()
+    for item in catalog.values():
+        item["available"] = item["preset"] is None or item["preset"] in presets
+    result["export_targets"] = catalog
     return result
+
+
+def _probe(ssa, root, args) -> dict:
+    presets = sorted({_resource_name(item) for item in ssa.get_export_presets("")})
+    options = _members(ssa.ImageImportOption)
+    catalog = targets.catalog()
+    for item in catalog.values():
+        item["available"] = item["preset"] is None or item["preset"] in presets
+    return {
+        "app_version": _jsonable(_get(ssa, "__version__")),
+        "export_presets": presets,
+        "import_options": options,
+        "material_models": _members(ssa.MaterialModel),
+        "predefined_presets": _members(ssa.PredefinedPreset),
+        "blend_modes": _members(ssa.BlendMode),
+        "material_types": _members(ssa.MaterialType),
+        "texture_formats": _members(ssa.MaterialExportFormat),
+        "b2m_available": "image_to_material_B2M" in options,
+        "targets": catalog,
+    }
 
 
 def _create_project(ssa, root, args) -> dict:
@@ -615,7 +665,11 @@ def _create_asset(ssa, root, args) -> dict:
     preset_name = args.get("preset")
     if preset_name is not None:
         preset_name = _resource_label(preset_name, "preset")
-    if preset_name is None:
+    if bool(args.get("empty", False)):
+        if model_name != "asm" or preset_name is not None:
+            raise ValueError("empty assets do not take model or preset")
+        asset = ssa.create_asset(name, select_asset=True)
+    elif preset_name is None:
         asset = ssa.create_asset(name, model, ssa.PredefinedPreset.base_material,
                                  select_asset=True)
     else:
@@ -865,6 +919,11 @@ def _remove_layer(ssa, root, args) -> dict:
 
 
 def _import_resource(ssa, root, args) -> dict:
+    project = args.get("project")
+    if project is not None:
+        candidate = (root / project).resolve()
+        if _CURRENT.get("path") != candidate:
+            _input(root, project, PROJECT)
     path = _input(root, args.get("path"), RESOURCE_FILES)
     resources = ssa.import_resources(str(path))
     return {
@@ -878,6 +937,9 @@ def _import_resource(ssa, root, args) -> dict:
 
 def _export(ssa, root, args) -> dict:
     fmt = args.get("format", "sbsar")
+    wait_seconds = args.get("wait_seconds", 600)
+    if type(wait_seconds) not in (int, float) or not 1 <= wait_seconds <= 3600:
+        raise ValueError("wait_seconds must be between 1 and 3600")
     if fmt not in FORMATS:
         raise ValueError(f"format must be one of: {', '.join(FORMATS)}")
     target_name = args.get("target")
@@ -927,6 +989,7 @@ def _export(ssa, root, args) -> dict:
         "preset": preset_name,
         "channels": channels,
         "resolution": resolution,
+        "wait_seconds": wait_seconds,
         "dry_run": dry_run,
     }
     if dry_run:
@@ -950,7 +1013,7 @@ def _export(ssa, root, args) -> dict:
             options["h_resolution"] = resolution
         asset.export_material(**options)
         controller.wait()
-        files = _wait_files(destination)
+        files = _wait_files(destination, wait_seconds)
         if not files:
             raise RuntimeError("Sampler exported no files")
     except BaseException:
@@ -1000,13 +1063,14 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
             if kind == "sbsar":
                 result = _export(ssa, root, {
                     "project": project, "asset": name, "directory": directory,
-                    "format": "sbsar", "dry_run": False,
+                    "format": "sbsar", "wait_seconds": step.get("wait_seconds", 600),
+                    "dry_run": False,
                 })
             else:
                 values = {
                     "project": project, "asset": name, "directory": directory,
                     "format": step.get("texture_format", "png"), "target": target_name,
-                    "dry_run": False,
+                    "wait_seconds": step.get("wait_seconds", 600), "dry_run": False,
                 }
                 if preset is not None:
                     values["preset"] = preset
@@ -1128,6 +1192,7 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str) -> 
         "inspect_project": _inspect_project,
         "inspect_asset": _inspect_asset,
         "catalog": _catalog,
+        "probe": _probe,
         "create_project": _create_project,
         "save_as": _save_as,
         "create_asset": _create_asset,

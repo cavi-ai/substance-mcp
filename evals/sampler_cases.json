@@ -126,8 +126,15 @@
       "filters",
       "materials",
       "texture_generators",
-      "export_presets"
-    ]
+      "export_presets",
+      "export_targets",
+      "material_models",
+      "predefined_presets",
+      "import_options"
+    ],
+    "equals": {
+      "b2m_available": true
+    }
   },
   {
     "id": "inspect-missing-project",
@@ -880,6 +887,23 @@
     ],
     "files": [
       "out_target/Rock_basecolor.png"
+    ]
+  },
+  {
+    "id": "build-b2m",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/b2m.json"
+    },
+    "equals": {
+      "status": "success"
+    },
+    "files": [
+      "jobs/b2m/manifest.json"
     ]
   }
 ]

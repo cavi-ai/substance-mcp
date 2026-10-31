@@ -222,11 +222,11 @@ run startup scripts.
 | Tool | Actions / inputs |
 | --- | --- |
 | `sampler_status` | executable, version, scripts folder, workspace, running state |
-| `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators, export presets and engine targets |
+| `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators, export presets, material models, predefined presets, import options and target availability |
 | `sampler_project` | `create` `name` + new `directory`; `save_as` `project` + new `directory` |
-| `sampler_asset` | `create` with `model`/`preset`, `delete`, `import_resource`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
+| `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
 | `sampler_layer` | `set_parameters`, `apply_preset`, `remove`; removal needs `confirm=true` |
-| `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`; `dry_run` defaults to true |
+| `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`, `wait_seconds`; `dry_run` defaults to true |
 | `sampler_build` | workspace `.json` job file; `dry_run` validates without launching |
 
 ### Engine targets
@@ -241,7 +241,9 @@ run startup scripts.
 | `generic` | none | caller-selected channels |
 
 `preset` overrides a target default. When `target` is set on `sampler_export`, a
-sbsar format falls back to `png`.
+sbsar format falls back to `png`. `sampler_inspect catalog` and the probe report
+whether each target preset is installed. Exports wait up to 600 s for map files by
+default; raise or lower `wait_seconds` when needed.
 
 ### Batch jobs
 
@@ -249,19 +251,20 @@ A job runs every step in one Sampler launch and writes one atomic directory:
 
 ```sh
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
+cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-sampler
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
 cavi-substance-sampler-mcp schema
 cavi-substance-sampler-mcp doctor
+cavi-substance-sampler-mcp doctor --launch
 ```
 
 ```json
 {
   "schema": 1,
   "directory": "jobs/photo-to-pbr",
-  "project": {"name": "Photo PBR",
-              "asset": {"name": "PhotoPBR", "model": "openpbr",
-                        "preset": "base_material"}},
+  "project": {"name": "Photo PBR"},
   "steps": [
+    {"action": "create_asset", "name": "PhotoPBR", "empty": true},
     {"action": "import_images", "asset": "PhotoPBR",
      "images": ["photos/albedo.png"], "import_option": "image_to_material_B2M"},
     {"action": "insert_filter", "asset": "PhotoPBR", "filter": "Tiling", "position": 1},
@@ -272,13 +275,16 @@ cavi-substance-sampler-mcp doctor
 }
 ```
 
-- Steps: `create_asset`, `import_resource`, `import_images`, `import_textures`,
-  `insert_filter`, `insert_material`, `set_parameters`, `apply_preset`,
-  `remove_layer`, `export`.
+- Steps: `create_asset` (optionally `empty` for B2M), `import_resource`,
+  `import_images`, `import_textures`, `insert_filter`, `insert_material`,
+  `set_parameters`, `apply_preset`, `remove_layer`, `export`.
 - The job directory must be new. It contains `job.json`, the project, exports and
   `manifest.json`; on failure it is removed unless `--keep-on-failure`.
 - The manifest records the app version, job and input hashes, step results, output
   sizes and SHA-256 hashes.
+- `validate --check-sampler` launches one read-only probe and refuses a job whose
+  target preset or import option is not installed. `doctor --launch` reports the
+  same probe with target availability.
 - Concurrent jobs serialize on a workspace lock. `--wait-for-app` waits for a user
   Sampler window to close; otherwise the job fails fast.
 - Exit codes: `0` success, `2` invalid job, `3` app unavailable, `4` app running or
@@ -292,13 +298,14 @@ Limitations:
 - No UI automation, environment assets, bakes, masks or project closing.
 - Image parameters are not settable by batch jobs; scalar, vector, integer and
   string parameters are supported.
+- Engine presets are matched by display name. Localized Sampler installs may need an
+  explicit `preset` override.
 - `sampler_status` reports `running: null` where process inspection is unavailable.
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.
 - Native project creation, layer parameter edits, preset application, layer removal,
-  image import, Unreal-target `.sbsar`/PNG export and manifest generation were checked
-  with Sampler 6.0.4 on macOS. Unity and Blender targets are covered by simulated
-  evals and still need native confirmation.
+  B2M image import, Unreal/Unity/Blender target exports and manifest generation were
+  checked with Sampler 6.0.4 on macOS.
 - Native use requires a licensed Sampler installation and a closed application.
 
 ```sh
@@ -311,7 +318,9 @@ The evals run against a fake Sampler executable (`evals/sampler_fake_cli.py`).
 
 ## Sampler batch tool
 
-The Designer server's `sampler` tool runs one Substance 3D Sampler batch job per call:
+For multi-step jobs, engine targets and manifests, use the standalone
+`cavi-substance-sampler-mcp` server above. The Designer server's `sampler` tool
+remains a one-shot image-to-material or project-export helper:
 `--run-script-silent sampler_worker.py -S job.json --skip-version-check
 --ignore-gpu-warning`. The worker is fixed; no user code runs inside Sampler.
 

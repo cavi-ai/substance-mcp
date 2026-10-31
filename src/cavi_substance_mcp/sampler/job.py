@@ -115,6 +115,7 @@ class CreateAsset(StrictModel):
     name: PlainName
     model: Literal["asm", "openpbr"] = "asm"
     preset: ResourceName | None = None
+    empty: bool = False
 
     _name = field_validator("name")(plain_name)
     _preset = field_validator("preset")(lambda value: None if value is None else resource_name(value))
@@ -201,6 +202,7 @@ class Export(StrictModel):
     texture_format: TextureFormat = "png"
     channels: Annotated[list[UsageName], Field(min_length=1, max_length=64)] | None = None
     directory: str = "exports"
+    wait_seconds: Annotated[int, Field(ge=1, le=3600)] = 600
 
     _asset = field_validator("asset")(lambda value: None if value is None else plain_name(value))
     _assets = field_validator("assets")(lambda values: None if values is None else [

@@ -141,6 +141,19 @@ def fixtures(output: Path) -> Path:
         "generic": build("jobs/generic", "generic"),
         "existing": build("existing", "generic"),
         "fail": build("jobs/fail", "generic", asset="fail"),
+        "b2m": {
+            "schema": 1,
+            "directory": "jobs/b2m",
+            "project": {"name": "B2MProject"},
+            "steps": [
+                {"action": "create_asset", "name": "Photo", "empty": True},
+                {"action": "import_images", "asset": "Photo",
+                 "images": ["maps/basecolor.png"], "position": 0,
+                 "import_option": "image_to_material_B2M"},
+                {"action": "export", "asset": "Photo", "target": "generic",
+                 "outputs": ["sbsar"]},
+            ],
+        },
     }
     for name, data in jobs.items():
         (workspace / "jobs" / f"{name}.json").write_text(json.dumps(data))
