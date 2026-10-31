@@ -243,6 +243,15 @@ class PainterSimulator:
             self.finish_bake(BakingStatus.Success)
             self.state = "open"
             return
+        if state == "foreign-child-in-group":
+            # Someone adds a layer inside the first group through Painter's own UI.
+            layerstack = self.module.layerstack
+            group = next(node for node in self.nodes.values()
+                         if isinstance(node, layerstack.GroupLayerNode))
+            layerstack.insert_fill(layerstack.InsertPosition.inside_node(
+                group, layerstack.NodeStack.Substack)).set_name("Human layer")
+            self.state = "open"
+            return
         if state == "bake-end-lost":
             # Painter finishes the bake but the payload never hears about it.
             self.drop_bake_end = True

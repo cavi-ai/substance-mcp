@@ -340,6 +340,28 @@ def created_by_lease(module, params, uid):
     return created.get("lease") == key and uid in created.get("uids", ())
 
 
+def forget(module, uids):
+    """Drop uids of deleted nodes from the lease's created set."""
+    created = shared(module, CREATED_ATTR)
+    if "uids" in created:
+        created["uids"].difference_update(uids)
+
+
+def subtree(layerstack, node):
+    """The node and everything deleting it would remove: sub-layers, effects, mask effects."""
+    found, pending = [], [node]
+    while pending and len(found) <= MAX_NODES:
+        item = pending.pop()
+        found.append(item)
+        if isinstance(item, layerstack.GroupLayerNode):
+            pending.extend(item.sub_layers())
+        if isinstance(item, layerstack.LayerNode):
+            pending.extend(item.content_effects())
+            if item.has_mask():
+                pending.extend(item.mask_effects())
+    return found
+
+
 def bake_state(module):
     state = shared(module, BAKE_ATTR)
     if not state.get("connected"):
@@ -1364,7 +1386,9 @@ def _layer_edit(params, root):
                     "removes it)") if action == "sbsar_fill" else ""
             raise RuntimeError(f"{action} failed ({type(exc).__name__}: {exc}); {cleanup}{kept}"
                                ) from exc
-        remember(substance_painter, params, [node.uid()])
+        # Everything inside a new smart material or group was created by this call too.
+        remember(substance_painter, params,
+                 [item.uid() for item in subtree(layerstack, node)])
         result = {"uid": node.uid(), "name": node.get_name(), "type": type(node).__name__,
                   "texture_set": texture_set}
         if item is not None:
@@ -1382,13 +1406,17 @@ def _layer_edit(params, root):
         return result
     node = node_by_uid(layerstack, required(params, "uid", None), texture_set)
     if action == "delete":
-        if (not created_by_lease(substance_painter, params, node.uid())
-                and params.get("confirm_name") != node.get_name()):
-            raise RuntimeError("Node was not created by this lease; pass confirm_name equal "
-                               "to its current name")
+        doomed = subtree(layerstack, node)
+        owned = len(doomed) <= MAX_NODES and all(
+            created_by_lease(substance_painter, params, item.uid()) for item in doomed)
+        if not owned and params.get("confirm_name") != node.get_name():
+            raise RuntimeError("Node or something inside it was not created by this lease; "
+                               "pass confirm_name equal to its current name")
         name = node.get_name()
+        uids = [item.uid() for item in doomed]
         with layerstack.ScopedModification(f"Delete {name}"):
             layerstack.delete_node(node)
+        forget(substance_painter, uids)
         return {"deleted": params["uid"], "name": name}
     if action == "set_properties":
         return _set_properties(params, node, stack, layerstack, textureset)

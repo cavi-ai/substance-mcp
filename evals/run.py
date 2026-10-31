@@ -78,7 +78,9 @@ async def exercise(mode, env, workspace, adapter=None):
                     needs_lease = (case["tool"] not in {"session_control", "generate_mesh"}
                                    and not tools[case["tool"]].annotations.readOnlyHint
                                    and not case.get("without_lease"))
-                    if needs_lease or case.get("fresh_lease"):
+                    # keep_lease: continue the previous case's lease so ownership spans cases.
+                    keep = needs_lease and case.get("keep_lease") and lease_id
+                    if (needs_lease or case.get("fresh_lease")) and not keep:
                         if lease_id:
                             released = await session.call_tool("session_control", {
                                 "action": "release", "lease_id": lease_id})

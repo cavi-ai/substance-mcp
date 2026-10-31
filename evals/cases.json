@@ -2147,6 +2147,90 @@
   "error": "No layer stack node"
  },
  {
+  "id": "layer-group-owned-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "Owned"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/name": "Owned",
+   "/uid": 100
+  }
+ },
+ {
+  "id": "layer-group-foreign-child-added",
+  "tool": "inspect",
+  "arguments": {
+   "action": "layer_stack",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "foreign-child-in-group",
+  "equals": {
+   "/layers/0/name": "Owned",
+   "/layers/0/layers/0/name": "Human layer"
+  }
+ },
+ {
+  "id": "layer-delete-group-foreign-child-refused",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "keep_lease": true,
+  "error": "confirm_name"
+ },
+ {
+  "id": "layer-delete-group-foreign-child-confirmed",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100,
+   "confirm_name": "Owned"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "keep_lease": true,
+  "equals": {
+   "/deleted": 100,
+   "/name": "Owned"
+  }
+ },
+ {
+  "id": "layer-delete-group-removed-everything",
+  "tool": "inspect",
+  "arguments": {
+   "action": "layer_stack",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/node_count": 0
+  }
+ },
+ {
   "id": "project-create-udim-template",
   "tool": "project",
   "arguments": {

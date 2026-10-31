@@ -4,6 +4,7 @@ import unittest
 
 from test_texturing import Fixture
 
+from cavi_substance_mcp import painter_operations as ops
 from evals.painter_simulator import BlendingMode
 
 
@@ -61,6 +62,80 @@ class RenameTests(Fixture):
         node = next(layer for layer in self.sim.layers if layer.get_name() == "B")
         self.assertTrue(node.is_visible())
         self.assertEqual(node.opacities, {})
+
+
+class DeleteTests(Fixture):
+    def human_adds_layer(self, group_uid, name="Human layer"):
+        """A layer added in the Painter UI, not through this lease."""
+        layerstack = self.sim.module.layerstack
+        group = layerstack.get_node_by_uid(group_uid)
+        layer = layerstack.insert_fill(layerstack.InsertPosition.inside_node(
+            group, layerstack.NodeStack.Substack))
+        layer.set_name(name)
+        return layer
+
+    def fill(self, name, **params):
+        return self.client.call("create_fill_layer", {
+            "texture_set": "Body", "name": name, "base_color": [0.1, 0.2, 0.3], **params})
+
+    def created_uids(self):
+        return set(vars(self.sim.module).get(ops.CREATED_ATTR, {}).get("uids", ()))
+
+    def test_group_that_gained_a_foreign_child_needs_confirmation(self):
+        group = self.edit("group", name="Mine")
+        foreign = self.human_adds_layer(group["uid"])
+        with self.assertRaisesRegex(RuntimeError, "confirm_name"):
+            self.edit("delete", uid=group["uid"])
+        with self.assertRaisesRegex(RuntimeError, "confirm_name"):
+            self.edit("delete", uid=group["uid"], confirm_name="Wrong")
+        self.assertEqual(len(self.sim.layers), 1)
+        self.assertIn(foreign.uid(), self.sim.nodes)
+        deleted = self.edit("delete", uid=group["uid"], confirm_name="Mine")
+        self.assertEqual(deleted["deleted"], group["uid"])
+        self.assertEqual(self.sim.layers, [])
+        self.assertNotIn(foreign.uid(), self.sim.nodes)
+
+    def test_group_built_entirely_by_this_lease_deletes_without_confirmation(self):
+        group = self.edit("group", name="Mine")
+        child = self.edit("group", name="Inner", parent_uid=group["uid"])
+        self.fill("Leaf", parent_uid=child["uid"])
+        self.edit("delete", uid=group["uid"])
+        self.assertEqual(self.sim.layers, [])
+        self.assertEqual(self.sim.nodes, {})
+
+    def test_smart_material_this_lease_inserted_deletes_without_confirmation(self):
+        material = self.edit("smart_material", name="Steel", resource="Steel Painted Worn")
+        self.assertTrue(material["layers"])
+        self.edit("delete", uid=material["uid"])
+        self.assertEqual(self.sim.nodes, {})
+
+    def test_foreign_effect_on_an_owned_layer_needs_confirmation(self):
+        fill = self.client.call("create_fill_layer", {"texture_set": "Body", "name": "Base",
+                                                      "base_color": [0.5, 0.5, 0.5]})
+        layerstack = self.sim.module.layerstack
+        layer = layerstack.get_node_by_uid(fill["uid"])
+        layer.add_mask(layerstack.MaskBackground.Black)
+        position = layerstack.InsertPosition.inside_node(layer, layerstack.NodeStack.Mask)
+        layerstack.insert_generator_effect(position)
+        with self.assertRaisesRegex(RuntimeError, "confirm_name"):
+            self.edit("delete", uid=fill["uid"])
+        self.edit("delete", uid=fill["uid"], confirm_name="Base")
+        self.assertEqual(self.sim.nodes, {})
+
+    def test_deleted_uids_are_forgotten_by_the_lease(self):
+        group = self.edit("group", name="Mine")
+        child = self.fill("Leaf", parent_uid=group["uid"])
+        keep = self.edit("group", name="Keep")
+        self.assertEqual(self.created_uids(), {group["uid"], child["uid"], keep["uid"]})
+        self.edit("delete", uid=group["uid"])
+        self.assertEqual(self.created_uids(), {keep["uid"]})
+
+    def test_confirmed_delete_of_a_foreign_node_also_forgets_its_uids(self):
+        group = self.edit("group", name="Mine")
+        foreign = self.human_adds_layer(group["uid"])
+        self.edit("delete", uid=group["uid"], confirm_name="Mine")
+        self.assertNotIn(group["uid"], self.created_uids())
+        self.assertNotIn(foreign.uid(), self.created_uids())
 
 
 if __name__ == "__main__":
