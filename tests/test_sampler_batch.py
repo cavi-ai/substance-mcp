@@ -757,7 +757,7 @@ class BatchTests(unittest.TestCase):
     def test_interrupt_removes_job_directory(self):
         path = self.write_job("interrupt.json", job_data(directory="jobs/interrupt"))
         with (
-            patch.object(batch.operations, "invoke_job", side_effect=KeyboardInterrupt),
+            patch.object(batch.launch, "invoke_job", side_effect=KeyboardInterrupt),
             self.assertRaises(KeyboardInterrupt),
         ):
             asyncio.run(batch.run_job_file_async(path, self.workspace, TIMEOUT))

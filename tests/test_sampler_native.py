@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from cavi_substance_mcp.sampler import batch, job, operations, runner
+from cavi_substance_mcp.sampler import batch, job, launch, runner
 
 
 class NativeSamplerTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class NativeSamplerTests(unittest.TestCase):
             self.skipTest("Sampler is already running; quit it before the native test")
         with tempfile.TemporaryDirectory() as folder:
             workspace = self._workspace(folder)
-            probe = asyncio.run(operations.invoke("probe", {}, 300))
+            probe = asyncio.run(launch.invoke("probe", {}, 300))
             self.assertTrue(probe["b2m_available"])
             self.assertIn("openpbr", probe["material_models"])
             self.assertIn("base_material", probe["predefined_presets"])
@@ -83,7 +83,7 @@ class NativeSamplerTests(unittest.TestCase):
             self.assertTrue(any(item.endswith(".sbsar") for item in paths))
 
     def test_status(self):
-        status = operations.status()
+        status = launch.status()
         self.assertTrue(status["available"])
         self.assertTrue(Path(status["executable"]).is_file())
 
@@ -96,15 +96,15 @@ class NativeSamplerTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
-            created = asyncio.run(operations.invoke(
+            created = asyncio.run(launch.invoke(
                 "create_project", {"directory": "projects", "name": "Cavi"}, 300
             ))
             self.assertEqual(created["project"], "projects/Cavi.ssa")
-            inspected = asyncio.run(operations.invoke(
+            inspected = asyncio.run(launch.invoke(
                 "inspect_project", {"project": "projects/Cavi.ssa"}, 300
             ))
             self.assertEqual(inspected["project"], "projects/Cavi.ssa")
-            copied = asyncio.run(operations.invoke("save_as", {
+            copied = asyncio.run(launch.invoke("save_as", {
                 "project": "projects/Cavi.ssa", "directory": "copy", "name": "CaviCopy",
             }, 300))
             self.assertEqual(copied["project"], "copy/CaviCopy.ssa")
@@ -119,16 +119,16 @@ class NativeSamplerTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
-            created = asyncio.run(operations.invoke(
+            created = asyncio.run(launch.invoke(
                 "create_project", {"directory": "projects", "name": "Authoring"}, 300
             ))
-            inserted = asyncio.run(operations.invoke("insert_filter", {
+            inserted = asyncio.run(launch.invoke("insert_filter", {
                 "project": created["project"], "asset": "Authoring",
                 "filter": "Tiling", "position": 0,
             }, 300))
             labels = [item["label"] for item in inserted["layer"]["parameters"]]
             self.assertIn("Threshold", labels)
-            changed = asyncio.run(operations.invoke("set_parameters", {
+            changed = asyncio.run(launch.invoke("set_parameters", {
                 "project": created["project"], "asset": "Authoring", "layer": "Tiling",
                 "parameters": {"Threshold": 0.1},
             }, 300))
@@ -140,17 +140,17 @@ class NativeSamplerTests(unittest.TestCase):
             if choices:
                 parameter = choices[0]
                 label, value = parameter["enum_values"][0]
-                labeled = asyncio.run(operations.invoke("set_parameters", {
+                labeled = asyncio.run(launch.invoke("set_parameters", {
                     "project": created["project"], "asset": "Authoring", "layer": "Tiling",
                     "parameters": {parameter["identifier"]: label},
                 }, 300))
                 self.assertEqual(labeled["parameters"][parameter["identifier"]], value)
-            applied = asyncio.run(operations.invoke("apply_preset", {
+            applied = asyncio.run(launch.invoke("apply_preset", {
                 "project": created["project"], "asset": "Authoring", "layer": "Tiling",
                 "preset": "Tiling",
             }, 300))
             self.assertEqual(applied["preset"], "Tiling")
-            removed = asyncio.run(operations.invoke("remove_layer", {
+            removed = asyncio.run(launch.invoke("remove_layer", {
                 "project": created["project"], "asset": "Authoring", "layer": "Tiling",
                 "confirm": True,
             }, 300))
@@ -187,7 +187,7 @@ class NativeSamplerTests(unittest.TestCase):
             batch.run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
             source = workspace / "jobs/seed/seedProject.ssa"
             digest = source.read_bytes()
-            seeded = asyncio.run(operations.invoke(
+            seeded = asyncio.run(launch.invoke(
                 "inspect_asset", {"project": "jobs/seed/seedProject.ssa", "asset": "Cavi"},
                 300,
             ))
@@ -216,14 +216,14 @@ class NativeSamplerTests(unittest.TestCase):
             self.assertEqual(manifest["source"], "jobs/seed/seedProject.ssa")
             self.assertEqual(manifest["project"], "jobs/source/CaviCopy.ssa")
             self.assertEqual(source.read_bytes(), digest)
-            inspected = asyncio.run(operations.invoke(
+            inspected = asyncio.run(launch.invoke(
                 "inspect_asset", {"project": manifest["project"], "asset": "Cavi"}, 300
             ))
             self.assertEqual(inspected["asset"]["metadata"]["category"], "rock")
             self.assertEqual(inspected["asset"]["metadata"]["tags"], ["game"])
             tiling = next(layer for layer in inspected["layers"] if layer["name"] == "Tiling")
             self.assertIn(channel, tiling["applied_channels"])
-            activated = asyncio.run(operations.invoke("activate_channels", {
+            activated = asyncio.run(launch.invoke("activate_channels", {
                 "project": manifest["project"], "asset": "Cavi", "channels": [channel],
             }, 300))
             self.assertTrue(activated["activated"])
@@ -307,7 +307,7 @@ class NativeSamplerTests(unittest.TestCase):
             batch.run_job_file("jobs/seed.json", workspace, timeout_seconds=600)
             source = workspace / "jobs/seed/seedProject.ssa"
             digest = source.read_bytes()
-            seeded = asyncio.run(operations.invoke(
+            seeded = asyncio.run(launch.invoke(
                 "inspect_asset", {"project": "jobs/seed/seedProject.ssa", "asset": "Cavi"},
                 300,
             ))
@@ -361,17 +361,17 @@ class NativeSamplerTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
-            probe = asyncio.run(operations.invoke("probe", {}, 300))
+            probe = asyncio.run(launch.invoke("probe", {}, 300))
             if "Asphalt" not in probe["materials"]:
                 self.skipTest("Asphalt material is not installed")
-            created = asyncio.run(operations.invoke("create_project", {
+            created = asyncio.run(launch.invoke("create_project", {
                 "directory": "projects", "name": "Blend",
             }, 300))
-            asyncio.run(operations.invoke("insert_material", {
+            asyncio.run(launch.invoke("insert_material", {
                 "project": created["project"], "asset": "Blend", "material": "Asphalt",
                 "position": 0, "blend_mode": "blend_opacity",
             }, 300))
-            inserted = asyncio.run(operations.invoke("insert_material", {
+            inserted = asyncio.run(launch.invoke("insert_material", {
                 "project": created["project"], "asset": "Blend", "material": "Concrete Cast",
                 "position": 0, "blend_mode": "blend_opacity",
             }, 300))
@@ -392,7 +392,7 @@ class NativeSamplerTests(unittest.TestCase):
                 low = int(parameter["min"] or 0)
                 high = int(parameter["max"] or low + 1)
                 value = min(high, max(low, low + 1))
-            changed = asyncio.run(operations.invoke("set_blend_parameters", {
+            changed = asyncio.run(launch.invoke("set_blend_parameters", {
                 "project": created["project"], "asset": "Blend",
                 "layer": inserted["layer"]["name"],
                 "parameters": {parameter["identifier"]: value},

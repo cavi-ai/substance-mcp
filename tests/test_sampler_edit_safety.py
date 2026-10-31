@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import install
 
-from cavi_substance_mcp.sampler import operations, server
+from cavi_substance_mcp.sampler import launch, server
 
 TIMEOUT = 30
 
@@ -36,7 +36,7 @@ class EditSafetyTests(unittest.TestCase):
         self.folder.cleanup()
 
     def call(self, operation, timeout=TIMEOUT, **arguments):
-        return asyncio.run(operations.invoke(operation, arguments, timeout))
+        return asyncio.run(launch.invoke(operation, arguments, timeout))
 
     def leftovers(self):
         return sorted(item.name for item in self.workspace.rglob(".cavi-work-*"))
@@ -55,7 +55,7 @@ class EditSafetyTests(unittest.TestCase):
             seen.append((Path(source), Path(target), self.project.read_bytes()))
             return real(source, target)
 
-        with patch.object(operations.os, "replace", side_effect=replace):
+        with patch.object(launch.os, "replace", side_effect=replace):
             made = self.add_filter()
         self.assertEqual(made["project"], "projects/Rock.ssa")
         self.assertEqual(len(seen), 1)
@@ -97,11 +97,11 @@ class EditSafetyTests(unittest.TestCase):
         self.assertEqual(self.leftovers(), [])
 
     def test_missing_project_is_refused_before_launching_sampler(self):
-        with patch.object(operations.runner, "run_script") as launch, \
+        with patch.object(launch.runner, "run_script") as run_script, \
                 self.assertRaisesRegex(ValueError, "inside the workspace"):
             self.call("insert_filter", project="projects/Missing.ssa", asset="Rock",
                       filter="Tiling", position=0)
-        launch.assert_not_called()
+        run_script.assert_not_called()
 
     def test_asset_delete_requires_confirmation(self):
         arguments = {"action": "delete", "project": "projects/Rock.ssa", "asset": "Rock"}

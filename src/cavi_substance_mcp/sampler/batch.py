@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import receipts
 from ..core import workspace
 from . import job as jobs
-from . import operations, runner, targets
+from . import launch, runner, targets
 from .errors import (  # noqa: F401 -- re-exported for callers of this module
     AppRunning,
     AppUnavailable,
@@ -191,9 +191,9 @@ def check_sampler(plan: dict, probe: dict) -> None:
 async def probe_sampler_async(workspace_path=None, timeout_seconds: float = 300,
                             lock_timeout: float = 30) -> dict:
     root = _root(workspace_path)
-    async with operations.exclusive(root, lock_timeout):
+    async with launch.exclusive(root, lock_timeout):
         app_available(0)
-        return await operations.invoke(
+        return await launch.invoke(
             "probe", {}, timeout_seconds, workspace_path=str(root)
         )
 
@@ -237,7 +237,7 @@ async def validate_with_project_async(name, workspace_path=None,
         source = (root / loaded.project.source).resolve()
         copy = temporary / "project.ssa"
         shutil.copy2(source, copy)
-        result = await operations.invoke_preflight(
+        result = await launch.invoke_preflight(
             loaded.model_dump(by_alias=True), timeout_seconds, str(root),
             copy.relative_to(root).as_posix(),
         )
@@ -294,7 +294,7 @@ async def check_build_async(name, workspace_path=None,
         ]
         payload["_probe"] = True
         try:
-            result = await operations.invoke_job(
+            result = await launch.invoke_job(
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl",
             )
@@ -337,7 +337,7 @@ def doctor(workspace_path=None) -> dict:
         except OSError:
             writable = False
     return {
-        **operations.status(),
+        **launch.status(),
         "workspace": str(root),
         "workspace_exists": root.is_dir(),
         "workspace_writable": writable,
@@ -402,7 +402,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
     jobs.validate_paths(loaded, root)
     started = datetime.now(UTC).isoformat()
     clock = time.monotonic()
-    async with operations.exclusive(root, lock_timeout):
+    async with launch.exclusive(root, lock_timeout):
         app_available(wait_for_app)
         inputs = _inputs(root, loaded)
         job_dir = _job_dir(root, loaded)
@@ -412,7 +412,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
             json.dumps(payload, indent=2) + "\n", encoding="utf-8"
         )
         try:
-            result = await operations.invoke_job(
+            result = await launch.invoke_job(
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )

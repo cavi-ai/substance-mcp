@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 from sampler_fake_cli import install
 
 from cavi_substance_mcp import receipts
-from cavi_substance_mcp.sampler import operations, runner
+from cavi_substance_mcp.sampler import launch, runner
 
 TIMEOUT = 30
 
@@ -46,13 +46,13 @@ class SamplerTests(unittest.TestCase):
         self.folder.cleanup()
 
     def call(self, operation, **arguments):
-        return asyncio.run(operations.invoke(operation, arguments, TIMEOUT))
+        return asyncio.run(launch.invoke(operation, arguments, TIMEOUT))
 
     def create_project(self):
         return self.call("create_project", directory="projects", name="Rock")
 
     def test_status(self):
-        status = operations.status()
+        status = launch.status()
         self.assertTrue(status["available"])
         self.assertEqual(status["version"], "0.0.0")
         self.assertFalse(status["running"])
@@ -70,6 +70,8 @@ class SamplerTests(unittest.TestCase):
         )
         self.assertEqual((created_receipt["app"], created_receipt["operation"]),
                          ("sampler", "create_project"))
+        # The host reads the installed version; the script inside Sampler only records it.
+        self.assertEqual(created_receipt["version"], "0.0.0")
         self.assertEqual(created_receipt["outputs"][0]["path"], "projects/Rock.ssa")
         copied = self.call("save_as", project="projects/Rock.ssa", directory="copy",
                            name="RockCopy")
@@ -462,10 +464,10 @@ class SamplerWorkspaceRootTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def call(self, operation, **arguments):
-        return asyncio.run(operations.invoke(operation, arguments, TIMEOUT))
+        return asyncio.run(launch.invoke(operation, arguments, TIMEOUT))
 
     def test_status_does_not_create_the_default_workspace(self):
-        status = operations.status()
+        status = launch.status()
         self.assertEqual(status["workspace"], str(self.default))
         self.assertFalse(status["workspace_exists"])
         self.assertFalse(self.default.exists())

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import install
 
-from cavi_substance_mcp.sampler import batch, operations
+from cavi_substance_mcp.sampler import batch, launch
 
 TIMEOUT = 60
 
@@ -66,7 +66,7 @@ class ConcurrencyTests(unittest.TestCase):
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
-        created = asyncio.run(operations.invoke(
+        created = asyncio.run(launch.invoke(
             "create_project", {"directory": "projects", "name": "Rock"}, TIMEOUT))
         self.project = created["project"]
 
@@ -79,16 +79,16 @@ class ConcurrencyTests(unittest.TestCase):
         return f"jobs/{name}.json"
 
     def inspect(self, **options):
-        return operations.invoke(
+        return launch.invoke(
             "inspect_project", {"project": self.project}, TIMEOUT, **options)
 
     def test_two_single_operations_never_overlap(self):
-        launches = Launches(operations.runner.run_script, hold=0.2)
+        launches = Launches(launch.runner.run_script, hold=0.2)
 
         async def scenario():
             return await asyncio.gather(self.inspect(), self.inspect())
 
-        with patch.object(operations.runner, "run_script", launches):
+        with patch.object(launch.runner, "run_script", launches):
             results = asyncio.run(scenario())
         self.assertEqual([item["project"] for item in results], [self.project] * 2)
         self.assertEqual(launches.total, 2)
@@ -97,7 +97,7 @@ class ConcurrencyTests(unittest.TestCase):
     def test_single_operation_waits_for_a_running_batch(self):
         path = self.write_job("held", job("jobs/held"))
         gate = asyncio.Event()
-        launches = Launches(operations.runner.run_script, gate=gate)
+        launches = Launches(launch.runner.run_script, gate=gate)
 
         async def scenario():
             running = asyncio.create_task(batch.run_job_file_async(
@@ -113,7 +113,7 @@ class ConcurrencyTests(unittest.TestCase):
             manifest = await running
             return manifest, await self.inspect(lock_timeout=5)
 
-        with patch.object(operations.runner, "run_script", launches):
+        with patch.object(launch.runner, "run_script", launches):
             manifest, inspected = asyncio.run(scenario())
         self.assertEqual(manifest["status"], "success")
         self.assertEqual(inspected["project"], self.project)
@@ -122,7 +122,7 @@ class ConcurrencyTests(unittest.TestCase):
     def test_batch_waits_for_a_running_single_operation(self):
         path = self.write_job("after", job("jobs/after"))
         gate = asyncio.Event()
-        launches = Launches(operations.runner.run_script, gate=gate)
+        launches = Launches(launch.runner.run_script, gate=gate)
 
         async def scenario():
             single = asyncio.create_task(self.inspect())
@@ -136,7 +136,7 @@ class ConcurrencyTests(unittest.TestCase):
             gate.set()
             await single
 
-        with patch.object(operations.runner, "run_script", launches):
+        with patch.object(launch.runner, "run_script", launches):
             asyncio.run(scenario())
         self.assertFalse((self.workspace / "jobs/after").exists())
         self.assertEqual(launches.peak, 1)
@@ -148,7 +148,7 @@ class ConcurrencyTests(unittest.TestCase):
             "project", job("jobs/project", source="jobs/seed/RockProject.ssa"))
         build_job = self.write_job("build", job("jobs/build"))
         run_job = self.write_job("run", job("jobs/run"))
-        launches = Launches(operations.runner.run_script, hold=0.15)
+        launches = Launches(launch.runner.run_script, hold=0.15)
 
         async def scenario():
             return await asyncio.gather(
@@ -159,7 +159,7 @@ class ConcurrencyTests(unittest.TestCase):
                 batch.run_job_file_async(run_job, self.workspace, TIMEOUT),
             )
 
-        with patch.object(operations.runner, "run_script", launches):
+        with patch.object(launch.runner, "run_script", launches):
             results = asyncio.run(scenario())
         self.assertEqual(results[2]["project_check"], "ok")
         self.assertEqual(results[3]["build_check"]["status"], "ok")

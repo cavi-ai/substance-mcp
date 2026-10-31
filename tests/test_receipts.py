@@ -19,7 +19,7 @@ from sampler_fake_cli import install as install_sampler
 
 from cavi_substance_mcp import cli, painter_operations, receipts
 from cavi_substance_mcp.designer import operations as designer
-from cavi_substance_mcp.sampler import operations as sampler
+from cavi_substance_mcp.sampler import launch as sampler
 
 
 class ReceiptTests(unittest.TestCase):

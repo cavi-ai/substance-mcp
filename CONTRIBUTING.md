@@ -41,9 +41,15 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
 - Designer server: `src/cavi_substance_mcp/designer/`. `server.py` holds the tools,
   `operations.py` the workspace-confined operations and `runner.py` the bounded CLI runner.
 - Sampler server and batch CLI: `src/cavi_substance_mcp/sampler/`. `server.py` holds the
-  tools, `operations.py` the scripts that run inside Sampler, `job.py` the batch job model,
+  tools, `operations.py` the scripts that run inside Sampler's embedded Python, `launch.py`
+  the host side that starts Sampler and reads the response, `job.py` the batch job model,
   `batch.py` and `cli.py` the batch runner, and `targets.py` the engine targets.
-- Shared code: `receipts.py` for receipts and `packing.py` for channel packing.
+- Shared code: `core/` for what every server uses (`workspace.py` holds the workspace
+  root and path rules), `receipts.py` for receipts and `packing.py` for channel packing.
+- Code that runs inside an application (`painter_operations.py`, and `receipts.py`,
+  `core/workspace.py`, `sampler/operations.py`, `sampler/names.py` and
+  `sampler/targets.py` inside Sampler) is standard library only and never imports a
+  host-side module. `tests/test_import_closure.py` enforces this.
 - `evals/`: `painter_simulator.py` (simulated Painter API), `designer_fake_cli.py`,
   `sampler_fake_cli.py` (fake executables), the corpora
   (`cases.json`, `designer_cases.json`, `sampler_cases.json`), the mcp-eval manifests
