@@ -111,7 +111,11 @@ class ProjectSpec(StrictModel):
         return self
 
 
-class ImportImages(StrictModel):
+class AssetStep(StrictModel):
+    """A step that acts on an asset that must already exist in the project."""
+
+
+class ImportImages(AssetStep):
     action: Literal["import_images"]
     asset: PlainName
     images: Annotated[list[str], Field(min_length=1, max_length=256)]
@@ -126,7 +130,7 @@ class ImportImages(StrictModel):
     _images = field_validator("images")(lambda values: [relative_path(item) for item in values])
 
 
-class ImportTextures(StrictModel):
+class ImportTextures(AssetStep):
     action: Literal["import_textures"]
     asset: PlainName
     images: Annotated[dict[UsageName, str], Field(min_length=1, max_length=64)]
@@ -150,7 +154,7 @@ class CreateAsset(StrictModel):
     _preset = field_validator("preset")(optional(resource_name))
 
 
-class SetMetadata(StrictModel):
+class SetMetadata(AssetStep):
     action: Literal["set_metadata"]
     asset: PlainName
     author: Annotated[str | None, Field(max_length=128)] = None
@@ -174,7 +178,7 @@ class SetMetadata(StrictModel):
         return self
 
 
-class ActivateChannels(StrictModel):
+class ActivateChannels(AssetStep):
     action: Literal["activate_channels"]
     asset: PlainName
     channels: Annotated[list[UsageName], Field(min_length=1, max_length=64)]
@@ -182,7 +186,7 @@ class ActivateChannels(StrictModel):
     _asset = field_validator("asset")(plain_name)
 
 
-class DeactivateChannels(StrictModel):
+class DeactivateChannels(AssetStep):
     action: Literal["deactivate_channels"]
     asset: PlainName
     channels: Annotated[list[UsageName], Field(min_length=1, max_length=64)]
@@ -190,7 +194,7 @@ class DeactivateChannels(StrictModel):
     _asset = field_validator("asset")(plain_name)
 
 
-class SetChannels(StrictModel):
+class SetChannels(AssetStep):
     action: Literal["set_channels"]
     asset: PlainName
     layer: ResourceName
@@ -214,7 +218,7 @@ class SetChannels(StrictModel):
         return self
 
 
-class SetBlendParameters(StrictModel):
+class SetBlendParameters(AssetStep):
     action: Literal["set_blend_parameters"]
     asset: PlainName
     layer: ResourceName
@@ -225,7 +229,7 @@ class SetBlendParameters(StrictModel):
     _layer = field_validator("layer")(resource_name)
 
 
-class InsertFilter(StrictModel):
+class InsertFilter(AssetStep):
     action: Literal["insert_filter"]
     asset: PlainName
     filter: ResourceName
@@ -236,7 +240,7 @@ class InsertFilter(StrictModel):
     _filter = field_validator("filter")(resource_name)
 
 
-class InsertMaterial(StrictModel):
+class InsertMaterial(AssetStep):
     action: Literal["insert_material"]
     asset: PlainName
     material: ResourceName
@@ -251,7 +255,7 @@ class InsertMaterial(StrictModel):
     _material = field_validator("material")(resource_name)
 
 
-class SetParameters(StrictModel):
+class SetParameters(AssetStep):
     action: Literal["set_parameters"]
     asset: PlainName
     layer: ResourceName
@@ -262,7 +266,7 @@ class SetParameters(StrictModel):
     _layer = field_validator("layer")(resource_name)
 
 
-class ApplyPreset(StrictModel):
+class ApplyPreset(AssetStep):
     action: Literal["apply_preset"]
     asset: PlainName
     layer: ResourceName
@@ -274,7 +278,7 @@ class ApplyPreset(StrictModel):
     _preset = field_validator("preset")(resource_name)
 
 
-class RemoveLayer(StrictModel):
+class RemoveLayer(AssetStep):
     action: Literal["remove_layer"]
     asset: PlainName
     layer: ResourceName
@@ -401,11 +405,7 @@ class Job(StrictModel):
                         raise ValueError("all_assets export needs at least one asset")
                 continue
             if (
-                isinstance(step, (
-                    ImportImages, ImportTextures, SetMetadata, ActivateChannels,
-                    DeactivateChannels, InsertFilter, InsertMaterial, SetParameters,
-                    ApplyPreset, SetChannels, SetBlendParameters, RemoveLayer,
-                ))
+                isinstance(step, AssetStep)
                 and strict_assets
                 and step.asset not in known
             ):

@@ -154,3 +154,17 @@ class ExampleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AssetStepTests(unittest.TestCase):
+    def test_every_step_with_a_required_asset_is_checked_for_existence(self):
+        import typing
+
+        from cavi_substance_mcp.sampler import job as jobs
+
+        union = typing.get_args(typing.get_args(jobs.Step)[0])
+        for model in union:
+            field = model.model_fields.get("asset")
+            if field is not None and field.is_required():
+                with self.subTest(step=model.__name__):
+                    self.assertTrue(issubclass(model, jobs.AssetStep))
