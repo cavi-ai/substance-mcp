@@ -719,6 +719,32 @@ class BatchTests(unittest.TestCase):
         self.assertTrue((self.workspace / "jobs/lock1/manifest.json").is_file())
         self.assertTrue((self.workspace / "jobs/lock2/manifest.json").is_file())
 
+    def test_cancelled_queued_job_does_not_leak_the_lock(self):
+        queued = self.write_job("queued.json", job_data(directory="jobs/queued"))
+        later = self.write_job("later.json", job_data(directory="jobs/later"))
+        holder = batch.WorkspaceLock(self.workspace, 0)
+        holder.__enter__()
+
+        async def scenario():
+            waiting = asyncio.create_task(batch.run_job_file_async(
+                queued, self.workspace, TIMEOUT, lock_timeout=30))
+            await asyncio.sleep(0.6)
+            waiting.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await waiting
+            holder.__exit__()
+            # A background acquire that outlived the cancelled task would win the
+            # lock in this window and never release it.
+            await asyncio.sleep(0.8)
+            self.assertFalse(batch.lock_held(self.workspace))
+            return await batch.run_job_file_async(
+                later, self.workspace, TIMEOUT, lock_timeout=2)
+
+        manifest = asyncio.run(scenario())
+        self.assertEqual(manifest["status"], "success")
+        self.assertFalse((self.workspace / "jobs/queued").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
+
     def test_cli_check_sampler_and_doctor_launch(self):
         path = self.write_job("cli-check.json", job_data(directory="jobs/cli-check"))
         output = io.StringIO()
