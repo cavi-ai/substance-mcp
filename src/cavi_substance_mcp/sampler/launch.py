@@ -19,7 +19,7 @@ from ..core import proc, workspace
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock
-from .operations import PROJECT
+from .names import PROJECT
 
 RESPONSE_LIMIT = 8 * 1024 * 1024
 LOCK_WAIT = 60

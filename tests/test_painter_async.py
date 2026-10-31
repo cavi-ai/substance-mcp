@@ -25,6 +25,12 @@ from evals.painter_simulator import PainterSimulator
 class FakePainter:
     """Painter's scripting server: one main thread, so requests run strictly one at a time."""
 
+    def wait_until_running(self, seconds=10):
+        """Block until a request is inside Painter, so the sending client holds its gate."""
+        deadline = time.monotonic() + seconds
+        while self.running == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
     def __init__(self, delay=0.0, result=None):
         self.delay, self.result = delay, result or {"connected": True, "open": False}
         self.running = self.peak = self.total = 0
@@ -87,7 +93,7 @@ class SerializationTests(unittest.TestCase):
             worker = threading.Thread(
                 target=PainterClient(port=painter.port).call, args=("export_presets",))
             worker.start()
-            time.sleep(0.2)
+            painter.wait_until_running()
             started = time.monotonic()
             status = PainterClient(port=painter.port).call("status")
             self.assertLess(time.monotonic() - started, 0.5)
@@ -101,7 +107,7 @@ class SerializationTests(unittest.TestCase):
             worker = threading.Thread(
                 target=PainterClient(port=painter.port).call, args=("export_presets",))
             worker.start()
-            time.sleep(0.2)
+            painter.wait_until_running()
             with self.assertRaisesRegex(painter_client.PainterBusy, "not sent") as caught:
                 PainterClient(port=painter.port).call("texture_sets", timeout=0.3)
             self.assertIsInstance(caught.exception, PainterTimeout)

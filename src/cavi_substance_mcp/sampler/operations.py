@@ -19,38 +19,23 @@ from .. import receipts
 from ..core.workspace import existing, input_file, new_output_directory, rel
 from . import names as filenames
 from . import targets
+from .names import (
+    BLEND_MODES,
+    EXPORT_FORMATS,
+    IMPORT_OPTIONS,
+    MATERIAL_TYPES,
+    PROJECT,
+    RESOURCE,
+    USAGE,
+)
 
-PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
 RESOURCE_FILES = {".sbsar", ".sbs"}
-USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
-RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
-FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
-MATERIAL_TYPES = ("standard", "decal", "atlas")
-IMPORT_OPTIONS = (
-    "image_to_material_B2M",
-    "image_to_material_AI_powered",
-    "multiangle_to_material",
-    "use_as_bitmap",
-    "as_channels",
-    "HDR_merge",
-    "use_as_environment",
-)
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
 # The installed Sampler's version, supplied by the host with each request.
 _APP = {"version": None}
-BLEND_MODES = (
-    "blend_ao",
-    "blend_color_id",
-    "blend_curvature",
-    "blend_custom_mask",
-    "blend_opacity",
-    "blend_height",
-    "blend_normal",
-    "blend_per_channel",
-)
 def _wait_file(path: Path, timeout: float = 120) -> Path:
     deadline = time.monotonic() + timeout
     while not path.is_file() and time.monotonic() < deadline:
@@ -584,6 +569,200 @@ def _probe(ssa, root, args) -> dict:
     }
 
 
+_LAYER_ACTIONS = (
+    "set_parameters", "apply_preset", "set_channels", "set_blend_parameters", "remove_layer",
+)
+
+
+class _Preflight:
+    """Checks a batch job's steps against a source project without changing it."""
+
+    def __init__(self, ssa, job: dict):
+        self.ssa = ssa
+        listed = [(_get(item, "name"), item) for item in ssa.get_project_assets()]
+        self.assets = dict(listed)
+        names = [name for name, _ in listed]
+        self.ambiguous = {name for name in names if names.count(name) > 1}
+        self.virtual_assets = set()
+        self.virtual_layers = {name: set() for name in self.assets}
+        self.unknown_layers = set()
+        self.removed = {name: set() for name in self.assets}
+        self.layers_of = {}
+        self.problems, self.warnings = [], []
+        self.declared, self.undeclared_import = set(), False
+        for step in job["steps"]:
+            if isinstance(step, dict) and step.get("action") == "import_resource":
+                if step.get("resources"):
+                    self.declared.update(step["resources"])
+                else:
+                    self.undeclared_import = True
+
+    def asset_list(self) -> str:
+        return ", ".join(sorted(self.assets)[:64])
+
+    def check(self, index: int, step) -> None:
+        if not isinstance(step, dict):
+            self.problems.append(f"step {index}: must be an object")
+            return
+        action = step.get("action")
+        prefix = f"step {index} ({action})"
+        if action == "create_asset":
+            self.create_asset(step, prefix)
+            return
+        if action == "import_resource":
+            return
+        if action in ("insert_filter", "insert_material"):
+            self.resource_exists(step, action, prefix)
+        if action == "export":
+            self.export(step, prefix)
+            return
+        asset_name = step.get("asset")
+        if not asset_name:
+            self.problems.append(f"{prefix}: asset is required")
+        elif asset_name in self.virtual_assets:
+            self.step_on_created_asset(step, action, asset_name, prefix)
+        elif asset_name not in self.assets:
+            self.problems.append(
+                f"{prefix}: asset {asset_name!r} not found; assets: {self.asset_list()}")
+        elif asset_name in self.ambiguous:
+            self.problems.append(
+                f"{prefix}: asset {asset_name!r} is ambiguous; rename one of the duplicates")
+        elif action in ("import_images", "import_textures"):
+            self.unknown_layers.add(asset_name)
+        elif action in ("insert_filter", "insert_material"):
+            layer = step.get("filter") if action == "insert_filter" else step.get("material")
+            self.virtual_layers.setdefault(asset_name, set()).add(layer)
+        elif action in ("set_metadata", "activate_channels", "deactivate_channels"):
+            return
+        elif action in _LAYER_ACTIONS:
+            self.layer_step(step, action, asset_name, prefix)
+        else:
+            self.problems.append(f"{prefix}: unknown action")
+
+    def create_asset(self, step: dict, prefix: str) -> None:
+        name = step.get("name")
+        if name in self.assets or name in self.virtual_assets:
+            self.problems.append(f"{prefix}: asset {name!r} already exists")
+            return
+        self.virtual_assets.add(name)
+        self.virtual_layers.setdefault(name, set())
+        self.unknown_layers.discard(name)
+        self.removed.setdefault(name, set())
+
+    def resource_exists(self, step: dict, action: str, prefix: str) -> None:
+        name = step.get("filter") if action == "insert_filter" else step.get("material")
+        if name in self.declared:
+            return
+        if self.undeclared_import:
+            self.warnings.append(
+                f"{prefix}: resource check skipped for {name!r}; "
+                "imported resources are undeclared"
+            )
+            return
+        getter = self.ssa.get_filters if action == "insert_filter" else self.ssa.get_materials
+        kind = "filter" if action == "insert_filter" else "material"
+        if not any(_resource_name(item) == name for item in getter(name)):
+            self.problems.append(f"{prefix}: {kind} {name!r} not found")
+
+    def export(self, step: dict, prefix: str) -> None:
+        names = ([step.get("asset")] if step.get("asset") else []) + (step.get("assets") or [])
+        for name in names:
+            if name not in self.assets and name not in self.virtual_assets:
+                self.problems.append(
+                    f"{prefix}: asset {name!r} not found; assets: {self.asset_list()}")
+        if step.get("all_assets") and not self.assets and not self.virtual_assets:
+            self.problems.append(f"{prefix}: all_assets export has no assets")
+
+    def step_on_created_asset(self, step, action, asset_name, prefix) -> None:
+        self.warnings.append(
+            f"{prefix}: asset {asset_name!r} is created earlier; structure not preflighted"
+        )
+        if action == "insert_filter":
+            self.virtual_layers.setdefault(asset_name, set()).add(step.get("filter"))
+        elif action == "insert_material":
+            self.virtual_layers.setdefault(asset_name, set()).add(step.get("material"))
+        elif action in ("import_images", "import_textures"):
+            self.unknown_layers.add(asset_name)
+
+    def layers(self, asset_name: str) -> list:
+        # The source project is not changed during preflight, so list each asset once.
+        if asset_name not in self.layers_of:
+            self.layers_of[asset_name] = list(self.assets[asset_name].get_layers())
+        return self.layers_of[asset_name]
+
+    def layer_step(self, step: dict, action: str, asset_name: str, prefix: str) -> None:
+        layer_name, position = step.get("layer"), step.get("position")
+        layers = self.layers(asset_name)
+        matches = [
+            item for item in layers
+            if _get(item, "name") == layer_name
+            and (position is None or _get(item, "position") == position)
+        ]
+        if len(matches) > 1:
+            self.problems.append(f"{prefix}: layer {layer_name!r} is ambiguous; provide position")
+        elif matches:
+            _LAYER_CHECKS[action](self, step, asset_name, matches[0], prefix)
+        elif layer_name in self.removed.get(asset_name, set()):
+            self.problems.append(f"{prefix}: layer {layer_name!r} was removed earlier")
+        elif (layer_name in self.virtual_layers.get(asset_name, set())
+              or asset_name in self.unknown_layers):
+            self.warnings.append(
+                f"{prefix}: layer {layer_name!r} is created earlier; structure not preflighted"
+            )
+        else:
+            self.problems.append(
+                f"{prefix}: layer {layer_name!r} not found; layers: "
+                + ", ".join(f"{_get(item, 'name')}@{_get(item, 'position')}"
+                            for item in layers[:64])
+            )
+
+    def collect(self, prefix: str, check) -> None:
+        try:
+            check()
+        except Exception as exc:  # noqa: BLE001 -- every problem is collected, not raised
+            self.problems.append(f"{prefix}: {exc}")
+
+    def set_parameters(self, step, asset_name, layer, prefix) -> None:
+        for identifier, value in (step.get("parameters") or {}).items():
+            self.collect(prefix, lambda i=identifier, v=value: _parameter_value(
+                _parameter(layer, i), v))
+
+    def apply_preset(self, step, asset_name, layer, prefix) -> None:
+        presets = _get(layer, "presets", []) or []
+        if step.get("preset") not in presets:
+            self.problems.append(
+                f"{prefix}: preset {step.get('preset')!r} not found; presets: "
+                + ", ".join(map(str, presets[:64]))
+            )
+
+    def set_channels(self, step, asset_name, layer, prefix) -> None:
+        asset = self.assets[asset_name]
+        for name in (step.get("applies_to") or []) + (step.get("blend_applies_to") or []):
+            self.collect(prefix, lambda n=name: _resolve_usage(asset, n))
+
+    def set_blend_parameters(self, step, asset_name, layer, prefix) -> None:
+        blend = list(_get(layer, "blend_parameters", []) or [])
+        if not blend:
+            self.problems.append(f"{prefix}: layer has no blend parameters")
+            return
+        for identifier, value in (step.get("parameters") or {}).items():
+            self.collect(prefix, lambda i=identifier, v=value: _parameter_value(
+                _parameter_in(blend, i), v))
+
+    def remove_layer(self, step, asset_name, layer, prefix) -> None:
+        self.removed.setdefault(asset_name, set()).add(step.get("layer"))
+        self.virtual_layers.get(asset_name, set()).discard(step.get("layer"))
+
+
+_LAYER_CHECKS = {
+    "set_parameters": _Preflight.set_parameters,
+    "apply_preset": _Preflight.apply_preset,
+    "set_channels": _Preflight.set_channels,
+    "set_blend_parameters": _Preflight.set_blend_parameters,
+    "remove_layer": _Preflight.remove_layer,
+}
+
+
 def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
     import substance_sampler as ssa
 
@@ -595,182 +774,20 @@ def preflight_job(job: dict, workspace_path: str, project_path: str) -> dict:
         raise RuntimeError("Sampler could not open the preflight project")
     ssa.wait_for_computation()
     probe = _probe(ssa, root, {})
-    assets = {_get(item, "name"): item for item in ssa.get_project_assets()}
-    virtual_assets = set()
-    virtual_layers = {name: set() for name in assets}
-    unknown_layers = set()
-    removed = {name: set() for name in assets}
-    problems, warnings = [], []
-    declared, undeclared_import = set(), False
-    for step in job["steps"]:
-        if isinstance(step, dict) and step.get("action") == "import_resource":
-            if step.get("resources"):
-                declared.update(step["resources"])
-            else:
-                undeclared_import = True
-    project_spec = job.get("project") or {}
-    for name in project_spec.get("assets") or []:
-        if name not in assets:
-            problems.append(
+    check = _Preflight(ssa, job)
+    for name in (job.get("project") or {}).get("assets") or []:
+        if name not in check.assets:
+            check.problems.append(
                 f"asset {name!r} from project.assets is not in the source project"
             )
     for index, step in enumerate(job["steps"]):
-        if not isinstance(step, dict):
-            problems.append(f"step {index}: must be an object")
-            continue
-        action = step.get("action")
-        asset_name = step.get("asset")
-        prefix = f"step {index} ({action})"
-        if action == "create_asset":
-            name = step.get("name")
-            if name in assets or name in virtual_assets:
-                problems.append(f"{prefix}: asset {name!r} already exists")
-            else:
-                virtual_assets.add(name)
-                virtual_layers.setdefault(name, set())
-                unknown_layers.discard(name)
-                removed.setdefault(name, set())
-            continue
-        if action == "import_resource":
-            continue
-        if action in ("insert_filter", "insert_material"):
-            name = step.get("filter") if action == "insert_filter" else step.get("material")
-            if name not in declared:
-                if undeclared_import:
-                    warnings.append(
-                        f"{prefix}: resource check skipped for {name!r}; "
-                        "imported resources are undeclared"
-                    )
-                else:
-                    getter = ssa.get_filters if action == "insert_filter" else ssa.get_materials
-                    kind = "filter" if action == "insert_filter" else "material"
-                    if not any(_resource_name(item) == name for item in getter(name)):
-                        problems.append(f"{prefix}: {kind} {name!r} not found")
-        if action == "export":
-            names = ([step.get("asset")] if step.get("asset") else []) + (
-                step.get("assets") or []
-            )
-            for name in names:
-                if name not in assets and name not in virtual_assets:
-                    problems.append(
-                        f"{prefix}: asset {name!r} not found; assets: "
-                        + ", ".join(sorted(assets)[:64])
-                    )
-            if step.get("all_assets") and not assets and not virtual_assets:
-                problems.append(f"{prefix}: all_assets export has no assets")
-            continue
-        if not asset_name:
-            problems.append(f"{prefix}: asset is required")
-            continue
-        if asset_name in virtual_assets:
-            warnings.append(
-                f"{prefix}: asset {asset_name!r} is created earlier; structure not preflighted"
-            )
-            if action == "insert_filter":
-                virtual_layers.setdefault(asset_name, set()).add(step.get("filter"))
-            elif action == "insert_material":
-                virtual_layers.setdefault(asset_name, set()).add(step.get("material"))
-            elif action in ("import_images", "import_textures"):
-                unknown_layers.add(asset_name)
-            continue
-        asset = assets.get(asset_name)
-        if asset is None:
-            problems.append(
-                f"{prefix}: asset {asset_name!r} not found; assets: "
-                + ", ".join(sorted(assets)[:64])
-            )
-            continue
-        if action in ("import_images", "import_textures"):
-            unknown_layers.add(asset_name)
-            continue
-        if action == "insert_filter":
-            virtual_layers.setdefault(asset_name, set()).add(step.get("filter"))
-            continue
-        if action == "insert_material":
-            virtual_layers.setdefault(asset_name, set()).add(step.get("material"))
-            continue
-        if action in ("set_metadata", "activate_channels", "deactivate_channels"):
-            continue
-        if action in (
-            "set_parameters", "apply_preset", "set_channels", "set_blend_parameters",
-            "remove_layer",
-        ):
-            layer_name = step.get("layer")
-            position = step.get("position")
-            layers = list(asset.get_layers())
-            matches = [
-                item for item in layers
-                if _get(item, "name") == layer_name
-                and (position is None or _get(item, "position") == position)
-            ]
-            if len(matches) > 1:
-                problems.append(
-                    f"{prefix}: layer {layer_name!r} is ambiguous; provide position"
-                )
-                continue
-            if not matches:
-                if layer_name in removed.get(asset_name, set()):
-                    problems.append(f"{prefix}: layer {layer_name!r} was removed earlier")
-                elif (
-                    layer_name in virtual_layers.get(asset_name, set())
-                    or asset_name in unknown_layers
-                ):
-                    warnings.append(
-                        f"{prefix}: layer {layer_name!r} is created earlier; "
-                        "structure not preflighted"
-                    )
-                else:
-                    problems.append(
-                        f"{prefix}: layer {layer_name!r} not found; layers: "
-                        + ", ".join(
-                            f"{_get(item, 'name')}@{_get(item, 'position')}"
-                            for item in layers[:64]
-                        )
-                    )
-                continue
-            layer = matches[0]
-            if action == "set_parameters":
-                for identifier, value in (step.get("parameters") or {}).items():
-                    try:
-                        _parameter_value(_parameter(layer, identifier), value)
-                    except Exception as exc:  # noqa: BLE001 -- collected
-                        problems.append(f"{prefix}: {exc}")
-            elif action == "apply_preset":
-                presets = _get(layer, "presets", []) or []
-                if step.get("preset") not in presets:
-                    problems.append(
-                        f"{prefix}: preset {step.get('preset')!r} not found; presets: "
-                        + ", ".join(map(str, presets[:64]))
-                    )
-            elif action == "set_channels":
-                for name in (step.get("applies_to") or []) + (
-                    step.get("blend_applies_to") or []
-                ):
-                    try:
-                        _resolve_usage(asset, name)
-                    except Exception as exc:  # noqa: BLE001 -- collected
-                        problems.append(f"{prefix}: {exc}")
-            elif action == "set_blend_parameters":
-                blend = list(_get(layer, "blend_parameters", []) or [])
-                if not blend:
-                    problems.append(f"{prefix}: layer has no blend parameters")
-                else:
-                    for identifier, value in (step.get("parameters") or {}).items():
-                        try:
-                            _parameter_value(_parameter_in(blend, identifier), value)
-                        except Exception as exc:  # noqa: BLE001 -- collected
-                            problems.append(f"{prefix}: {exc}")
-            elif action == "remove_layer":
-                removed.setdefault(asset_name, set()).add(layer_name)
-                virtual_layers.get(asset_name, set()).discard(layer_name)
-            continue
-        problems.append(f"{prefix}: unknown action")
+        check.check(index, step)
     return {
         "project": rel(root, project),
         "probe": probe,
-        "problems": problems,
-        "warnings": warnings,
-        "assets": sorted(assets),
+        "problems": check.problems,
+        "warnings": check.warnings,
+        "assets": sorted(check.assets),
     }
 
 
@@ -1281,6 +1298,9 @@ def _import_resource(ssa, root, args) -> dict:
             raise ValueError("resource sha256 does not match expected_sha256")
         source = source or actual
     resources = ssa.import_resources(str(path))
+    if source is not None and receipts.sha256_file(path) != source["sha256"]:
+        # Sampler read the file after it was hashed; refuse rather than report it verified.
+        raise ValueError(f"{rel(root, path)} changed while it was imported; nothing was saved")
     result = {
         "path": rel(root, path),
         "resources": [
@@ -1301,8 +1321,8 @@ def _export(ssa, root, args) -> dict:
     wait_seconds = args.get("wait_seconds", 600)
     if type(wait_seconds) not in (int, float) or not 1 <= wait_seconds <= 3600:
         raise ValueError("wait_seconds must be between 1 and 3600")
-    if fmt not in FORMATS:
-        raise ValueError(f"format must be one of: {', '.join(FORMATS)}")
+    if fmt not in EXPORT_FORMATS:
+        raise ValueError(f"format must be one of: {', '.join(EXPORT_FORMATS)}")
     target_name = args.get("target")
     if target_name is not None:
         targets.target(target_name)

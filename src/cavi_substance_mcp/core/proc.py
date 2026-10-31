@@ -111,7 +111,8 @@ async def _stop(transport, protocol, grace: float) -> None:
     if _windows():
         # Windows has no signal a console tool honours, so there is no polite step.
         await _taskkill(pid)
-        transport.kill()
+        with contextlib.suppress(ProcessLookupError):
+            transport.kill()  # fallback; taskkill has usually ended it already
     else:
         _signal_group(pid, signal.SIGTERM)
         with contextlib.suppress(TimeoutError):

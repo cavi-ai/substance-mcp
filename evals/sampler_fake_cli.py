@@ -452,6 +452,10 @@ def module():
             state.path.write_text('{"assets": [')
             time.sleep(60)
         state.save()
+        # Windows can stamp a save within the same clock tick as the copy before it;
+        # a real save comes seconds later. Move the time on so a change is visible.
+        stat = state.path.stat()
+        os.utime(state.path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
         return True
 
     def save_project_as(path):
@@ -492,6 +496,10 @@ def module():
         return found
 
     def import_resources(path):
+        # A sibling "<file>.swap" stands for a file replaced while Sampler imports it.
+        swap = Path(str(path) + ".swap")
+        if swap.exists():
+            Path(path).write_bytes(swap.read_bytes())
         found = [Resource(Path(path).stem)]
         state.imported.extend(found)
         return found

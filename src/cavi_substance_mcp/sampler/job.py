@@ -14,19 +14,25 @@ from pydantic import (
 )
 
 from .. import receipts
-from .names import JOB_FILES, output_directory, plain_name
-from .targets import OUTPUT_KINDS, TEXTURE_FORMATS, target
+from .names import (
+    BLEND_MODES,
+    IMPORT_OPTIONS,
+    JOB_FILES,
+    RESOURCE,
+    USAGE,
+    output_directory,
+    plain_name,
+)
+from .targets import OUTPUT_KINDS, TARGETS, TEXTURE_FORMATS, target
 
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
-USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
 PlainName = Annotated[str, Field(min_length=1, max_length=96)]
 ResourceName = Annotated[str, Field(min_length=1, max_length=128)]
-UsageName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")]
+UsageName = Annotated[str, StringConstraints(pattern=USAGE.pattern)]
 UsageLabel = Annotated[str, Field(min_length=1, max_length=64)]
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_$][A-Za-z0-9_.$]{0,63}$")]
-TargetName = Literal["unreal", "unity", "blender", "generic"]
+TargetName = Literal[tuple(TARGETS)]
 OutputKind = Literal["sbsar", "textures"]
 TextureFormat = Literal["png", "tga", "tif", "exr"]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
@@ -120,10 +126,7 @@ class ImportImages(AssetStep):
     asset: PlainName
     images: Annotated[list[str], Field(min_length=1, max_length=256)]
     position: Annotated[int, Field(ge=0, le=100000)] = 0
-    import_option: Literal[
-        "image_to_material_B2M", "image_to_material_AI_powered", "multiangle_to_material",
-        "use_as_bitmap", "as_channels", "HDR_merge", "use_as_environment",
-    ] = "use_as_bitmap"
+    import_option: Literal[IMPORT_OPTIONS] = "use_as_bitmap"
     insert_above: bool = False
 
     _asset = field_validator("asset")(plain_name)
@@ -245,10 +248,7 @@ class InsertMaterial(AssetStep):
     asset: PlainName
     material: ResourceName
     position: Annotated[int, Field(ge=0, le=100000)] = 0
-    blend_mode: Literal[
-        "blend_ao", "blend_color_id", "blend_curvature", "blend_custom_mask", "blend_opacity",
-        "blend_height", "blend_normal", "blend_per_channel",
-    ] = "blend_normal"
+    blend_mode: Literal[BLEND_MODES] = "blend_normal"
     insert_above: bool = True
 
     _asset = field_validator("asset")(plain_name)
