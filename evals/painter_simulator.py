@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import threading
+import time
 import urllib.parse
 from contextlib import contextmanager
 from enum import Enum
@@ -144,8 +145,21 @@ class Owner:
 
 
 class StopSource:
-    def __bool__(self):
+    """Handle returned by bake_selected_textures_async; request_stop cancels the bake."""
+
+    def __init__(self, simulator):
+        self.simulator = simulator
+        self.requested = False
+
+    def request_stop(self):
+        if not self.simulator.stop_allowed or not self.simulator.bake_running:
+            return False
+        self.requested = True
+        self.simulator.finish_bake(BakingStatus.Cancel)
         return True
+
+    def stop_requested(self):
+        return self.requested
 
 
 class Dispatcher:
@@ -204,6 +218,12 @@ class PainterSimulator:
         self.mesh_maps = {}
         self.last_channel = None
         self.modifying = False
+        self.delay = 0.0  # seconds every scripting request takes, like a long Painter operation
+        self.drop_bake_end = False  # finish bakes without delivering BakingProcessEnded
+        self.stop_allowed = True  # whether request_stop on a running bake succeeds
+        self.stop_source = None
+        self.import_hook = None  # called with the path just before Painter reads an import
+        self.imports = []
         self.reset_bake()
 
     def reset_bake(self):
@@ -217,8 +237,26 @@ class PainterSimulator:
                          "LowpolySuffix": "_low", "HipolySuffix": "_high", "SubSampling": 0})}
 
     def setup(self, state):
+        self.drop_bake_end = False
+        self.stop_allowed = True
         if state == "bake-ended":
             self.finish_bake(BakingStatus.Success)
+            self.state = "open"
+            return
+        if state == "foreign-child-in-group":
+            # Someone adds a layer inside the first group through Painter's own UI.
+            layerstack = self.module.layerstack
+            group = next(node for node in self.nodes.values()
+                         if isinstance(node, layerstack.GroupLayerNode))
+            layerstack.insert_fill(layerstack.InsertPosition.inside_node(
+                group, layerstack.NodeStack.Substack)).set_name("Human layer")
+            self.state = "open"
+            return
+        if state == "bake-end-lost":
+            # Painter finishes the bake but the payload never hears about it.
+            self.drop_bake_end = True
+            self.finish_bake(BakingStatus.Success)
+            self.age_bake(60)
             self.state = "open"
             return
         self.state = state
@@ -239,7 +277,16 @@ class PainterSimulator:
             for usage in self.bake["bakers"]:
                 self.mesh_maps[usage] = ResourceID("project", f"Body_{usage.name}_baked")
         self.module.event.DISPATCHER._trigger(BakingProcessProgress(1.0))
-        self.module.event.DISPATCHER._trigger(BakingProcessEnded(status))
+        if not self.drop_bake_end:
+            self.module.event.DISPATCHER._trigger(BakingProcessEnded(status))
+
+    def age_bake(self, seconds):
+        """Make the payload believe `seconds` more have passed since its last bake activity."""
+        for key, state in vars(self.module).items():
+            if key.startswith("_cavi_mcp_bake_") and isinstance(state, dict):
+                for name in ("started", "progress_at", "busy_at"):
+                    if state.get(name):
+                        state[name] -= seconds
 
     def register(self, node):
         node.uid_value = self.next_uid
@@ -284,10 +331,13 @@ class PainterSimulator:
 
         def import_resource(path, usage, name=None, group=None):
             assert usage in (Usage.TEXTURE, Usage.BASE_MATERIAL) and Path(path).is_file()
+            if self.import_hook:
+                self.import_hook(Path(path))  # e.g. swap the source file at the worst moment
+            self.imports.append({"path": str(path), "usage": usage, "name": name,
+                                 "bytes": Path(path).read_bytes(),
+                                 "folder_mode": Path(path).parent.stat().st_mode & 0o777})
             if self.state == "import-failure":
                 raise RuntimeError("simulated import failure")
-            if self.state == "locked-bitmap-failure":
-                Path(path).parent.chmod(0o500)
             name = name or Path(path).stem
             if usage == Usage.TEXTURE:
                 item = Resource("project", name, [usage], ResourceType.IMAGE)
@@ -536,8 +586,7 @@ class PainterSimulator:
                     raise RuntimeError("EditionContextException: channel not active")
                 if self_simulator.state == "fill-failure" and channel == ChannelType.Roughness:
                     raise RuntimeError("simulated source assignment failure")
-                if (self_simulator.state in {"bitmap-failure", "locked-bitmap-failure"}
-                        and isinstance(color, ResourceID)):
+                if self_simulator.state == "bitmap-failure" and isinstance(color, ResourceID):
                     raise RuntimeError("simulated bitmap assignment failure")
                 source = Bitmap(color) if isinstance(color, ResourceID) else color
                 self.sources[channel] = source
@@ -746,6 +795,11 @@ class PainterSimulator:
             open_project()
 
         def save_copy(path, mode):
+            if self.state == "save-copy-empty":
+                return  # Painter returns without producing a file
+            if self.state == "save-copy-failure":
+                Path(path).write_bytes(b"partial")
+                raise RuntimeError("simulated save failure")
             Path(path).write_bytes(b"simulated-spp")
 
         def file_path():
@@ -889,9 +943,10 @@ class PainterSimulator:
                 raise RuntimeError("simulated bake launch failure")
             sim.bake_running = True
             sim.bake_calls += 1
+            sim.stop_source = StopSource(sim)
             if sim.state == "bake-instant":
                 sim.finish_bake(BakingStatus.Success)
-            return StopSource()
+            return sim.stop_source
 
         module.baking = SimpleNamespace(
             BakingParameters=BakingParameters, MeshMapUsage=MeshMapUsage,
@@ -1008,6 +1063,8 @@ class PainterSimulator:
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 expression = base64.b64decode(request["python"], validate=True).decode()
                 self.server.requests.append(len(expression))
+                if self.server.owner.delay:
+                    time.sleep(self.server.owner.delay)
                 try:
                     result = eval(expression)
                 except Exception as exc:  # noqa: BLE001 -- mirror the remote scripting error boundary
@@ -1020,6 +1077,7 @@ class PainterSimulator:
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         self.server.requests = self.requests = []
+        self.server.owner = self
         self.port = self.server.server_port
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

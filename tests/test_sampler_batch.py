@@ -653,6 +653,48 @@ class BatchTests(unittest.TestCase):
         self.assertTrue(plan["preflight_skip_resources"])
         self.assertIn("preflight_warnings", plan)
 
+    def slug_job(self, directory, names, exports):
+        steps = []
+        for name in names:
+            steps.append({"action": "create_asset", "name": name})
+            steps.append({"action": "insert_filter", "asset": name, "filter": "Tiling",
+                          "position": 0})
+        return {
+            "schema": 1,
+            "directory": directory,
+            "project": {"name": "Slugs"},
+            "steps": steps + exports,
+        }
+
+    def test_export_names_that_change_when_slugged(self):
+        names = ["Rock 01", "Photo PBR", "Mossy (rock) #2", "Caf\u00e9 Stone"]
+        slugs = ["Rock_01", "Photo_PBR", "Mossy_rock_2", "Caf_Stone"]
+        data = self.slug_job("jobs/slugs", names, [
+            {"action": "export", "asset": "Rock 01", "outputs": ["sbsar"],
+             "directory": "single"},
+            {"action": "export", "assets": names, "outputs": ["sbsar"],
+             "directory": "several"},
+            {"action": "export", "all_assets": True, "outputs": ["sbsar"],
+             "directory": "everything"},
+        ])
+        manifest = batch.run_job_file(self.write_job("slugs.json", data), self.workspace)
+        outputs = {row["path"] for row in manifest["outputs"]}
+        self.assertIn("jobs/slugs/single/Rock_01/sbsar/Rock 01.sbsar", outputs)
+        for selector in ("several", "everything"):
+            for name, slug in zip(names, slugs, strict=True):
+                self.assertIn(f"jobs/slugs/{selector}/{slug}/sbsar/{name}.sbsar", outputs)
+
+    def test_export_slug_collisions_are_refused(self):
+        for first, second in (("A B", "A_B"), ("Rock", "rock")):
+            with self.subTest(first=first, second=second):
+                data = self.slug_job(f"jobs/clash-{len(first)}{first[0]}", [first, second], [
+                    {"action": "export", "assets": [first, second], "outputs": ["sbsar"]},
+                ])
+                path = self.write_job(f"clash-{len(first)}{first[0]}.json", data)
+                with self.assertRaisesRegex(ValueError, "share export directory"):
+                    batch.run_job_file(path, self.workspace)
+                self.assertFalse((self.workspace / data["directory"]).exists())
+
     def test_remove_layer(self):
         data = job_data(directory="jobs/remove")
         data["steps"].insert(-1, {"action": "remove_layer", "asset": "Rock",
@@ -676,6 +718,77 @@ class BatchTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in results], ["success", "success"])
         self.assertTrue((self.workspace / "jobs/lock1/manifest.json").is_file())
         self.assertTrue((self.workspace / "jobs/lock2/manifest.json").is_file())
+
+    def slow_job(self, name, directory):
+        data = job_data(directory=directory, asset="slow")
+        return self.write_job(f"{name}.json", data)
+
+    async def cancel_running_job(self, path, directory, **options):
+        task = asyncio.create_task(batch.run_job_file_async(
+            path, self.workspace, TIMEOUT, **options))
+        progress = self.workspace / directory / "progress.jsonl"
+        for _ in range(200):
+            if progress.is_file() and '"export"' in progress.read_text():
+                break
+            await asyncio.sleep(0.1)
+        else:
+            self.fail("job never reached the export step")
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    def test_cancelled_job_removes_its_directory(self):
+        path = self.slow_job("cancel", "jobs/cancel")
+        asyncio.run(self.cancel_running_job(path, "jobs/cancel"))
+        self.assertFalse((self.workspace / "jobs/cancel").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
+        retry = self.write_job("cancel-retry.json", job_data(directory="jobs/cancel"))
+        self.assertEqual(batch.run_job_file(retry, self.workspace)["status"], "success")
+
+    def test_cancelled_job_keeps_failure_record_on_request(self):
+        path = self.slow_job("cancel-keep", "jobs/cancel-keep")
+        asyncio.run(self.cancel_running_job(path, "jobs/cancel-keep", keep_on_failure=True))
+        folder = self.workspace / "jobs/cancel-keep"
+        failure = json.loads((folder / "failure.json").read_text())
+        self.assertEqual(failure["status"], "failed")
+        self.assertTrue(failure["cancelled"])
+        self.assertFalse((folder / "manifest.json").exists())
+
+    def test_interrupt_removes_job_directory(self):
+        path = self.write_job("interrupt.json", job_data(directory="jobs/interrupt"))
+        with (
+            patch.object(batch.operations, "invoke_job", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            asyncio.run(batch.run_job_file_async(path, self.workspace, TIMEOUT))
+        self.assertFalse((self.workspace / "jobs/interrupt").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
+
+    def test_cancelled_queued_job_does_not_leak_the_lock(self):
+        queued = self.write_job("queued.json", job_data(directory="jobs/queued"))
+        later = self.write_job("later.json", job_data(directory="jobs/later"))
+        holder = batch.WorkspaceLock(self.workspace, 0)
+        holder.__enter__()
+
+        async def scenario():
+            waiting = asyncio.create_task(batch.run_job_file_async(
+                queued, self.workspace, TIMEOUT, lock_timeout=30))
+            await asyncio.sleep(0.6)
+            waiting.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await waiting
+            holder.__exit__()
+            # A background acquire that outlived the cancelled task would win the
+            # lock in this window and never release it.
+            await asyncio.sleep(0.8)
+            self.assertFalse(batch.lock_held(self.workspace))
+            return await batch.run_job_file_async(
+                later, self.workspace, TIMEOUT, lock_timeout=2)
+
+        manifest = asyncio.run(scenario())
+        self.assertEqual(manifest["status"], "success")
+        self.assertFalse((self.workspace / "jobs/queued").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
 
     def test_cli_check_sampler_and_doctor_launch(self):
         path = self.write_job("cli-check.json", job_data(directory="jobs/cli-check"))

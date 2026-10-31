@@ -1,5 +1,6 @@
 import base64
 import json
+import shutil
 import socket
 import tempfile
 import threading
@@ -178,7 +179,8 @@ class BreakTests(unittest.TestCase):
         result = self.brk()
         self.assertEqual(result["previous_owner"], "agent-A")
         self.assertFalse(result["active"])
-        with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(self.token, lambda: "P"):
+        with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(
+                self.token, lambda: "P"):
             self.fail("Broken lease still edits")
         with self.assertRaisesRegex(RuntimeError, "No active lease"):
             self.brk()
@@ -205,7 +207,8 @@ class ProjectTests(unittest.TestCase):
     def test_missing_expected_file_is_a_validation_error(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             client = OwnedPainterClient(port=simulator.port, workspace=Path(folder))
-            with self.assertRaisesRegex(RuntimeError, "ValueError: Missing required.*expected_file"):
+            with self.assertRaisesRegex(
+                    RuntimeError, "ValueError: Missing required.*expected_file"):
                 client.call("close_project", {})
             self.assertTrue(client.call("status")["open"])
 
@@ -267,15 +270,21 @@ class TextureCleanupTests(unittest.TestCase):
             self.assertEqual(simulator.resources, [])
 
     def test_unremovable_temp_is_reported(self):
+        real = shutil.rmtree
+
+        def stuck(path, *args, **kwargs):
+            # With ignore_errors, an undeletable directory is silently left behind.
+            if not Path(path).name.startswith(".cavi-bitmap-"):
+                real(path, *args, **kwargs)
+
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
-            simulator.setup("locked-bitmap-failure")
-            try:
-                with self.assertRaisesRegex(RuntimeError, r"temporary files kept.*\.cavi-bitmap-"):
-                    self.fill(folder, simulator)
-                self.assertEqual(len(list(Path(folder).glob(".cavi-bitmap-*"))), 1)
-            finally:
-                for path in Path(folder).glob(".cavi-bitmap-*"):
-                    path.chmod(0o700)
+            simulator.setup("bitmap-failure")
+            with (
+                patch("shutil.rmtree", stuck),
+                self.assertRaisesRegex(RuntimeError, r"temporary files kept.*\.cavi-bitmap-"),
+            ):
+                self.fill(folder, simulator)
+            self.assertEqual(len(list(Path(folder).glob(".cavi-bitmap-*"))), 1)
 
 
 if __name__ == "__main__":

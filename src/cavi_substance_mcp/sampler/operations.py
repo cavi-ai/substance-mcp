@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import math
 import os
@@ -9,18 +10,21 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from .. import receipts
 from ..painter_operations import export_destination, input_file, remove_tree
+from . import names as filenames
 from . import runner, targets
+from .errors import AppRunning
+from .lock import WorkspaceLock
 
 PROJECT = {".ssa"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".hdr", ".bmp", ".psd"}
 RESOURCE_FILES = {".sbsar", ".sbs"}
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
-NAME = re.compile(r"^[^/\\<>:\"|?*\x00-\x1f\x7f]{1,96}$")
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
 FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")
 MATERIAL_TYPES = ("standard", "decal", "atlas")
@@ -34,6 +38,17 @@ IMPORT_OPTIONS = (
     "use_as_environment",
 )
 RESPONSE_LIMIT = 8 * 1024 * 1024
+LOCK_WAIT = 60
+WORK_PREFIX = ".cavi-work-"
+# Operations that save the project they open. They run on a disposable copy so a
+# failure or a timeout kill can never leave the user's .ssa half written.
+MUTATING = frozenset({
+    "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
+    "insert_material", "set_parameters", "apply_preset", "set_metadata",
+    "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
+    "remove_layer",
+})
+_HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
 BLEND_MODES = (
@@ -137,8 +152,43 @@ async def _tail_progress(path: Path, callback, stop: asyncio.Event):
         await asyncio.sleep(0.2)
 
 
+@contextlib.asynccontextmanager
+async def exclusive(root, lock_timeout: float = LOCK_WAIT):
+    """Hold the workspace lock for one or more Sampler launches.
+
+    Every launch goes through this, so single-operation tools, preflight checks and
+    batch jobs never run Sampler concurrently. Re-entrant within one task so a batch
+    job can hold the lock across its directory setup and the launch itself.
+    """
+    root = Path(root)
+    key = str(root.resolve())
+    if key in _HELD.get():
+        yield
+        return
+    async with WorkspaceLock(root, lock_timeout):
+        token = _HELD.set(_HELD.get() | {key})
+        try:
+            yield
+        finally:
+            _HELD.reset(token)
+
+
 async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None,
-                       on_progress=None) -> dict:
+                       on_progress=None, lock_timeout: float = LOCK_WAIT,
+                       aliases=None) -> dict:
+    async with exclusive(payload["workspace"], lock_timeout):
+        # Checked under the lock, immediately before launching, so two of our own
+        # launches cannot race each other between the check and the start.
+        if runner.running():
+            raise AppRunning(
+                "Sampler is already running. Save and quit it; Sampler runs startup "
+                "scripts only when no other instance is active."
+            )
+        return await _launch(payload, timeout_seconds, progress_file, on_progress, aliases)
+
+
+async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
+                  on_progress=None, aliases=None) -> dict:
     job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
     request, response, script = job / "request.json", job / "response.json", job / "run.py"
     stop = asyncio.Event()
@@ -180,11 +230,15 @@ async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None
                 payload.get("error") if isinstance(payload, dict) else payload
                 or "Sampler operation failed"
             )
+            detail = _unalias(detail, aliases)
             for kind in (ValueError, FileExistsError, TypeError, RuntimeError):
                 prefix = f"{kind.__name__}: "
                 if detail.startswith(prefix):
                     raise kind(detail[len(prefix):])
             raise RuntimeError(detail)
+        if result.returncode != 0:
+            # A response file proves the script ran, not that Sampler shut down cleanly.
+            raise RuntimeError(runner.failure(result))
         reply = payload.get("result")
         if not isinstance(reply, dict):
             raise TypeError("Sampler operation returned an unexpected response")
@@ -197,34 +251,82 @@ async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None
         remove_tree(job)
 
 
+def _unalias(value, aliases):
+    if not aliases:
+        return value
+    if isinstance(value, str):
+        for old, new in aliases.items():
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, list):
+        return [_unalias(item, aliases) for item in value]
+    if isinstance(value, dict):
+        return {key: _unalias(item, aliases) for key, item in value.items()}
+    return value
+
+
+async def _copy_file(source: Path, target: Path) -> None:
+    """Copy without blocking the event loop or leaving a stray thread on cancellation."""
+    with source.open("rb") as reader, target.open("wb") as writer:
+        while chunk := reader.read(8 * 1024 * 1024):
+            writer.write(chunk)
+            await asyncio.sleep(0)
+    shutil.copystat(source, target)
+
+
+async def _invoke_on_copy(root: Path, operation: str, arguments: dict,
+                          timeout_seconds: float, lock_timeout: float) -> dict:
+    """Run a mutating operation on a copy and replace the project only on success."""
+    original = _input(root, arguments["project"], PROJECT)
+    work = original.with_name(f"{WORK_PREFIX}{uuid.uuid4().hex[:12]}-{original.name}")
+    aliases = {_rel(root, work): _rel(root, original)}
+    try:
+        await _copy_file(original, work)
+        reply = await _run_payload(
+            {"operation": operation, "workspace": str(root),
+             "arguments": {**arguments, "project": _rel(root, work)}},
+            timeout_seconds, lock_timeout=lock_timeout, aliases=aliases,
+        )
+        if reply.get("saved"):
+            if not work.is_file() or work.stat().st_size == 0:
+                raise RuntimeError("Sampler reported a save but wrote no project data")
+            os.replace(work, original)
+    finally:
+        work.unlink(missing_ok=True)
+    return _unalias(reply, aliases)
+
+
 async def invoke(operation: str, arguments: dict, timeout_seconds: float,
-                 workspace_path=None) -> dict:
+                 workspace_path=None, lock_timeout: float = LOCK_WAIT) -> dict:
     if workspace_path is None:
         root = workspace(create=True)
     else:
         root = Path(workspace_path).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-    if runner.running():
-        raise RuntimeError(
-            "Sampler is already running. Save and quit it; Sampler runs startup scripts only "
-            "when no other instance is active."
-        )
+    if operation in MUTATING and arguments.get("project") is not None:
+        # Hold the lock across copy, run and replace so two edits of one project
+        # cannot lose each other's changes.
+        async with exclusive(root, lock_timeout):
+            return await _invoke_on_copy(
+                root, operation, arguments, timeout_seconds, lock_timeout)
     return await _run_payload(
         {"operation": operation, "arguments": arguments, "workspace": str(root)},
-        timeout_seconds,
+        timeout_seconds, lock_timeout=lock_timeout,
     )
 
 
 async def invoke_preflight(job: dict, timeout_seconds: float, workspace_path,
-                           project: str) -> dict:
+                           project: str, lock_timeout: float = LOCK_WAIT) -> dict:
     root = Path(workspace_path).expanduser().resolve()
     return await _run_payload(
-        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds
+        {"preflight": job, "workspace": str(root), "project": project}, timeout_seconds,
+        lock_timeout=lock_timeout,
     )
 
 
 async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
-                     progress_file=None, on_progress=None) -> dict:
+                     progress_file=None, on_progress=None,
+                     lock_timeout: float = LOCK_WAIT) -> dict:
     if workspace_path is None:
         root = workspace(create=True)
     else:
@@ -232,7 +334,7 @@ async def invoke_job(job: dict, timeout_seconds: float, workspace_path=None,
         root.mkdir(parents=True, exist_ok=True)
     return await _run_payload(
         {"job": job, "workspace": str(root)}, timeout_seconds,
-        progress_file=progress_file, on_progress=on_progress,
+        progress_file=progress_file, on_progress=on_progress, lock_timeout=lock_timeout,
     )
 
 
@@ -254,17 +356,53 @@ def _wait_changed(path: Path, before: int | None, timeout: float = 30) -> None:
     raise RuntimeError("Sampler did not finish saving the project")
 
 
-def _wait_files(directory: Path, timeout: float = 600) -> list[Path]:
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _missing_maps(files: list[Path], expected) -> list[str]:
+    names = [_squash(item.stem) for item in files]
+    return [name for name in expected if not any(_squash(name) in item for item in names)]
+
+
+def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float = 0.2,
+                grace: float = 3.0) -> list[Path]:
+    """Wait for a finished export: every expected map present and no file still growing.
+
+    A file counts as finished once its size is unchanged between two polls. Files that
+    are stable but still lack an expected map fail after ``grace`` seconds instead of
+    waiting out the full timeout, because the export controller has already returned.
+    """
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    previous, settled_since = None, None
+    while True:
         files = sorted(
             item for item in directory.rglob("*")
             if item.is_file() and not item.is_symlink() and item.stat().st_size
         )
-        if files:
-            return files
-        time.sleep(0.1)
-    return []
+        sizes = {item: item.stat().st_size for item in files}
+        now = time.monotonic()
+        missing = _missing_maps(files, expected)
+        if files and sizes == previous:
+            if not missing:
+                return files
+            settled_since = settled_since or now
+            if now - settled_since >= min(grace, timeout):
+                break
+        else:
+            settled_since = None
+        previous = sizes
+        if now >= deadline:
+            break
+        time.sleep(poll)
+    if not files:
+        raise RuntimeError("Sampler exported no files")
+    if missing:
+        raise RuntimeError(
+            "Sampler export is incomplete; missing maps: " + ", ".join(missing)
+            + "; found: " + ", ".join(item.name for item in files[:16])
+        )
+    raise RuntimeError("Sampler export files were still changing when the wait ended")
 
 
 def _root(value) -> Path:
@@ -300,10 +438,10 @@ def _new_directory(root: Path, name: str) -> Path:
 def _name(value, label: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string")
-    value = value.strip()
-    if not NAME.fullmatch(value) or value in (".", "..") or value.endswith("."):
-        raise ValueError(f"{label} must be a plain file name")
-    return value
+    try:
+        return filenames.plain_name(value)
+    except ValueError:
+        raise ValueError(f"{label} must be a plain file name") from None
 
 
 def _resource_label(value, label: str) -> str:
@@ -1008,6 +1146,8 @@ def _create_asset(ssa, root, args) -> dict:
     path = _open(ssa, root, args.get("project"))
     if path is None:
         raise ValueError("project is required for action=create")
+    if any(_get(item, "name") == name for item in ssa.get_project_assets()):
+        raise ValueError(f"Asset {name!r} already exists in the project")
     model_name = args.get("model") or "asm"
     if model_name not in ("asm", "openpbr"):
         raise ValueError("model must be asm or openpbr")
@@ -1276,7 +1416,8 @@ def _set_metadata(ssa, root, args) -> dict:
         if not isinstance(custom, dict) or len(custom) > 64:
             raise ValueError("custom_metadata must be an object with at most 64 entries")
         for key, value in custom.items():
-            if not isinstance(key, str) or not isinstance(value, (bool, int, float, str, type(None))):
+            simple = (bool, int, float, str, type(None))
+            if not isinstance(key, str) or not isinstance(value, simple):
                 raise TypeError("custom_metadata keys and values must be simple JSON values")
         metadata.custom_metadata = dict(custom)
     ssa.wait_for_computation()
@@ -1551,9 +1692,11 @@ def _export(ssa, root, args) -> dict:
             options["h_resolution"] = resolution
         asset.export_material(**options)
         controller.wait()
-        files = _wait_files(destination, wait_seconds)
-        if not files:
-            raise RuntimeError("Sampler exported no files")
+        expected = ()
+        if target_name is not None and channels is None and args.get("preset") is None:
+            # Only the target's own preset promises its map set.
+            expected = targets.target(target_name).maps
+        files = _wait_files(destination, wait_seconds, expected)
         manifest = receipts.build(
             "sampler", "export", root, inputs=[project], outputs=files,
             parameters=plan, seconds=time.monotonic() - started,
@@ -1581,9 +1724,9 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
     elif step.get("assets"):
         names = list(dict.fromkeys(step["assets"]))
     elif step.get("all_assets"):
-        names = [
+        names = list(dict.fromkeys(
             _get(item, "name") for item in ssa.get_project_assets() if item.get_layers()
-        ]
+        ))
     else:
         raise ValueError("export needs asset, assets or all_assets")
     if not names:
@@ -1593,15 +1736,19 @@ def _job_export(ssa, root: Path, job_dir: Path, project: str, step: dict) -> dic
     preset = step.get("preset")
     if preset is None:
         preset = targets.preset_for(target_name)
-    slugs = {}
+    directories, owners = {}, {}
     for name in names:
         slug = _slug(name)
-        if slug in slugs:
-            raise ValueError(f"Assets {slugs[slug]!r} and {name!r} share export directory {slug!r}")
-        slugs[slug] = name
+        # Compare case-insensitively: macOS and Windows volumes would merge the folders.
+        owner = owners.setdefault(slug.casefold(), name)
+        if owner != name:
+            raise ValueError(
+                f"Assets {owner!r} and {name!r} share export directory {slug!r}"
+            )
+        directories[name] = slug
     rows = []
     for name in names:
-        asset_dir = base / slugs[name]
+        asset_dir = base / directories[name]
         asset_dir.mkdir(parents=True, exist_ok=True)
         for kind in step.get("outputs") or ["sbsar", "textures"]:
             directory = _rel(root, asset_dir / kind)

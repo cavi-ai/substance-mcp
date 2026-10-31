@@ -1,5 +1,6 @@
 """Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
 
+from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -26,10 +27,13 @@ mcp = FastMCP(
         "Use sampler_build for multi-step batch jobs."
     ),
 )
+# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
+mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
 ProjectPath = Annotated[str, Field(description="Existing .ssa relative to the workspace.")]
 NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
@@ -113,8 +117,9 @@ async def sampler_inspect(
     unexpected = extras(action, given, INSPECT_PARAMS)
     if unexpected:
         raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
-    if action == "asset":
+    if action in ("project", "asset"):
         need(project, "project", action)
+    if action == "asset":
         need(asset, "asset", action)
     arguments = {key: value for key, value in given.items() if value is not None}
     operation = {"project": "inspect_project", "asset": "inspect_asset",
@@ -145,7 +150,7 @@ async def sampler_project(
     }, timeout_seconds)
 
 
-@mcp.tool(annotations=WRITES)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def sampler_asset(
     action: Literal[
         "create", "delete", "import_resource", "set_metadata", "activate_channels",
@@ -160,7 +165,9 @@ async def sampler_asset(
     empty: StrictBool = False,
     metadata: AssetMetadata | None = None,
     channels: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
-    path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
+    path: Annotated[
+        str | None, Field(description="import_resource: workspace .sbsar or .sbs.")
+    ] = None,
     source_manifest: str | None = None,
     expected_sha256: str | None = None,
     resources: Annotated[list[ResourceNameArg] | None, Field(min_length=1, max_length=64)] = None,
@@ -171,9 +178,13 @@ async def sampler_asset(
     filter: PlainName | None = None,
     material: PlainName | None = None,
     blend_mode: BlendMode = "blend_normal",
+    confirm: Annotated[StrictBool, Field(description="Required true for action=delete.")] = False,
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """Create assets/resources, set metadata or channels, or extend asset layers."""
+    """Create assets/resources, set metadata or channels, or extend asset layers.
+
+    Edits run on a copy that replaces the project only after Sampler saved it.
+    """
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
         "empty": empty, "metadata": metadata, "channels": channels, "path": path,
@@ -200,6 +211,10 @@ async def sampler_asset(
     unexpected = extras(action, values, ASSET_PARAMS)
     if unexpected:
         raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    if action == "delete" and not confirm:
+        raise ValueError("confirm must be true for action=delete")
+    if action != "delete" and confirm:
+        raise ValueError("confirm is only valid for action=delete")
     if action == "create":
         need(name, "name", action)
     if action == "import_resource":
@@ -259,7 +274,7 @@ async def sampler_asset(
     return await operations.invoke(operation, arguments, timeout_seconds)
 
 
-@mcp.tool(annotations=WRITES)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def sampler_layer(
     action: Literal[
         "set_parameters", "apply_preset", "set_channels", "set_blend_parameters", "remove",
@@ -338,7 +353,10 @@ async def sampler_export(
     directory: NewDirectory,
     asset: AssetName | None = None,
     target: TargetName | None = None,
-    format: ExportFormat = "sbsar",
+    format: Annotated[
+        ExportFormat | None,
+        Field(description="Default sbsar, or png when target is set."),
+    ] = None,
     preset: Annotated[str | None, Field(max_length=128)] = None,
     channels: Annotated[list[str] | None, Field(max_length=64)] = None,
     resolution: Annotated[StrictInt | None, Field(ge=64, le=8192)] = None,
@@ -350,7 +368,9 @@ async def sampler_export(
 ) -> dict[str, Any]:
     """Preview or export an asset into a new workspace directory."""
     if target is not None and format in ("sbsar", "sbs"):
-        format = "png"
+        raise ValueError("target exports textures; use png, tga, tif or exr")
+    if format is None:
+        format = "png" if target is not None else "sbsar"
     return await operations.invoke("export", {
         "project": project, "directory": directory, "asset": asset, "target": target,
         "format": format, "preset": preset, "channels": channels, "resolution": resolution,
@@ -362,13 +382,13 @@ async def sampler_export(
 @mcp.tool(annotations=WRITES)
 async def sampler_build(
     job: JobFile,
-    dry_run: StrictBool = False,
+    dry_run: Annotated[StrictBool, Field(description="Only explicit false runs the job.")] = True,
     check_sampler: StrictBool = False,
     check_project: StrictBool = False,
     check_build: StrictBool = False,
     timeout_seconds: Timeout = 1800,
 ) -> dict[str, Any]:
-    """Validate or run a batch job file and return its manifest or plan."""
+    """Validate a batch job file (default) or, with dry_run=false, run it."""
     if (check_sampler or check_project or check_build) and not dry_run:
         raise ValueError(
             "check_sampler, check_project and check_build require dry_run=true"

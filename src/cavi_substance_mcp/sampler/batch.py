@@ -1,43 +1,26 @@
 """Host-side execution, locking and manifests for Sampler batch jobs."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
-import os
 import shutil
-import sys
 import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .. import receipts
 from . import job as jobs
 from . import operations, runner, targets
-
-if sys.platform == "win32":
-    import msvcrt
-else:
-    import fcntl
-
-
-class BatchError(RuntimeError):
-    code = 5
-
-
-class AppUnavailable(BatchError):
-    code = 3
-
-
-class AppRunning(BatchError):
-    code = 4
-
-
-class LockTimeout(BatchError):
-    code = 4
-
-
-class JobTimeout(BatchError, TimeoutError):
-    code = 6
+from .errors import (  # noqa: F401 -- re-exported for callers of this module
+    AppRunning,
+    AppUnavailable,
+    BatchError,
+    JobTimeout,
+    LockTimeout,
+)
+from .lock import WorkspaceLock, lock_held  # noqa: F401 -- re-exported
 
 
 def _root(workspace_path=None) -> Path:
@@ -64,31 +47,27 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _files(root: Path, job_dir: Path, skip: set[str]) -> list[dict]:
-    rows = []
-    for path in sorted(job_dir.rglob("*")):
-        if not path.is_file() or path.is_symlink() or path.name in skip:
-            continue
-        rows.append({
-            "path": path.relative_to(root).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": _sha256(path),
-        })
-    return rows
+# Bookkeeping files at the top of a job directory. Per-export receipts deeper in the
+# tree are outputs, so verifying the job manifest also verifies them.
+_JOB_FILES = {"manifest.json", "failure.json", "progress.jsonl"}
+
+
+def _outputs(job_dir: Path) -> list[Path]:
+    return [
+        path for path in sorted(job_dir.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+        and not (path.parent == job_dir and path.name in _JOB_FILES)
+    ]
 
 
 def _inputs(root: Path, job: jobs.Job) -> list[dict]:
-    rows = []
+    paths = []
     for name in jobs.input_paths(job):
         path = (root / name).resolve()
         if not path.is_file():
             raise jobs.JobValidationError(f"input {name!r} does not exist")
-        rows.append({
-            "path": path.relative_to(root).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": _sha256(path),
-        })
-    return rows
+        paths.append(path)
+    return receipts.records(paths, root)
 
 
 def _job_dir(root: Path, job: jobs.Job) -> Path:
@@ -100,60 +79,6 @@ def _job_dir(root: Path, job: jobs.Job) -> Path:
     if not path.parent.is_dir():
         raise jobs.JobValidationError("job directory parent must exist")
     return path
-
-
-class WorkspaceLock:
-    def __init__(self, root: Path, timeout: float = 300):
-        self.path = root / ".cavi-sampler.lock"
-        self.timeout = timeout
-        self.fd = None
-
-    def _try(self) -> bool:
-        fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            if sys.platform == "win32":
-                if os.fstat(fd).st_size == 0:
-                    os.write(fd, b"\0")
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            else:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            os.close(fd)
-            return False
-        self.fd = fd
-        return True
-
-    def __enter__(self):
-        deadline = time.monotonic() + self.timeout
-        while not self._try():
-            if time.monotonic() >= deadline:
-                raise LockTimeout("another Sampler batch job holds the workspace lock")
-            time.sleep(0.2)
-        return self
-
-    def __exit__(self, *_):
-        if self.fd is None:
-            return
-        try:
-            if sys.platform == "win32":
-                os.lseek(self.fd, 0, os.SEEK_SET)
-                msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
-        finally:
-            os.close(self.fd)
-            self.fd = None
-
-
-def lock_held(root: Path) -> bool:
-    if not root.is_dir() or not (root / ".cavi-sampler.lock").is_file():
-        return False
-    probe = WorkspaceLock(root, timeout=0)
-    if probe._try():
-        probe.__exit__()
-        return False
-    return True
 
 
 def app_available(wait_seconds: float = 0) -> None:
@@ -267,15 +192,11 @@ def check_sampler(plan: dict, probe: dict) -> None:
 async def probe_sampler_async(workspace_path=None, timeout_seconds: float = 300,
                             lock_timeout: float = 30) -> dict:
     root = _root(workspace_path)
-    lock = WorkspaceLock(root, lock_timeout)
-    await asyncio.to_thread(lock.__enter__)
-    try:
+    async with operations.exclusive(root, lock_timeout):
         app_available(0)
         return await operations.invoke(
             "probe", {}, timeout_seconds, workspace_path=str(root)
         )
-    finally:
-        lock.__exit__()
 
 
 def probe_sampler(workspace_path=None, timeout_seconds: float = 300,
@@ -428,48 +349,46 @@ def doctor(workspace_path=None) -> dict:
     }
 
 
-def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict,
-              started: str, seconds: float) -> dict:
-    found = runner.installation()
-    manifest = {
-        "schema": 1,
-        "app_name": "sampler",
-        "operation": "build",
+def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: str,
+              seconds: float, inputs: list[dict]) -> dict:
+    manifest = receipts.build(
+        "sampler", "build", root,
+        inputs=[root / row["path"] for row in inputs], outputs=_outputs(job_dir),
+        started=started, seconds=seconds, version=runner.installation().version,
+    )
+    if manifest["inputs"] != inputs:
+        raise jobs.JobValidationError(
+            "an input changed while the job ran; its outputs cannot be attributed to it"
+        )
+    manifest.update({
         "status": "success",
         "job": (job_dir / "job.json").relative_to(root).as_posix(),
         "job_sha256": _sha256(job_dir / "job.json"),
-        "workspace": str(root),
-        "app": {
-            "executable": str(found.executable) if found.executable else None,
-            "version": found.version,
-        },
-        "started": started,
-        "seconds": round(seconds, 3),
         "project": result.get("project"),
         "source": result.get("source"),
         "assets": result.get("assets", []),
         "steps": result.get("steps", []),
-        "inputs": _inputs(root, job),
-    }
-    manifest["outputs"] = _files(root, job_dir, {"manifest.json", "failure.json", "progress.jsonl"})
-    (job_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
-    )
+    })
+    receipts.write(job_dir, manifest)
     return manifest
 
 
-def _failure(root: Path, job_dir: Path, path: Path, error: Exception,
+def _failure(root: Path, job_dir: Path, path: Path, error: BaseException,
              started: str, seconds: float) -> dict:
+    cancelled = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt))
     payload = {
         "schema": 1,
-        "app_name": "sampler",
+        "app": "sampler",
         "operation": "build",
         "status": "failed",
         "job": path.relative_to(root).as_posix(),
-        "workspace": str(root),
         "started": started,
         "seconds": round(seconds, 3),
-        "error": f"{type(error).__name__}: {error}",
+        "cancelled": cancelled,
+        "error": (
+            f"cancelled before completion ({type(error).__name__})" if cancelled
+            else f"{type(error).__name__}: {error}"
+        ),
     }
     (job_dir / "failure.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
@@ -486,10 +405,9 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
     jobs.validate_paths(loaded, root)
     started = datetime.now(UTC).isoformat()
     clock = time.monotonic()
-    lock = WorkspaceLock(root, lock_timeout)
-    await asyncio.to_thread(lock.__enter__)
-    try:
+    async with operations.exclusive(root, lock_timeout):
         app_available(wait_for_app)
+        inputs = _inputs(root, loaded)
         job_dir = _job_dir(root, loaded)
         job_dir.mkdir()
         payload = loaded.model_dump(by_alias=True)
@@ -501,18 +419,19 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )
-            return _manifest(root, job_dir, path, loaded, result, started,
-                             time.monotonic() - clock)
-        except Exception as exc:
+            return _manifest(root, job_dir, loaded, result, started,
+                             time.monotonic() - clock, inputs)
+        except BaseException as exc:
+            # Cancellation and interrupts are not Exceptions; without this a cancelled
+            # run left jobs/<dir> behind and a retry into that directory was refused.
             if keep_on_failure:
-                _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
+                with contextlib.suppress(OSError):
+                    _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
             else:
                 operations.remove_tree(job_dir)
             if isinstance(exc, TimeoutError):
                 raise JobTimeout(str(exc)) from exc
             raise
-    finally:
-        lock.__exit__()
 
 
 def run_job_file(name, workspace_path=None, timeout_seconds: float = 1800,

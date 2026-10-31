@@ -3,14 +3,24 @@
 import json
 import os
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 
 VERSION = "0.0.0-fake"
-FILTERS = ["Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile", "Delighter (AI Powered)"]
+FILTERS = [
+    "Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile",
+    "Delighter (AI Powered)",
+]
 MATERIALS = ["Brick", "Fabric", "Metal"]
 GENERATORS = ["Noise", "Gradient", "Cells"]
 PRESETS = ["Unreal Engine 4", "Blender Cycles/Eevee", "Unity HD Render Pipeline Standard"]
+PRESET_MAPS = {
+    "Unreal Engine 4": ["basecolor", "normal", "occlusionroughnessmetallic"],
+    "Unity HD Render Pipeline Standard": ["basecolor", "normal", "maskmap"],
+    "Blender Cycles/Eevee": ["basecolor", "normal", "roughness", "metallic"],
+}
 
 
 class Resource:
@@ -310,20 +320,40 @@ class Asset:
         self.state.save()
 
     def export_material(self, path, name="", format="sbsar", channels=(), controller=None,
-                        w_resolution=0, h_resolution=0, **_):
+                        w_resolution=0, h_resolution=0, **options):
         if "fail" in self.name.lower():
             raise RuntimeError("fake export failure")
+        if "slow" in self.name.lower():
+            time.sleep(float(os.environ.get("FAKE_SAMPLER_SLOW", "30")))
         target = Path(path)
         target.mkdir(parents=True, exist_ok=True)
         name = name or self.name
         if "silent" in self.name.lower():
             return str(target)
         fmt = str(format)
+        mode = os.environ.get("FAKE_SAMPLER_EXPORT")
         if fmt in ("sbsar", "sbs"):
-            (target / f"{name}.{fmt}").write_text("fake")
+            written = [target / f"{name}.{fmt}"]
         else:
-            for channel in channels or ["basecolor", "normal", "roughness", "metallic"]:
-                (target / f"{name}_{channel}.{fmt}").write_text("fake")
+            preset = options.get("preset")
+            maps = channels or PRESET_MAPS.get(
+                getattr(preset, "name", None), ["basecolor", "normal", "roughness", "metallic"]
+            )
+            if mode == "missing":
+                maps = maps[:-1]
+            written = [target / f"{name}_{channel}.{fmt}" for channel in maps]
+        for item in written:
+            item.write_text("fake")
+        if mode == "growing":
+            # Sampler flushes large maps after the controller reports completion.
+            def finish():
+                for _ in range(5):
+                    time.sleep(0.08)
+                    for item in written:
+                        with item.open("a") as stream:
+                            stream.write("-late")
+
+            threading.Thread(target=finish).start()
         if controller is not None:
             controller.finished = True
         return str(target)
@@ -412,6 +442,13 @@ def module():
     def save_project():
         if state.path is None:
             return False
+        mode = os.environ.get("FAKE_SAMPLER_SAVE")
+        if mode == "fail":
+            return False
+        if mode == "hang":
+            # A save that is killed halfway leaves a truncated project behind.
+            state.path.write_text('{"assets": [')
+            time.sleep(60)
         state.save()
         return True
 
@@ -580,6 +617,8 @@ def install(root: Path) -> Path:
         "    script = args[index + 1]\n"
         "    sys.modules['substance_sampler'] = sampler_fake_cli.module()\n"
         "    runpy.run_path(script, run_name='__main__')\n"
+        "    import os\n"
+        "    raise SystemExit(int(os.environ.get('FAKE_SAMPLER_EXIT', '0')))\n"
     )
     executable.chmod(0o755)
     return app

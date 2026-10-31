@@ -1105,7 +1105,10 @@
    "simulated"
   ],
   "setup": "failed-export",
-  "error": "Partial output"
+  "error": "incomplete output directory removed",
+  "absent": [
+   "failed-export"
+  ]
  },
  {
   "id": "empty-export",
@@ -1120,7 +1123,64 @@
    "simulated"
   ],
   "setup": "empty-export",
-  "error": "output"
+  "error": "output",
+  "absent": [
+   "empty-export"
+  ]
+ },
+ {
+  "id": "failed-export-retry",
+  "tool": "export_textures",
+  "arguments": {
+   "directory": "failed-export",
+   "preset": "resource://eval-preset",
+   "dry_run": false
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/dry_run": false,
+   "/status": "Success"
+  },
+  "files": [
+   "failed-export/Body.png"
+  ]
+ },
+ {
+  "id": "save-copy-failure-cleaned",
+  "tool": "project",
+  "arguments": {
+   "action": "save_copy",
+   "directory": "copy-failed"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "save-copy-failure",
+  "error": "incomplete output directory removed",
+  "absent": [
+   "copy-failed"
+  ]
+ },
+ {
+  "id": "save-copy-failure-retry",
+  "tool": "project",
+  "arguments": {
+   "action": "save_copy",
+   "directory": "copy-failed"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "files": [
+   "copy-failed/project.spp"
+  ]
  },
  {
   "id": "read-after-error",
@@ -2147,6 +2207,90 @@
   "error": "No layer stack node"
  },
  {
+  "id": "layer-group-owned-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "Owned"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/name": "Owned",
+   "/uid": 100
+  }
+ },
+ {
+  "id": "layer-group-foreign-child-added",
+  "tool": "inspect",
+  "arguments": {
+   "action": "layer_stack",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "foreign-child-in-group",
+  "equals": {
+   "/layers/0/name": "Owned",
+   "/layers/0/layers/0/name": "Human layer"
+  }
+ },
+ {
+  "id": "layer-delete-group-foreign-child-refused",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "keep_lease": true,
+  "error": "confirm_name"
+ },
+ {
+  "id": "layer-delete-group-foreign-child-confirmed",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "delete",
+   "texture_set": "Body",
+   "uid": 100,
+   "confirm_name": "Owned"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "keep_lease": true,
+  "equals": {
+   "/deleted": 100,
+   "/name": "Owned"
+  }
+ },
+ {
+  "id": "layer-delete-group-removed-everything",
+  "tool": "inspect",
+  "arguments": {
+   "action": "layer_stack",
+   "texture_set": "Body"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/node_count": 0
+  }
+ },
+ {
   "id": "project-create-udim-template",
   "tool": "project",
   "arguments": {
@@ -2908,6 +3052,131 @@
   ],
   "equals": {
    "/texture_sets/0/maps/0": "ao"
+  }
+ },
+ {
+  "id": "bake-start-for-cancel",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/started": true
+  }
+ },
+ {
+  "id": "bake-cancel-unowned",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "without_lease": true,
+  "error": "lease"
+ },
+ {
+  "id": "bake-cancel-success",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/cancel_requested": true
+  }
+ },
+ {
+  "id": "bake-status-cancelled",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/running": false,
+   "/busy": false,
+   "/status": "Cancel",
+   "/reconciled": false
+  }
+ },
+ {
+  "id": "bake-cancel-idle-refused",
+  "tool": "bake",
+  "arguments": {
+   "action": "cancel"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "No bake is running"
+ },
+ {
+  "id": "bake-start-lost-end",
+  "tool": "bake",
+  "arguments": {
+   "action": "start",
+   "maps": [
+    "ao"
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/started": true
+  }
+ },
+ {
+  "id": "bake-lost-end-reconciled",
+  "tool": "bake",
+  "arguments": {
+   "action": "status"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "bake-end-lost",
+  "equals": {
+   "/running": false,
+   "/busy": false,
+   "/reconciled": true,
+   "/status": "Unknown"
+  }
+ },
+ {
+  "id": "bake-lost-end-unlocks-edits",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "group",
+   "texture_set": "Body",
+   "name": "AfterLostEnd"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/name": "AfterLostEnd"
   }
  },
  {

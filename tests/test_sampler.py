@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -105,6 +106,65 @@ class SamplerTests(unittest.TestCase):
         catalog = self.call("catalog")
         self.assertIn("image_to_material_B2M", catalog["import_options"])
         self.assertTrue(catalog["export_targets"]["unreal"]["available"])
+
+    def test_create_asset_refuses_duplicate_names(self):
+        self.create_project()
+        self.call("create_asset", project="projects/Rock.ssa", name="Brick")
+        project = self.workspace / "projects/Rock.ssa"
+        before = project.read_bytes()
+        for name in ("Brick", "Rock"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "already exists"):
+                self.call("create_asset", project="projects/Rock.ssa", name=name)
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.call("create_asset", project="projects/Rock.ssa", name="Brick", empty=True)
+        self.assertEqual(project.read_bytes(), before)
+        self.assertEqual(
+            [item["name"] for item in
+             self.call("inspect_project", project="projects/Rock.ssa")["assets"]],
+            ["Rock", "Brick"],
+        )
+
+    def test_nonzero_exit_fails_even_when_a_response_was_written(self):
+        self.create_project()
+        with patch.dict(os.environ, {"FAKE_SAMPLER_EXIT": "3"}):
+            with self.assertRaisesRegex(RuntimeError, "Sampler exited 3"):
+                self.call("inspect_project", project="projects/Rock.ssa")
+            before = (self.workspace / "projects/Rock.ssa").read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "Sampler exited 3"):
+                self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
+                          filter="Tiling", position=0)
+        self.assertEqual((self.workspace / "projects/Rock.ssa").read_bytes(), before)
+        self.assertEqual(self.call("inspect_project", project="projects/Rock.ssa")["project"],
+                         "projects/Rock.ssa")
+
+    def test_target_export_requires_every_map(self):
+        self.create_project()
+        arguments = {"project": "projects/Rock.ssa", "asset": "Rock", "target": "unreal",
+                     "format": "png", "dry_run": False}
+        with (
+            patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "missing"}),
+            self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"),
+        ):
+            self.call("export", directory="partial", wait_seconds=1, **arguments)
+        self.assertFalse((self.workspace / "partial").exists())
+        exported = self.call("export", directory="whole", **arguments)
+        self.assertEqual(
+            sorted(Path(item).name for item in exported["files"]),
+            ["Rock_basecolor.png", "Rock_normal.png", "Rock_occlusionroughnessmetallic.png"],
+        )
+        generic = self.call("export", directory="raw", project="projects/Rock.ssa",
+                            asset="Rock", target="generic", format="png", dry_run=False)
+        self.assertTrue(generic["files"])
+
+    def test_export_waits_for_files_to_stop_growing(self):
+        self.create_project()
+        with patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "growing"}):
+            exported = self.call("export", project="projects/Rock.ssa", asset="Rock",
+                                 directory="grown", format="sbsar", dry_run=False)
+        sbsar = self.workspace / "grown/Rock.sbsar"
+        self.assertEqual(sbsar.read_text(), "fake" + "-late" * 5)
+        manifest = receipts.load(self.workspace / exported["manifest"])
+        self.assertEqual(receipts.verify(manifest, self.workspace)["outputs"][0]["size"], 29)
 
     def test_create_empty_asset(self):
         self.create_project()
@@ -300,6 +360,47 @@ class SamplerRunnerTests(unittest.TestCase):
                 self.assertRaisesRegex(TimeoutError, "killed"),
             ):
                 asyncio.run(runner.run_script(root / "run.py", 0.5, root))
+
+    @staticmethod
+    def _script(root, body):
+        executable = root / "sampler"
+        executable.write_text(f"#!{sys.executable}\nimport signal, sys, time\n{body}")
+        executable.chmod(0o755)
+        return executable
+
+    def test_timeout_asks_politely_before_killing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            marker = root / "terminated"
+            executable = self._script(root, (
+                "def stop(*_):\n"
+                f"    open({str(marker)!r}, 'w').write('term')\n"
+                "    sys.exit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "time.sleep(30)\n"
+            ))
+            with (
+                patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
+                self.assertRaisesRegex(TimeoutError, "exceeded"),
+            ):
+                asyncio.run(runner.run_script(root / "run.py", 1.5, root))
+            self.assertTrue(marker.is_file())
+
+    def test_process_ignoring_sigterm_is_killed_after_the_grace_period(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            executable = self._script(root, (
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "time.sleep(30)\n"
+            ))
+            started = time.monotonic()
+            with (
+                patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
+                patch.object(runner, "TERM_GRACE", 0.5),
+                self.assertRaisesRegex(TimeoutError, "killed"),
+            ):
+                asyncio.run(runner.run_script(root / "run.py", 1.5, root))
+            self.assertLess(time.monotonic() - started, 10)
 
     def test_app_bundle_on_linux(self):
         with tempfile.TemporaryDirectory() as folder:

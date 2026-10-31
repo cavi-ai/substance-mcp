@@ -14,10 +14,10 @@ from pydantic import (
     model_validator,
 )
 
+from .names import JOB_FILES, output_directory, plain_name
 from .targets import OUTPUT_KINDS, TEXTURE_FORMATS, target
 
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-PLAIN = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,96}$")
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
@@ -36,13 +36,6 @@ class JobValidationError(ValueError):
     """Raised when a job file is not a valid batch job."""
 
 
-def plain_name(value: str) -> str:
-    value = value.strip()
-    if not PLAIN.fullmatch(value) or value in (".", "..") or value.endswith("."):
-        raise ValueError("name must be a plain file name")
-    return value
-
-
 def relative_path(value: str) -> str:
     if not isinstance(value, str) or not value or CONTROL.search(value):
         raise ValueError("path must be a non-empty printable string")
@@ -53,6 +46,16 @@ def relative_path(value: str) -> str:
     if ":" in path.parts[0]:
         raise ValueError("path must be relative")
     return value
+
+
+def output_path(value: str) -> str:
+    """A new directory the job creates: a safe relative path of portable file names."""
+    return output_directory(relative_path(value))
+
+
+def optional(check):
+    """Lift a validator so that None passes through."""
+    return lambda value: None if value is None else check(value)
 
 
 def usage_label(value: str) -> str:
@@ -79,7 +82,7 @@ class AssetSpec(StrictModel):
     preset: ResourceName | None = None
 
     _name = field_validator("name")(plain_name)
-    _preset = field_validator("preset")(lambda value: None if value is None else resource_name(value))
+    _preset = field_validator("preset")(optional(resource_name))
 
 
 class ProjectSpec(StrictModel):
@@ -88,8 +91,8 @@ class ProjectSpec(StrictModel):
     assets: Annotated[list[PlainName], Field(min_length=1, max_length=64)] | None = None
     asset: AssetSpec | None = None
 
-    _name = field_validator("name")(lambda value: None if value is None else plain_name(value))
-    _source = field_validator("source")(lambda value: None if value is None else relative_path(value))
+    _name = field_validator("name")(optional(plain_name))
+    _source = field_validator("source")(optional(relative_path))
     _assets = field_validator("assets")(lambda values: None if values is None else [
         plain_name(item) for item in values
     ])
@@ -144,7 +147,7 @@ class CreateAsset(StrictModel):
     empty: bool = False
 
     _name = field_validator("name")(plain_name)
-    _preset = field_validator("preset")(lambda value: None if value is None else resource_name(value))
+    _preset = field_validator("preset")(optional(resource_name))
 
 
 class SetMetadata(StrictModel):
@@ -155,7 +158,9 @@ class SetMetadata(StrictModel):
     description: Annotated[str | None, Field(max_length=1024)] = None
     tags: Annotated[list[Annotated[str, Field(max_length=64)]], Field(max_length=64)] | None = None
     physical_size: tuple[float, float, float] | None = None
-    custom_metadata: Annotated[dict[str, bool | int | float | str | None], Field(max_length=64)] | None = None
+    custom_metadata: Annotated[
+        dict[str, bool | int | float | str | None], Field(max_length=64)
+    ] | None = None
 
     _asset = field_validator("asset")(plain_name)
 
@@ -307,12 +312,12 @@ class Export(StrictModel):
     directory: str = "exports"
     wait_seconds: Annotated[int, Field(ge=1, le=3600)] = 600
 
-    _asset = field_validator("asset")(lambda value: None if value is None else plain_name(value))
+    _asset = field_validator("asset")(optional(plain_name))
     _assets = field_validator("assets")(lambda values: None if values is None else [
         plain_name(item) for item in values
     ])
-    _preset = field_validator("preset")(lambda value: None if value is None else resource_name(value))
-    _directory = field_validator("directory")(relative_path)
+    _preset = field_validator("preset")(optional(resource_name))
+    _directory = field_validator("directory")(output_path)
 
     @field_validator("outputs")
     @classmethod
@@ -347,7 +352,7 @@ class Job(StrictModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    _directory = field_validator("directory")(relative_path)
+    _directory = field_validator("directory")(output_path)
 
     @model_validator(mode="after")
     def references(self):
@@ -362,6 +367,11 @@ class Job(StrictModel):
             if self.project.asset.name == self.project.name:
                 raise ValueError("project asset name must differ from the project name")
             known.add(self.project.asset.name)
+        project_name = self.project.name
+        if project_name is None:
+            # Source jobs copy the project under its own file stem.
+            project_name = plain_name(PurePosixPath(self.project.source).stem)
+        reserved = {item.casefold() for item in (*JOB_FILES, f"{project_name}.ssa")}
         directories = set()
         exports = 0
         for index, step in enumerate(self.steps):
@@ -372,9 +382,14 @@ class Job(StrictModel):
                 continue
             if isinstance(step, Export):
                 exports += 1
-                if step.directory in directories:
+                if step.directory.split("/", 1)[0].casefold() in reserved:
+                    raise ValueError(
+                        f"export directory {step.directory!r} collides with a job file"
+                    )
+                # Folded: macOS and Windows volumes treat Exports and exports as one folder.
+                if step.directory.casefold() in directories:
                     raise ValueError(f"export directory {step.directory!r} is reused")
-                directories.add(step.directory)
+                directories.add(step.directory.casefold())
                 names = ([step.asset] if step.asset else []) + (step.assets or [])
                 if strict_assets:
                     for name in names:

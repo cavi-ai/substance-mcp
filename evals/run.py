@@ -78,7 +78,9 @@ async def exercise(mode, env, workspace, adapter=None):
                     needs_lease = (case["tool"] not in {"session_control", "generate_mesh"}
                                    and not tools[case["tool"]].annotations.readOnlyHint
                                    and not case.get("without_lease"))
-                    if needs_lease or case.get("fresh_lease"):
+                    # keep_lease: continue the previous case's lease so ownership spans cases.
+                    keep = needs_lease and case.get("keep_lease") and lease_id
+                    if (needs_lease or case.get("fresh_lease")) and not keep:
                         if lease_id:
                             released = await session.call_tool("session_control", {
                                 "action": "release", "lease_id": lease_id})
@@ -162,7 +164,11 @@ def main():
     (output / "outside/high.obj").write_bytes(b"outside-mesh")
     (output / "outside/material.sbsar").write_bytes(b"outside-sbsar")
     (output / "outside/template.spt").write_bytes(b"outside-template")
-    (output / "outside/external.png").write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82')
+    (output / "outside/external.png").write_bytes(
+        b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00'
+        b'\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef'
+        b'\x00\x00\x00\x00IEND\xaeB`\x82'
+    )
     (workspace / "escape").symlink_to(output / "outside", target_is_directory=True)
     for path, content in {
         "existing.blend": b"preserve-project",
@@ -176,7 +182,10 @@ def main():
         "template.spt": b"simulated-template",
     }.items():
         (workspace / path).write_bytes(content)
-    (workspace / "color.png").write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC'))
+    (workspace / "color.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ"
+        "/pLvAAAAAElFTkSuQmCC"
+    ))
     material = (workspace / "material.sbsar").read_bytes()
     (workspace / "material-manifest.json").write_text(json.dumps({
         "schema": 1, "app": "designer", "operation": "cook", "inputs": [],

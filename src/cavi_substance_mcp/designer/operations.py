@@ -130,12 +130,17 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
         if not sbsar.is_file() or sbsar.stat().st_size == 0:
             raise RuntimeError("sbscooker exited 0 but wrote no .sbsar")
         graphs = await graphs_of(sbsar, timeout)
+        version = await runner.version(tool)
+        # A built-in template lives in the Designer install, not the workspace: record
+        # its name and hash instead of an absolute path that breaks on other machines.
         manifest = receipts.build(
-            "designer", "cook", workspace(), inputs=[sbs], outputs=[sbsar],
+            "designer", "cook", workspace(),
+            inputs=[] if builtin else [sbs], outputs=[sbsar],
+            external=[receipts.app_resource(builtin, sbs, version)] if builtin else [],
             parameters={"source": builtin or rel(sbs),
                         "expose_output_size": expose_output_size,
                         "expose_random_seed": expose_random_seed},
-            seconds=time.monotonic() - started,
+            seconds=time.monotonic() - started, version=version,
         )
         manifest_path = receipts.write(dest, manifest)
     except BaseException:
@@ -257,7 +262,7 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
             parameters={"graph": selected["url"], "values": values,
                         "resolution": resolution, "seed": seed, "preset": preset,
                         "outputs": outputs, "format": fmt, "bit_depth": bit_depth},
-            seconds=time.monotonic() - started,
+            seconds=time.monotonic() - started, version=await runner.version(tool),
         )
         manifest_path = receipts.write(dest, manifest)
         reply["manifest"] = rel(manifest_path)
@@ -356,6 +361,7 @@ async def bake(low, high, cage, maps, directory, options, timeout):
             inputs=[path for path in (low_path, high_path, cage_path) if path is not None],
             outputs=[dest / f"{name}.{options['format']}" for name in maps],
             parameters=options, seconds=time.monotonic() - started_at,
+            version=await runner.version(tool),
         )
         manifest_path = receipts.write(dest, manifest)
     except BaseException:

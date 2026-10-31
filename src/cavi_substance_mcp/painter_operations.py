@@ -25,7 +25,10 @@ READ_ONLY = frozenset({"status", "texture_sets", "layer_stack", "export_presets"
                        "bake_settings", "bake_status"})
 NORMAL_MAP_FORMATS = ("OpenGL", "DirectX")
 RLOCK_TYPE = type(threading.RLock())
-BAKE_ATTR = "_cavi_mcp_bake_v1"
+# v2 adds the stop handle and lost-end-event bookkeeping, which older callbacks never set.
+BAKE_ATTR = "_cavi_mcp_bake_v2"
+# Idle time after which a bake whose end event never arrived is considered finished.
+BAKE_GRACE_SECONDS = 15.0
 RELOAD_ATTR = "_cavi_mcp_reload_v1"
 CREATED_ATTR = "_cavi_mcp_created_v1"
 MESH_EXTENSIONS = {".fbx", ".obj", ".gltf", ".glb"}
@@ -43,6 +46,7 @@ SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
                 "environment": "ENVIRONMENT"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
+SBSAR_LIMIT = 512 * 1024 * 1024
 MAX_NODES = 512
 # Painter export JSON: srcMapType documentMap/meshMap/virtualMap names; True = color source.
 DOCUMENT_MAPS = {
@@ -61,7 +65,8 @@ DOCUMENT_MAPS = {
 MESH_MAPS = {"ambient_occlusion": False, "curvature": False, "thickness": False, "id": True,
              "position": True, "world_space_normals": True, "normal_base": True,
              "bent_normals": True}
-VIRTUAL_MAPS = {"normal_opengl": ("Normal_OpenGL", True), "normal_directx": ("Normal_DirectX", True),
+VIRTUAL_MAPS = {"normal_opengl": ("Normal_OpenGL", True),
+                "normal_directx": ("Normal_DirectX", True),
                 "ao_mixed": ("AO_Mixed", False)}
 EXPORT_FORMATS = {"png": ("8", "16"), "tga": ("8",), "tiff": ("8", "16", "32f"),
                   "exr": ("16f", "32f"), "jpeg": ("8",)}
@@ -115,8 +120,10 @@ class Lease:
         }
 
     def matches(self, token):
+        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
         return (isinstance(token, str) and self.token is not None
-                and secrets.compare_digest(token, self.token))
+                and secrets.compare_digest(token.encode("utf-8", "surrogatepass"),
+                                           self.token.encode()))
 
     def require(self, token, project):
         if not self.matches(token):
@@ -265,6 +272,29 @@ def remove_tree(path):
     return [*left, str(path)]
 
 
+@contextmanager
+def new_output_directory(folder):
+    """Create `folder` for one operation's output; remove it again if the operation fails.
+
+    A directory that already existed (FileExistsError) is never touched. One that holds a
+    receipt manifest is a completed output and is kept. If removal fails, the leftovers are
+    named in the error.
+    """
+    folder.mkdir(mode=0o700)
+    try:
+        yield folder
+    except BaseException as exc:
+        if (folder / RECEIPT_MANIFEST).exists():
+            raise
+        left = remove_tree(folder)
+        if not isinstance(exc, Exception):
+            raise
+        note = (f"could not remove the incomplete output: {', '.join(left)}" if left
+                else "incomplete output directory removed")
+        reason = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
+        raise RuntimeError(f"{reason}; {note}") from exc
+
+
 def texture_resolution(value):
     if value is None:
         return None
@@ -334,6 +364,28 @@ def created_by_lease(module, params, uid):
     return created.get("lease") == key and uid in created.get("uids", ())
 
 
+def forget(module, uids):
+    """Drop uids of deleted nodes from the lease's created set."""
+    created = shared(module, CREATED_ATTR)
+    if "uids" in created:
+        created["uids"].difference_update(uids)
+
+
+def subtree(layerstack, node):
+    """The node and everything deleting it would remove: sub-layers, effects, mask effects."""
+    found, pending = [], [node]
+    while pending and len(found) <= MAX_NODES:
+        item = pending.pop()
+        found.append(item)
+        if isinstance(item, layerstack.GroupLayerNode):
+            pending.extend(item.sub_layers())
+        if isinstance(item, layerstack.LayerNode):
+            pending.extend(item.content_effects())
+            if item.has_mask():
+                pending.extend(item.mask_effects())
+    return found
+
+
 def bake_state(module):
     state = shared(module, BAKE_ATTR)
     if not state.get("connected"):
@@ -341,15 +393,39 @@ def bake_state(module):
 
         def ended(evt, state=state):
             state.update(running=False, status=getattr(evt.status, "name", str(evt.status)),
-                         ended=time.monotonic())
+                         ended=time.monotonic(), stop=None)
 
         def progress(evt, state=state):
-            state["progress"] = float(evt.progress)
+            state.update(progress=float(evt.progress), progress_at=time.monotonic())
 
         event.DISPATCHER.connect_strong(event.BakingProcessEnded, ended)
         event.DISPATCHER.connect_strong(event.BakingProcessProgress, progress)
         state.update(connected=True, running=False, status=None)
     return state
+
+
+def reconcile_bake(state, busy):
+    """True while a bake is running; clears one whose end event was lost.
+
+    Painter reporting idle, with no progress since, for BAKE_GRACE_SECONDS means the bake
+    is over even though BakingProcessEnded never reached us.
+    """
+    if not state.get("running"):
+        return False
+    now = time.monotonic()
+    if busy:
+        state["busy_at"] = now
+        return True
+    latest = max(state.get(key) or 0.0 for key in ("started", "busy_at", "progress_at"))
+    if now - latest < BAKE_GRACE_SECONDS:
+        return True
+    state.update(running=False, status="Unknown", reconciled=True, ended=now, stop=None)
+    return False
+
+
+def baking_now(module, project):
+    state = vars(module).get(BAKE_ATTR) or {}
+    return bool(state.get("running")) and reconcile_bake(state, project.is_busy())
 
 
 def execute(operation: str, params: dict, workspace: str) -> dict:
@@ -375,7 +451,7 @@ def dispatch(operation: str, params: dict, workspace: str) -> dict:
     if operation == "session_control":
         return session.control(params, identity)
     if operation in READ_ONLY or (
-        operation == "export_textures" and params.get("dry_run", True) is True
+        operation == "export_textures" and flag(params, "dry_run", True)
     ):
         return _execute(operation, params, workspace)
     with session.edit(params.get("lease_id"), identity):
@@ -391,16 +467,18 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
 
     if operation == "status":
         opened = project.is_open()
+        busy = project.is_busy()
         reload = vars(substance_painter).get(RELOAD_ATTR) or {}
+        bake = vars(substance_painter).get(BAKE_ATTR) or {}
         return {
             "connected": True,
             "api_version": str(substance_painter.__version__),
             "open": opened,
             "file": project.file_path() if opened else None,
             "needs_saving": project.needs_saving() if opened else False,
-            "busy": project.is_busy(),
+            "busy": busy,
             "edition_state": bool(project.is_in_edition_state()) if opened else False,
-            "baking": bool((vars(substance_painter).get(BAKE_ATTR) or {}).get("running")),
+            "baking": bool(bake.get("running")) and reconcile_bake(bake, busy),
             "mesh_reload": {key: reload.get(key) for key in ("pending", "status", "path")}
             if reload else None,
             "workspace": str(Path(workspace)),
@@ -408,11 +486,15 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         }
     if operation == "bake_status":
         return _bake_status(substance_painter)
+    if operation == "bake_cancel":
+        return _bake_cancel(substance_painter, project)
     if operation == "shelf":
         return _shelf(params)
     if operation in {"open_project", "create_project"}:
         if project.is_open():
             raise RuntimeError("A project is already open; close it in Painter before replacing it")
+        # A mesh reload result describes the previous project.
+        vars(substance_painter).pop(RELOAD_ATTR, None)
         if operation == "open_project":
             path = input_file(root(), required(params, "path"), {".spp"})
             project.open(str(path))
@@ -451,8 +533,9 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         if project.needs_saving() and not discard:
             raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
         project.close()
+        vars(substance_painter).pop(RELOAD_ATTR, None)
         return {"closed": not project.is_open()}
-    if (vars(substance_painter).get(BAKE_ATTR) or {}).get("running"):
+    if baking_now(substance_painter, project):
         raise RuntimeError("Painter is baking and not idle; poll bake action=status")
     if not project.is_open() or project.is_busy():
         raise RuntimeError("Painter must have an open project and be idle")
@@ -515,17 +598,17 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
     if operation == "save_copy":
         folder = export_destination(root(), required(params, "directory"))
         started = time.monotonic()
-        folder.mkdir(mode=0o700)
-        path = folder / "project.spp"
-        project.save_as_copy(str(path), project.ProjectSaveMode.Full)
-        if not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError("Painter did not produce a saved project copy")
-        manifest = _receipt_build(
-            "painter", "save_copy", root(), outputs=[path],
-            parameters={"directory": required(params, "directory")},
-            seconds=time.monotonic() - started, version=_painter_version(),
-        )
-        manifest_path = _receipt_write(folder, manifest)
+        with new_output_directory(folder):
+            path = folder / "project.spp"
+            project.save_as_copy(str(path), project.ProjectSaveMode.Full)
+            if not path.is_file() or path.stat().st_size == 0:
+                raise RuntimeError("Painter did not produce a saved project copy")
+            manifest = _receipt_build(
+                "painter", "save_copy", root(), outputs=[path],
+                parameters={"directory": required(params, "directory")},
+                seconds=time.monotonic() - started, version=_painter_version(),
+            )
+            manifest_path = _receipt_write(folder, manifest)
         return {"path": str(path), "bytes": path.stat().st_size,
                 "manifest": str(manifest_path)}
     if operation == "export_textures":
@@ -700,7 +783,40 @@ def _receipt_write(directory: Path, manifest: dict) -> Path:
     return path
 
 
-def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[dict, Path | None]:
+def snapshot_sbsar(path: Path, folder: Path | None = None):
+    """Read an .sbsar exactly once: enforce the size cap, hash it, optionally copy it.
+
+    Returns (sha256, size, copy path or None). Whatever is hashed here is what a caller
+    importing the copy gets, however the original changes afterwards.
+    """
+    digest, size, copy = hashlib.sha256(), 0, None
+    with path.open("rb") as source:
+        target = None
+        if folder is not None:
+            copy = Path(folder) / "source.sbsar"
+            target = copy.open("xb")
+        try:
+            while chunk := source.read(1024 * 1024):
+                size += len(chunk)
+                if size > SBSAR_LIMIT:
+                    raise ValueError("sbsar exceeds 512 MiB")
+                digest.update(chunk)
+                if target is not None:
+                    target.write(chunk)
+        finally:
+            if target is not None:
+                target.close()
+    return digest.hexdigest(), size, copy
+
+
+def _sbsar_entry(path: Path, root: Path, folder: Path | None = None):
+    digest, size, copy = snapshot_sbsar(path, folder)
+    relative = Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    return {"path": relative, "size": size, "sha256": digest}, copy
+
+
+def _receipt_source(path: Path, root: Path, manifest_name, expected,
+                    entry=None) -> tuple[dict, Path | None]:
     if expected is not None:
         if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
             raise ValueError("expected_sha256 must be 64 hexadecimal characters")
@@ -708,7 +824,8 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[di
     manifest_path = None
     if manifest_name is not None:
         manifest_path = input_file(root, manifest_name, {".json"})
-    entry = _receipt_record(path, root)
+    if entry is None:
+        entry, _ = _sbsar_entry(path, root)
     if expected is not None and entry["sha256"] != expected:
         raise ValueError("sbsar sha256 does not match expected_sha256")
     if manifest_path is not None:
@@ -822,41 +939,37 @@ def _export(params, root):
         not path.is_relative_to(folder) or path == folder or path.exists() for path in files
     ):
         raise ValueError("Preset produced empty, existing, or out-of-directory output paths")
-    if params.get("dry_run", True):
+    if flag(params, "dry_run", True):
         return {"dry_run": True, "files": [str(path) for path in files],
                 "provenance": provenance}
-    folder.mkdir(mode=0o700)
-    result = export.export_project_textures(config)
-    actual = [Path(path).resolve() for paths in result.textures.values() for path in paths]
-    if result.status != export.ExportStatus.Success:
-        raise RuntimeError(
-            f"Export status: {result.status.name}; {result.message}. Partial output may exist."
+    with new_output_directory(folder):
+        result = export.export_project_textures(config)
+        actual = [Path(path).resolve() for paths in result.textures.values() for path in paths]
+        if result.status != export.ExportStatus.Success:
+            raise RuntimeError(f"Export status: {result.status.name}; {result.message}.")
+        if not actual or any(
+            not path.is_relative_to(folder) or not path.is_file() or path.stat().st_size == 0
+            for path in actual
+        ):
+            raise RuntimeError("Export output does not match the requested directory")
+        inputs = []
+        try:
+            file_path = project.file_path()
+        except Exception:  # noqa: BLE001 -- unsaved or unavailable project path
+            file_path = None
+        if file_path and Path(file_path).resolve().is_relative_to(root()):
+            inputs.append(Path(file_path))
+        manifest = _receipt_build(
+            "painter", "export", root(), inputs=inputs, outputs=actual,
+            parameters={"preset": preset, "maps": specs,
+                        "texture_sets": [item.name() for item in sets],
+                        "resolution": params.get("resolution"), "file_format": fmt,
+                        "bit_depth": depth, "padding": padding,
+                        "dilation_distance": dilation, "udim_tiles": tiles},
+            seconds=time.monotonic() - started, version=_painter_version(),
+            provenance=provenance,
         )
-    if not actual or any(
-        not path.is_relative_to(folder) or not path.is_file() or path.stat().st_size == 0
-        for path in actual
-    ):
-        raise RuntimeError(
-            "Export output does not match the requested directory; inspect partial output"
-        )
-    inputs = []
-    try:
-        file_path = project.file_path()
-    except Exception:  # noqa: BLE001 -- unsaved or unavailable project path
-        file_path = None
-    if file_path and Path(file_path).resolve().is_relative_to(root()):
-        inputs.append(Path(file_path))
-    manifest = _receipt_build(
-        "painter", "export", root(), inputs=inputs, outputs=actual,
-        parameters={"preset": preset, "maps": specs,
-                    "texture_sets": [item.name() for item in sets],
-                    "resolution": params.get("resolution"), "file_format": fmt,
-                    "bit_depth": depth, "padding": padding,
-                    "dilation_distance": dilation, "udim_tiles": tiles},
-        seconds=time.monotonic() - started, version=_painter_version(),
-        provenance=provenance,
-    )
-    manifest_path = _receipt_write(folder, manifest)
+        manifest_path = _receipt_write(folder, manifest)
     return {
         "dry_run": False,
         "status": result.status.name,
@@ -1027,7 +1140,8 @@ def uniform_color(colormanagement, stack, channel, value):
     else:
         rgb = [unit_value(value)] * 3
     srgb = stack.all_channels()[channel].format().name.startswith("sRGB")
-    space = colormanagement.GenericColorSpace.sRGB if srgb else colormanagement.GenericColorSpace.Raw
+    generic = colormanagement.GenericColorSpace
+    space = generic.sRGB if srgb else generic.Raw
     return colormanagement.Color(*rgb, space)
 
 
@@ -1160,7 +1274,8 @@ def _layers(operation, params, root):
         except Exception as exc:
             left = remove_tree(folder)
             note = f"; could not remove: {', '.join(left)}" if left else ""
-            raise RuntimeError(f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
+            raise RuntimeError(
+                f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
         # Painter embeds the bitmap on import.
         leftovers = remove_tree(folder)
     node = None
@@ -1246,21 +1361,33 @@ def _layer_edit(params, root):
             item = find_resource(resource, params.get("resource"), "smart_material")
         else:
             path = input_file(root(), required(params, "sbsar"), {".sbsar"})
-            if path.stat().st_size > 512 * 1024 * 1024:
-                raise ValueError("sbsar exceeds 512 MiB")
-            source, manifest_path = _receipt_source(
-                path, root(), params.get("source_manifest"), params.get("expected_sha256")
-            )
-            verified = (params.get("source_manifest") is not None
-                        or params.get("expected_sha256") is not None)
-            package = resource.import_project_resource(
-                str(path), resource.Usage.BASE_MATERIAL, name="cavi_sbsar_" + uuid.uuid4().hex)
+            # Hash and import one private copy so the file cannot change in between.
+            folder = Path(tempfile.mkdtemp(prefix=".cavi-sbsar-", dir=root()))
+            try:
+                entry, copy = _sbsar_entry(path, root(), folder)
+                source, manifest_path = _receipt_source(
+                    path, root(), params.get("source_manifest"), params.get("expected_sha256"),
+                    entry)
+                verified = (params.get("source_manifest") is not None
+                            or params.get("expected_sha256") is not None)
+                package = resource.import_project_resource(
+                    str(copy), resource.Usage.BASE_MATERIAL,
+                    name="cavi_sbsar_" + uuid.uuid4().hex)
+            except Exception as exc:
+                left = remove_tree(folder)
+                if left:
+                    raise RuntimeError(f"{type(exc).__name__}: {exc}; could not remove "
+                                       f"temporary files: {', '.join(left)}") from exc
+                raise
+            leftovers = remove_tree(folder)
             graphs = ([child for child in package.children()
                        if child.type() == resource.Type.SUBSTANCE]
                       if package.type() == resource.Type.SUBSTANCE_PACKAGE else [package])
             if not graphs:
-                raise RuntimeError(f"No material graph in {path.name}; imported resource "
-                                   f"{package.identifier().url()} kept (no Painter API removes it)")
+                raise RuntimeError(
+                    f"No material graph in {path.name}; imported resource "
+                    f"{package.identifier().url()} kept (no Painter API removes it)"
+                    + (f"; could not remove {', '.join(leftovers)}" if leftovers else ""))
             item = graphs[0]
         node, applied = None, []
         try:
@@ -1281,7 +1408,9 @@ def _layer_edit(params, root):
                     "removes it)") if action == "sbsar_fill" else ""
             raise RuntimeError(f"{action} failed ({type(exc).__name__}: {exc}); {cleanup}{kept}"
                                ) from exc
-        remember(substance_painter, params, [node.uid()])
+        # Everything inside a new smart material or group was created by this call too.
+        remember(substance_painter, params,
+                 [item.uid() for item in subtree(layerstack, node)])
         result = {"uid": node.uid(), "name": node.get_name(), "type": type(node).__name__,
                   "texture_set": texture_set}
         if item is not None:
@@ -1292,18 +1421,24 @@ def _layer_edit(params, root):
             result.update(parameters=applied, graphs=len(graphs),
                           active_channels=sorted(channel_label(c) for c in node.active_channels),
                           source=source, verified=verified)
+            if leftovers:
+                result["cleanup_failed"] = leftovers
             if manifest_path is not None:
                 result["source_manifest"] = manifest_path.relative_to(root()).as_posix()
         return result
     node = node_by_uid(layerstack, required(params, "uid", None), texture_set)
     if action == "delete":
-        if (not created_by_lease(substance_painter, params, node.uid())
-                and params.get("confirm_name") != node.get_name()):
-            raise RuntimeError("Node was not created by this lease; pass confirm_name equal "
-                               "to its current name")
+        doomed = subtree(layerstack, node)
+        owned = len(doomed) <= MAX_NODES and all(
+            created_by_lease(substance_painter, params, item.uid()) for item in doomed)
+        if not owned and params.get("confirm_name") != node.get_name():
+            raise RuntimeError("Node or something inside it was not created by this lease; "
+                               "pass confirm_name equal to its current name")
         name = node.get_name()
+        uids = [item.uid() for item in doomed]
         with layerstack.ScopedModification(f"Delete {name}"):
             layerstack.delete_node(node)
+        forget(substance_painter, uids)
         return {"deleted": params["uid"], "name": name}
     if action == "set_properties":
         return _set_properties(params, node, stack, layerstack, textureset)
@@ -1363,16 +1498,22 @@ def _set_properties(params, node, stack, layerstack, textureset):
     if "name" in changes and (not isinstance(changes["name"], str) or not changes["name"].strip()
                               or len(changes["name"]) > 63):
         raise ValueError("Layer name must be nonempty and at most 63 characters")
+    if "name" in changes and isinstance(node, layerstack.LayerNode):
+        # Same sibling-uniqueness rule that creation enforces.
+        owner = node.get_parent()
+        siblings = (owner.sub_layers() if owner is not None
+                    else layerstack.get_root_layer_nodes(stack))
+        new_name(changes, [item for item in siblings if item.uid() != node.uid()])
     if "visible" in changes and type(changes["visible"]) is not bool:
         raise ValueError("visible must be a boolean")
     if "opacity" in changes:
         changes["opacity"] = unit_value(changes["opacity"])
     if "blend_mode" in changes:
         mode = changes["blend_mode"]
-        if not isinstance(mode, str) or mode.startswith("_") or not hasattr(
-                layerstack.BlendingMode, mode):
+        members = layerstack.BlendingMode.__members__
+        if not isinstance(mode, str) or mode not in members:
             raise ValueError("Unknown blend_mode; e.g. Normal, Multiply, Overlay, Screen")
-        changes["blend_mode"] = getattr(layerstack.BlendingMode, mode)
+        changes["blend_mode"] = members[mode]
     channels = [None]
     if {"blend_mode", "opacity"} & set(changes):
         if not node.has_blending():
@@ -1449,7 +1590,8 @@ def _bake(params, root):
     from substance_painter import baking, project, textureset
 
     state = bake_state(substance_painter)
-    if state.get("running") or project.is_busy():
+    busy = project.is_busy()
+    if busy or reconcile_bake(state, busy):
         raise RuntimeError("Painter is already baking or busy; check bake action=status")
     sets = texture_sets_named(textureset, names_list(params, "texture_sets"))
     maps = names_list(params, "maps", len(BAKE_MAPS))
@@ -1534,8 +1676,11 @@ def _bake(params, root):
         enabled = {item.name(): [usage.name for usage in baking.BakingParameters
                                  .from_texture_set(item).get_enabled_bakers()] for item in sets}
         state.update(running=True, status=None, progress=0.0, started=time.monotonic(),
-                     ended=None, texture_sets=sorted(selected), maps=enabled)
-        baking.bake_selected_textures_async()
+                     ended=None, texture_sets=sorted(selected), maps=enabled,
+                     reconciled=False, stop=None, progress_at=None, busy_at=None)
+        stop = baking.bake_selected_textures_async()
+        if state.get("running"):  # the end event may already have fired during the call
+            state["stop"] = stop
     except Exception as exc:
         state["running"] = False
         try:
@@ -1556,13 +1701,28 @@ def _bake(params, root):
             "next": "bake action=status until busy is false"}
 
 
+def _bake_cancel(module, project):
+    state = vars(module).get(BAKE_ATTR) or {}
+    if not (state.get("running") and reconcile_bake(state, project.is_busy())):
+        raise RuntimeError("No bake is running; nothing to cancel")
+    stop = state.get("stop")
+    if stop is None:
+        raise RuntimeError("The running bake has no cancel handle; cancel it in Painter")
+    if not stop.request_stop():
+        raise RuntimeError("Painter could not stop the bake; check bake action=status")
+    return {"cancel_requested": True, "running": bool(state.get("running")),
+            "next": "bake action=status until busy is false"}
+
+
 def _bake_status(module):
     from substance_painter import project, textureset
 
     state = vars(module).get(BAKE_ATTR) or {}
     opened = project.is_open()
     busy = project.is_busy()
-    result = {"busy": bool(state.get("running")) or busy, "running": bool(state.get("running")),
+    running = bool(state.get("running")) and reconcile_bake(state, busy)
+    result = {"busy": running or busy, "running": running,
+              "reconciled": bool(state.get("reconciled")),
               "status": state.get("status"), "progress": state.get("progress"),
               "seconds_since_start": round(time.monotonic() - state["started"], 1)
               if state.get("started") else None,
@@ -1600,7 +1760,8 @@ def _bake_settings(params):
             "enabled": bake_params.is_textureset_enabled(),
             "maps": [labels.get(usage, usage.name) for usage in bake_params.get_enabled_bakers()],
             "curvature_method": bake_params.get_curvature_method().name,
-            "common": {key: plain(prop.value()) for key, prop in sorted(bake_params.common().items())},
+            "common": {key: plain(prop.value())
+                       for key, prop in sorted(bake_params.common().items())},
             "mesh_maps": found[item.name()],
         })
     return {"texture_sets": result}

@@ -9,3 +9,14 @@ dist/
 *.sbsar
 node_modules/
 .tmp/
+!.env.example
+*.ssa
+*.spt
+*.log
+*.egg-info/
+build/
+.DS_Store
+.claude/
+.worktrees/
+docs/plans/
+/docs/substance-mcp/v*/

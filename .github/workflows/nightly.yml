@@ -1,0 +1,74 @@
+name: Nightly
+
+# Canaries for what CI cannot see because it installs from uv.lock: dependencies
+# upgraded to the newest versions pyproject.toml allows, and known vulnerabilities in
+# the versions the lockfile pins. A red run is a prompt to update uv.lock or the bounds;
+# nothing here commits anything.
+
+on:
+  schedule:
+    - cron: "41 3 * * 2,5"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  upgraded-dependencies:
+    name: tests against upgraded dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SCRATCH: ${{ github.workspace }}/.tmp/upgraded
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+      # Upgrade a scratch copy, never the checkout, so the committed uv.lock is untouched.
+      - name: Resolve the newest permitted versions in a scratch copy
+        run: |
+          set -euo pipefail
+          mkdir -p "$SCRATCH"
+          git archive HEAD | tar -x -C "$SCRATCH"
+          cd "$SCRATCH"
+          uv lock --upgrade
+          echo "Dependency changes against the committed uv.lock:"
+          git diff --no-index --stat "$GITHUB_WORKSPACE/uv.lock" uv.lock || true
+      - name: Install the upgraded dependencies
+        working-directory: ${{ env.SCRATCH }}
+        run: uv sync --locked --dev
+      - name: Run the unit tests
+        working-directory: ${{ env.SCRATCH }}
+        run: uv run --locked python -m unittest discover -s tests
+
+  audit:
+    name: known vulnerabilities in uv.lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+      # The hashed export is the exact set `uv sync --locked` installs, so pip-audit checks
+      # those versions and does not resolve anything itself (--disable-pip).
+      - name: Audit the locked requirements
+        run: |
+          set -euo pipefail
+          uv export --locked --no-emit-project --quiet --output-file "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit@2.10.1 --disable-pip --strict --progress-spinner off \
+            --requirement "$RUNNER_TEMP/requirements.txt"

@@ -61,6 +61,19 @@
     "error": "project is required"
   },
   {
+    "id": "inspect-project-requires-project",
+    "tool": "sampler_inspect",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "project"
+    },
+    "error": "project is required for action=project"
+  },
+  {
     "id": "inspect-project-extra-parameter",
     "tool": "sampler_inspect",
     "kind": "invalid",
@@ -268,6 +281,20 @@
     }
   },
   {
+    "id": "asset-create-duplicate",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "create",
+      "project": "projects/Rock.ssa",
+      "name": "Brick"
+    },
+    "error": "already exists"
+  },
+  {
     "id": "asset-create-fail",
     "tool": "sampler_asset",
     "kind": "success",
@@ -307,9 +334,44 @@
     "arguments": {
       "action": "delete",
       "project": "projects/Rock.ssa",
-      "asset": "Missing"
+      "asset": "Missing",
+      "confirm": true
     },
     "error": "not found"
+  },
+  {
+    "id": "asset-delete-no-confirm",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "delete",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock"
+    },
+    "error": "confirm must be true"
+  },
+  {
+    "id": "asset-delete",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "delete",
+      "project": "projects/Rock.ssa",
+      "asset": "Brick",
+      "confirm": true
+    },
+    "equals": {
+      "deleted": "Brick",
+      "saved": true,
+      "project": "projects/Rock.ssa"
+    }
   },
   {
     "id": "asset-import-images",
@@ -677,6 +739,45 @@
     ]
   },
   {
+    "id": "build-default-is-dry-run",
+    "tool": "sampler_build",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/unity.json"
+    },
+    "equals": {
+      "dry_run": true,
+      "directory": "jobs/unity"
+    },
+    "absent": [
+      "jobs/unity"
+    ]
+  },
+  {
+    "id": "build-checks-without-dry-run",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/check.json",
+      "check_sampler": true
+    },
+    "equals": {
+      "dry_run": true
+    },
+    "required": [
+      "sampler"
+    ],
+    "absent": [
+      "jobs/check"
+    ]
+  },
+  {
     "id": "build-unreal",
     "tool": "sampler_build",
     "kind": "success",
@@ -684,7 +785,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/unreal.json"
+      "job": "jobs/unreal.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -698,7 +800,7 @@
       "outputs",
       "steps",
       "steps/0/seconds",
-      "app_name",
+      "app",
       "operation"
     ]
   },
@@ -710,7 +812,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/unity.json"
+      "job": "jobs/unity.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -731,7 +834,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/blender.json"
+      "job": "jobs/blender.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -748,7 +852,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/generic.json"
+      "job": "jobs/generic.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -874,6 +979,40 @@
     "error": "at least one export"
   },
   {
+    "id": "build-export-directory-shadows-job-file",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/shadow.json",
+      "dry_run": true
+    },
+    "error": "collides with a job file",
+    "absent": [
+      "jobs/shadow"
+    ]
+  },
+  {
+    "id": "build-invalid-asset-name",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/bad-name.json",
+      "dry_run": true
+    },
+    "error": "plain file name",
+    "absent": [
+      "jobs/bad-name"
+    ]
+  },
+  {
     "id": "build-existing",
     "tool": "sampler_build",
     "kind": "safety",
@@ -881,7 +1020,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/existing.json"
+      "job": "jobs/existing.json",
+      "dry_run": false
     },
     "error": "already exists"
   },
@@ -893,7 +1033,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/fail.json"
+      "job": "jobs/fail.json",
+      "dry_run": false
     },
     "error": "fake export failure",
     "absent": [
@@ -923,6 +1064,26 @@
     ]
   },
   {
+    "id": "export-target-rejects-sbsar",
+    "tool": "sampler_export",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "directory": "out_bad_target",
+      "target": "unreal",
+      "format": "sbsar",
+      "dry_run": false
+    },
+    "error": "target exports textures",
+    "absent": [
+      "out_bad_target"
+    ]
+  },
+  {
     "id": "build-b2m",
     "tool": "sampler_build",
     "kind": "success",
@@ -930,7 +1091,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/b2m.json"
+      "job": "jobs/b2m.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -984,7 +1146,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/source.json"
+      "job": "jobs/source.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -1152,7 +1315,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/ai.json"
+      "job": "jobs/ai.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -1169,7 +1333,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/multiangle.json"
+      "job": "jobs/multiangle.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
