@@ -71,7 +71,11 @@ def _job_dir(root: Path, job: jobs.Job) -> Path:
     return path
 
 
-def app_available(wait_seconds: float = 0) -> None:
+def app_available(wait_seconds: float = 0, sleep=time.sleep, clock=time.monotonic) -> None:
+    """Refuse to go on while Sampler is running, waiting up to ``wait_seconds`` for it to quit.
+
+    ``sleep`` and ``clock`` are injectable so a test does not have to wait.
+    """
     found = runner.installation()
     if found.executable is None:
         raise AppUnavailable(
@@ -83,9 +87,9 @@ def app_available(wait_seconds: float = 0) -> None:
         raise AppRunning(
             "Sampler is already running. Quit it before running a batch job."
         )
-    deadline = time.monotonic() + wait_seconds
-    while runner.running() and time.monotonic() < deadline:
-        time.sleep(0.5)
+    deadline = clock() + wait_seconds
+    while runner.running() and clock() < deadline:
+        sleep(0.5)
     if runner.running():
         raise AppRunning(
             f"Sampler is still running after {wait_seconds:g} s; quit it and retry."

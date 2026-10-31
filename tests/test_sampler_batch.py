@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from clock import Clock
 from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
@@ -311,11 +312,21 @@ class BatchTests(unittest.TestCase):
             ]), 6)
 
     def test_wait_for_app(self):
-        with (
-            patch.object(batch.runner, "running", side_effect=[True, False, False, False]),
-            patch.object(batch.time, "sleep", return_value=None),
-        ):
-            batch.app_available(1)
+        slept = []
+        with patch.object(batch.runner, "running", side_effect=[True, True, True, False, False]):
+            batch.app_available(1, sleep=slept.append)
+        self.assertEqual(slept, [0.5, 0.5])
+
+    def test_wait_for_app_gives_up_when_the_wait_is_over(self):
+        clock = Clock(10.0)
+
+        def sleep(seconds):
+            clock.now += seconds
+
+        with patch.object(batch.runner, "running", return_value=True), \
+                self.assertRaisesRegex(batch.AppRunning, "still running after 2 s"):
+            batch.app_available(2, sleep=sleep, clock=clock)
+        self.assertEqual(clock.now, 12.0)
 
     def test_check_sampler_warns_on_source(self):
         source = self.source_seed("warn-seed", material=False)
