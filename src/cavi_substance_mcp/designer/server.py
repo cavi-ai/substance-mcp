@@ -1,5 +1,6 @@
 """Typed stdio MCP surface for Substance 3D Designer's headless CLIs."""
 
+from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -18,6 +19,8 @@ mcp = FastMCP(
         "designer_status first."
     ),
 )
+# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
+mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
