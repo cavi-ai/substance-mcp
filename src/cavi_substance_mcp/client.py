@@ -40,7 +40,10 @@ READ_ONLY_OPERATIONS = frozenset(
 )
 DEFAULT_TIMEOUT = 60.0
 SLOW_TIMEOUT = 600.0
-SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures", "layer_edit"})
+SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures"})
+OPERATION_TIMEOUTS = {"layer_edit": 120.0, **dict.fromkeys(SLOW_OPERATIONS, SLOW_TIMEOUT)}
+# How long status waits for a request already in flight before reporting it instead.
+STATUS_QUEUE_SECONDS = 0.5
 RESPONSE_LIMIT = 8 * 1024 * 1024
 SOURCE = Path(__file__).with_name("painter_operations.py").read_text(encoding="utf-8")
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()
@@ -57,10 +60,32 @@ class PainterUnavailable(ConnectionError):
     pass
 
 
+class PainterBusy(PainterTimeout):
+    """An earlier request still occupies Painter; nothing was sent, so retrying is safe."""
+
+
 class PainterHTTPError(RuntimeError):
     def __init__(self, status: int):
         super().__init__(f"Painter HTTP {status}; request was not retried")
         self.status = status
+
+
+class _Gate:
+    """Painter runs one scripting request at a time; this server never overlaps them either."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.operation = None
+        self.since = 0.0
+
+
+_GATES: dict[int, _Gate] = {}
+_GATES_GUARD = threading.Lock()
+
+
+def _gate(port: int) -> _Gate:
+    with _GATES_GUARD:
+        return _GATES.setdefault(port, _Gate())
 
 
 def _arguments(operation: str, params: dict, workspace: Path) -> str:
@@ -110,6 +135,8 @@ def not_ready_reasons(status: dict) -> list[str]:
     """What an editable project is still waiting on; raises when a mesh reload failed."""
     if not status.get("connected"):
         return ["connection"]
+    if status.get("in_flight"):
+        return ["in_flight"]
     reload = status.get("mesh_reload") or {}
     if not reload.get("pending") and str(reload.get("status")).upper() == "ERROR":
         raise RuntimeError(
@@ -161,14 +188,37 @@ class PainterClient:
             raise ValueError(f"Unknown operation: {operation}")
         if operation not in READ_ONLY_OPERATIONS:
             self.ensure_workspace()
-        expression = bootstrap_expression(operation, params, self.workspace)
         if timeout is None:
-            timeout = SLOW_TIMEOUT if operation in SLOW_OPERATIONS else DEFAULT_TIMEOUT
-        result = self._post(expression, timeout)
-        if result == {"cavi_cache_miss": SOURCE_KEY}:
-            # Nothing ran on a miss, so sending the full payload is not a retry.
-            result = self._post(full_expression(operation, params, self.workspace), timeout)
+            timeout = OPERATION_TIMEOUTS.get(operation, DEFAULT_TIMEOUT)
+        gate = _gate(self.port)
+        if operation == "status":
+            if not gate.lock.acquire(timeout=STATUS_QUEUE_SECONDS):
+                return self._in_flight(gate)
+        elif not gate.lock.acquire(timeout=timeout):
+            raise PainterBusy(
+                f"Painter is still busy with {gate.operation}; this request was not sent"
+            )
+        try:
+            gate.operation, gate.since = operation, time.monotonic()
+            result = self._post(bootstrap_expression(operation, params, self.workspace), timeout)
+            if result == {"cavi_cache_miss": SOURCE_KEY}:
+                # Nothing ran on a miss, so sending the full payload is not a retry.
+                result = self._post(
+                    full_expression(operation, params, self.workspace), timeout
+                )
+        finally:
+            gate.operation = None
+            gate.lock.release()
         return unwrap(result)
+
+    @staticmethod
+    def _in_flight(gate: _Gate) -> dict:
+        operation = gate.operation or "another request"
+        return {
+            "connected": True, "busy": True, "in_flight": operation,
+            "in_flight_seconds": round(time.monotonic() - gate.since, 1),
+            "reason": f"Painter is executing {operation}; poll again when it finishes",
+        }
 
     def probe(self, deadline: float) -> dict:
         """One status read bounded by deadline; transient failures read as not connected."""

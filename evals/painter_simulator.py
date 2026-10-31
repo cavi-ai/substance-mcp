@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import threading
+import time
 import urllib.parse
 from contextlib import contextmanager
 from enum import Enum
@@ -204,6 +205,7 @@ class PainterSimulator:
         self.mesh_maps = {}
         self.last_channel = None
         self.modifying = False
+        self.delay = 0.0  # seconds every scripting request takes, like a long Painter operation
         self.reset_bake()
 
     def reset_bake(self):
@@ -1005,6 +1007,8 @@ class PainterSimulator:
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 expression = base64.b64decode(request["python"], validate=True).decode()
                 self.server.requests.append(len(expression))
+                if self.server.owner.delay:
+                    time.sleep(self.server.owner.delay)
                 try:
                     result = eval(expression)
                 except Exception as exc:  # noqa: BLE001 -- mirror the remote scripting error boundary
@@ -1017,6 +1021,7 @@ class PainterSimulator:
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         self.server.requests = self.requests = []
+        self.server.owner = self
         self.port = self.server.server_port
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

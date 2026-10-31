@@ -1,8 +1,10 @@
 """Typed stdio MCP surface for Substance Painter."""
 
+import time
 from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
+import anyio.to_thread
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
@@ -39,17 +41,42 @@ def need(value, name, action):
     return value
 
 
+async def painter(operation, params=None, *, lease_id=None):
+    """Run one blocking Painter call in a worker thread; the client serializes the calls.
+
+    A cancelled request stops waiting at once, but the call it started still finishes
+    inside Painter and keeps the client's lock until it does.
+    """
+    def run():
+        return PainterClient().call(operation, params, lease_id=lease_id)
+
+    return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+
+
+async def wait_until_ready(timeout_seconds, interval=0.5):
+    client = PainterClient()
+    start = time.monotonic()
+    deadline = start + timeout_seconds
+    while True:
+        result = await anyio.to_thread.run_sync(
+            client.readiness, deadline, start, abandon_on_cancel=True
+        )
+        if result["ready"] or time.monotonic() + interval >= deadline:
+            return result
+        await anyio.sleep(interval)
+
+
 @mcp.tool(annotations=READ_ONLY)
-def painter_status() -> dict[str, Any]:
+async def painter_status() -> dict[str, Any]:
     """Connectivity, project, busy and edition state; never changes anything."""
     try:
-        return PainterClient().call("status")
+        return await painter("status")
     except (ConnectionError, TimeoutError) as exc:
         return {"connected": False, "reason": str(exc)}
 
 
 @mcp.tool(annotations=MUTATING)
-def session_control(
+async def session_control(
     action: Literal["inspect", "claim", "renew", "release", "break"],
     owner: Annotated[str | None, Field(max_length=128)] = None,
     expected_project: Annotated[str | None, Field(description="project_id from inspect.")] = None,
@@ -58,14 +85,14 @@ def session_control(
 ) -> dict[str, Any]:
     """Edit lease. claim needs owner+expected_project; renew/release need lease_id.
     break needs expected_project and a lease idle >= 300 s. Nothing is saved or closed."""
-    return PainterClient().call("session_control", {
+    return await painter("session_control", {
         "action": action, "owner": owner, "expected_project": expected_project,
         "lease_id": lease_id, "ttl_seconds": ttl_seconds,
     })
 
 
 @mcp.tool(annotations=CLOSING)
-def project(
+async def project(
     action: Literal["open", "create", "close", "save", "save_copy", "wait_ready", "reload_mesh"],
     path: Annotated[WorkspaceFile, Field(description="open: workspace .spp.")] = None,
     mesh_path: Annotated[WorkspaceFile, Field(description="create/reload_mesh: mesh.")] = None,
@@ -86,13 +113,13 @@ def project(
     """open/create only with no project open; close refuses unsaved edits unless
     discard_unsaved; save overwrites the workspace file; wait_ready polls until editable.
     reload_mesh is async: wait_ready, then painter_status mesh_reload."""
-    client = PainterClient()
     if action == "wait_ready":
-        return client.wait_ready(timeout_seconds)
+        return await wait_until_ready(timeout_seconds)
     if action == "open":
-        return client.call("open_project", {"path": need(path, "path", action)}, lease_id=lease_id)
+        return await painter("open_project", {"path": need(path, "path", action)},
+                             lease_id=lease_id)
     if action == "create":
-        return client.call("create_project", {
+        return await painter("create_project", {
             "path": need(mesh_path, "mesh_path", action),
             "normal_map_format": normal_map_format,
             "default_texture_resolution": default_texture_resolution,
@@ -100,22 +127,22 @@ def project(
             "tangent_space_per_fragment": tangent_space_per_fragment,
         }, lease_id=lease_id)
     if action == "reload_mesh":
-        return client.call("reload_mesh", {
+        return await painter("reload_mesh", {
             "path": need(mesh_path, "mesh_path", action), "preserve_strokes": preserve_strokes,
         }, lease_id=lease_id)
     if action == "close":
-        return client.call("close_project", {
+        return await painter("close_project", {
             "expected_file": expected_file, "discard_unsaved": discard_unsaved,
         }, lease_id=lease_id)
     if action == "save":
-        return client.call("save", lease_id=lease_id)
-    return client.call(
+        return await painter("save", lease_id=lease_id)
+    return await painter(
         "save_copy", {"directory": need(directory, "directory", action)}, lease_id=lease_id
     )
 
 
 @mcp.tool(annotations=READ_ONLY)
-def inspect(
+async def inspect(
     action: Literal["texture_sets", "layer_stack", "export_presets", "shelf", "bake_settings"],
     texture_set: Annotated[
         TextureSetName | None, Field(description="layer_stack; bake_settings filter.")
@@ -129,14 +156,14 @@ def inspect(
     """Texture sets, layer tree (groups, masks, effects, blending), export presets,
     shelf resources, or baking parameters."""
     if action == "layer_stack":
-        return PainterClient().call(
+        return await painter(
             "layer_stack", {"texture_set": need(texture_set, "texture_set", action)}
         )
     if action == "shelf":
-        return PainterClient().call("shelf", {"query": query, "usage": usage, "limit": limit})
+        return await painter("shelf", {"query": query, "usage": usage, "limit": limit})
     if action == "bake_settings":
-        return PainterClient().call("bake_settings", {"texture_set": texture_set})
-    return PainterClient().call(action)
+        return await painter("bake_settings", {"texture_set": texture_set})
+    return await painter(action)
 
 
 Rgb = tuple[UnitValue, UnitValue, UnitValue]
@@ -145,7 +172,7 @@ LAYER_ACTIONS = {"fill": "create_fill_layer", "texture_fill": "create_texture_fi
 
 
 @mcp.tool(annotations=CLOSING)
-def layer_edit(
+async def layer_edit(
     action: Literal["fill", "texture_fill", "group", "fill_mask", "smart_material", "smart_mask",
                     "generator", "sbsar_fill", "set_properties", "delete"],
     texture_set: TextureSetName,
@@ -192,7 +219,7 @@ def layer_edit(
             if base_color is not None:
                 raise ValueError("base_color is only valid for action=fill")
             extra = {"base_color_texture": need(base_color_texture, "base_color_texture", action)}
-        return PainterClient().call(LAYER_ACTIONS[action], {
+        return await painter(LAYER_ACTIONS[action], {
             "texture_set": texture_set, "name": need(name, "name", action),
             "roughness": roughness, "metallic": metallic, "values": values,
             "parent_uid": parent_uid, "above_uid": above_uid, **extra,
@@ -207,7 +234,7 @@ def layer_edit(
         need(sbsar, "sbsar", action)
     elif source_manifest is not None or expected_sha256 is not None:
         raise ValueError("source_manifest and expected_sha256 are only valid for sbsar_fill")
-    return PainterClient().call("layer_edit", {
+    return await painter("layer_edit", {
         "action": action, "texture_set": texture_set, "name": name, "uid": uid,
         "parent_uid": parent_uid, "above_uid": above_uid, "mask": mask, "resource": resource,
         "sbsar": sbsar, "source_manifest": source_manifest,
@@ -229,7 +256,7 @@ class OutputMap(BaseModel):
 
 
 @mcp.tool(annotations=MUTATING)
-def export_textures(
+async def export_textures(
     directory: NewDirectory,
     preset: Annotated[str | None, Field(description="URL from inspect export_presets.")] = None,
     source_manifest: Annotated[WorkspaceFile, Field(description="Receipt for source_file.")] = None,
@@ -250,7 +277,7 @@ def export_textures(
     """Preview or export texture sets into a new workspace directory."""
     if (source_manifest is None) != (source_file is None):
         raise ValueError("source_manifest and source_file must be provided together")
-    return PainterClient().call("export_textures", {
+    return await painter("export_textures", {
         "directory": directory, "preset": preset,
         "source_manifest": source_manifest, "source_file": source_file,
         "maps": None if maps is None else [m.model_dump(exclude_none=True) for m in maps],
@@ -262,7 +289,7 @@ def export_textures(
 
 
 @mcp.tool(annotations=MUTATING)
-def bake(
+async def bake(
     action: Literal["start", "status"],
     texture_sets: Annotated[list[TextureSetName] | None, Field(max_length=64)] = None,
     maps: list[Literal["normal", "world_space_normal", "id", "ao", "curvature", "position",
@@ -283,8 +310,8 @@ def bake(
     """Bake mesh maps; start returns at once, poll status until busy is false.
     Unset options keep current settings; unselected sets are disabled for baking."""
     if action == "status":
-        return PainterClient().call("bake_status")
-    return PainterClient().call("bake", {
+        return await painter("bake_status")
+    return await painter("bake", {
         "texture_sets": texture_sets, "maps": maps, "high_poly_meshes": high_poly_meshes,
         "resolution": resolution, "antialiasing": antialiasing, "max_frontal": max_frontal,
         "max_rear": max_rear, "use_cage": use_cage, "cage_mesh": cage_mesh, "match": match,
