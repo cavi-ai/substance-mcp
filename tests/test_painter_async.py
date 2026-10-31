@@ -144,7 +144,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([tool.name for tool in tools if not tool.is_async], [])
 
     async def test_slow_call_does_not_block_the_event_loop_or_other_handlers(self):
-        def slow(self, operation, params=None, *, lease_id=None, timeout=None):
+        def slow(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
             if operation == "save":
                 time.sleep(1.0)
             return {"operation": operation}
@@ -171,7 +171,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(ticks, 15)
 
     async def test_cancelling_a_request_returns_without_waiting_for_painter(self):
-        def slow(self, operation, params=None, *, lease_id=None, timeout=None):
+        def slow(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
             time.sleep(1.5)
             return {}
 
@@ -184,6 +184,25 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
                 await task
             self.assertLess(time.monotonic() - started, 0.5)
             await asyncio.sleep(1.6)  # let the abandoned worker finish before patch exit
+
+
+class CancelledQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_a_request_cancelled_while_queued_never_reaches_painter(self):
+        with FakePainter(delay=1.2) as painter, patch.dict(
+                os.environ, {"CAVI_PAINTER_PORT": str(painter.port)}):
+            running = threading.Thread(
+                target=PainterClient(port=painter.port).call, args=("export_presets",))
+            running.start()
+            await asyncio.sleep(0.2)
+            queued = asyncio.create_task(server.inspect(action="texture_sets"))
+            await asyncio.sleep(0.3)
+            self.assertFalse(queued.done())
+            queued.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await queued
+            running.join(10)
+            await asyncio.sleep(0.5)  # time for a wrongly surviving worker to send it
+            self.assertEqual(painter.total, 1)
 
 
 class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):

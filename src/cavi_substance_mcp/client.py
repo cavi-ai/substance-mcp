@@ -71,6 +71,10 @@ class PainterHTTPError(RuntimeError):
         self.status = status
 
 
+class PainterCancelled(RuntimeError):
+    """The request was cancelled while queued and never reached Painter."""
+
+
 class _Gate:
     """Painter runs one scripting request at a time; this server never overlaps them either."""
 
@@ -181,6 +185,7 @@ class PainterClient:
         *,
         lease_id: str | None = None,
         timeout: float | None = None,
+        cancelled: threading.Event | None = None,
     ):
         params = dict(params or {})
         if lease_id is not None:
@@ -200,6 +205,9 @@ class PainterClient:
                 f"Painter is still busy with {gate.operation}; this request was not sent"
             )
         try:
+            if cancelled is not None and cancelled.is_set():
+                # The caller gave up while queued; nothing was sent to Painter.
+                raise PainterCancelled(f"{operation} was cancelled before it was sent")
             gate.operation, gate.since = operation, time.monotonic()
             result = self._post(bootstrap_expression(operation, params, self.workspace), timeout)
             if result == {"cavi_cache_miss": SOURCE_KEY}:

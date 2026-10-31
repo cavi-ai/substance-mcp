@@ -45,7 +45,7 @@ class BakeContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_forwards_the_lease_to_the_bake_cancel_operation(self):
         calls = []
 
-        def spy(self, operation, params=None, *, lease_id=None, timeout=None):
+        def spy(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
             calls.append((operation, params, lease_id))
             return {"cancel_requested": True}
 

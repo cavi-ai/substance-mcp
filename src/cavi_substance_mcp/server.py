@@ -1,5 +1,6 @@
 """Typed stdio MCP surface for Substance Painter."""
 
+import threading
 import time
 from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
@@ -47,13 +48,19 @@ def need(value, name, action):
 async def painter(operation, params=None, *, lease_id=None):
     """Run one blocking Painter call in a worker thread; the client serializes the calls.
 
-    A cancelled request stops waiting at once, but the call it started still finishes
-    inside Painter and keeps the client's lock until it does.
+    A cancelled request stops waiting at once. A call already sent still finishes inside
+    Painter and keeps the client's lock until it does; a call still queued is never sent.
     """
-    def run():
-        return PainterClient().call(operation, params, lease_id=lease_id)
+    cancelled = threading.Event()
 
-    return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+    def run():
+        return PainterClient().call(operation, params, lease_id=lease_id, cancelled=cancelled)
+
+    try:
+        return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+    except BaseException:
+        cancelled.set()
+        raise
 
 
 async def wait_until_ready(timeout_seconds, interval=0.5):
