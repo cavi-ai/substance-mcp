@@ -59,7 +59,7 @@ class EditSafetyTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         source, target, original = seen[0]
         self.assertEqual(target.resolve(), self.project.resolve())
-        self.assertEqual(source.parent, self.project.parent)
+        self.assertEqual(source.parent.resolve(), self.project.parent.resolve())
         self.assertEqual(original, before)
         self.assertNotEqual(self.project.read_bytes(), before)
         self.assertEqual(self.leftovers(), [])
