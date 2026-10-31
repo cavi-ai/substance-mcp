@@ -113,7 +113,13 @@ def fixtures(output: Path) -> Path:
     Image.new("L", (32, 32), 64).save(workspace / "maps/roughness.png")
     Image.new("L", (32, 32), 255).save(workspace / "maps/metallic.png")
     Image.new("L", (32, 32), 200).save(workspace / "maps/ao.png")
-    (workspace / "assets/custom.sbsar").write_bytes(b"fake-sbsar")
+    custom = b"fake-sbsar"
+    (workspace / "assets/custom.sbsar").write_bytes(custom)
+    (workspace / "assets/manifest.json").write_text(json.dumps({
+        "schema": 1, "app": "designer", "operation": "cook",
+        "outputs": [{"path": "assets/custom.sbsar", "size": len(custom),
+                     "sha256": hashlib.sha256(custom).hexdigest()}],
+    }))
     (workspace / "existing/keep.txt").write_text("keep")
 
     def build(directory, target, asset="Rock"):

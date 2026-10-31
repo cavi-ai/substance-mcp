@@ -613,11 +613,31 @@
     "arguments": {
       "action": "import_resource",
       "project": "projects/Rock.ssa",
-      "path": "assets/custom.sbsar"
+      "path": "assets/custom.sbsar",
+      "source_manifest": "assets/manifest.json"
     },
     "equals": {
       "resources/0/name": "custom"
-    }
+    },
+    "required": [
+      "verified",
+      "source/sha256"
+    ]
+  },
+  {
+    "id": "asset-import-resource-bad-hash",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "import_resource",
+      "project": "projects/Rock.ssa",
+      "path": "assets/custom.sbsar",
+      "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "error": "expected_sha256"
   },
   {
     "id": "asset-import-resource-missing",

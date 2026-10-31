@@ -59,7 +59,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 | `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
 | `layer_edit` | `fill`, `texture_fill`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
-| `export_textures` | — | `directory`, `preset` or `maps`, `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
+| `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
 
 - `open`/`create` run only with no project open; loading is asynchronous. `udim` selects `ProjectWorkflow.UVTile`.
@@ -77,7 +77,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 - `set_properties` changes `name`, `visible`, `blend_mode` (Painter `BlendingMode` name) and `opacity` for one `channel` or all; failures restore previous values.
 - `delete` removes nodes this lease created; other nodes need `confirm_name` equal to the current name.
 - Failed layer actions remove the nodes they created and report anything left.
-- `export_textures` previews by default; only `dry_run=false` writes. `omitted_files` lists planned maps Painter did not emit.
+- `export_textures` previews by default; only `dry_run=false` writes. `omitted_files` lists planned maps Painter did not emit. `source_manifest` plus `source_file` records verified provenance in the export manifest.
 - `maps` packs channels: `{"name":"T_$textureSet_MaskMap","format":"png","bit_depth":8,"channels":{"R":"metallic","G":"ambientOcclusion","B":"0","A":"1-roughness"}}`. Keys `R`/`G`/`B`/`A`/`RGB`/`L`; sources are document maps (`baseColor`, `roughness`, …), mesh maps (`ambient_occlusion`, `curvature`, `thickness`, `id`, `position`, `world_space_normals`, `normal_base`, `bent_normals`), `normal_opengl`/`normal_directx`/`ao_mixed`, or `0`/`1`. `1-roughness` maps to Painter's Glossiness virtual map; other inversions and constants are refused.
 - `bake start` configures the selected sets (default all), disables the others, starts `bake_selected_textures_async` and returns. Poll `bake status` until `busy=false`; `status` is `Success`, `Cancel` or `Fail`. High-poly and cage meshes are workspace files passed as file URLs. Other edits are refused while baking.
 
@@ -131,9 +131,9 @@ sizes and SHA-256 hashes.
 
 - Designer: `cook`, `render`, `pack`, `bake`; the deprecated `sampler` helper also
   writes a receipt.
-- Painter: `export_textures`, `save_copy`; `sbsar_fill` results record the imported
-  `.sbsar` as `source` and set `verified` when `source_manifest` or
-  `expected_sha256` was checked.
+- Painter: `export_textures`, `save_copy`; exports can record `source_manifest` +
+  `source_file` provenance. `sbsar_fill` results record the imported `.sbsar` as
+  `source` and set `verified` when `source_manifest` or `expected_sha256` was checked.
 - Sampler: job manifests use `app_name` (`app` already holds the installation);
   `sampler_export`, `sampler_project create/save_as` and `sampler_pack` output use
   the shared fields.
@@ -146,8 +146,17 @@ cavi-substance-mcp receipts verify handoff/designer/manifest.json \
   --file handoff/designer/rock.sbsar --role outputs --json
 ```
 
-A downstream stage can also verify one file directly. See
-`examples/pipeline/designer-to-painter/` for a complete handoff.
+A manifest can carry `provenance` links to earlier manifests. Painter export
+manifests record the verified `.sbsar` manifest and file when `source_manifest` and
+`source_file` are supplied. Verify the whole chain, including those links:
+
+```sh
+cavi-substance-mcp receipts chain handoff/painter/manifest.json
+```
+
+`receipts chain` verifies every manifest, every recorded file, and each provenance
+link's source file. See `examples/pipeline/designer-to-painter/` for a complete
+handoff.
 
 ## Validation
 
@@ -257,11 +266,14 @@ run startup scripts.
 | `sampler_status` | executable, version, scripts folder, workspace, running state |
 | `sampler_inspect` | `project` lists assets; `asset` lists layers and parameters; `catalog` lists filters, materials, generators, export presets, material models, predefined presets, import options and target availability |
 | `sampler_project` | `create` `name` + new `directory`; `save_as` `project` + new `directory` |
-| `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource` (optional declared `resources`), `set_metadata`, `activate_channels`, `deactivate_channels`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
+| `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource` (optional declared `resources`, `source_manifest`, `expected_sha256`), `set_metadata`, `activate_channels`, `deactivate_channels`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
 | `sampler_layer` | `set_parameters`, `apply_preset`, `set_channels` (IDs or unambiguous labels), `set_blend_parameters`, `remove`; removal needs `confirm=true` |
 | `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`, `wait_seconds`; `dry_run` defaults to true |
 | `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe; `check_project` adds source-project checks; `check_build` executes non-export steps in a temporary project |
 | `sampler_pack` | new `directory`, `sources` usage→workspace image, `pack` channel spec; host-side packing |
+
+`import_resource` accepts `source_manifest` and `expected_sha256`; the resource is
+verified before Sampler imports it, and the result includes `verified` and `source`.
 
 ### Engine targets
 

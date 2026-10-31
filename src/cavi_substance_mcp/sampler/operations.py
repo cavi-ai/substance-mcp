@@ -1442,14 +1442,34 @@ def _import_resource(ssa, root, args) -> dict:
         if _CURRENT.get("path") != candidate:
             _input(root, project, PROJECT)
     path = _input(root, args.get("path"), RESOURCE_FILES)
+    source_manifest = args.get("source_manifest")
+    expected = args.get("expected_sha256")
+    if expected is not None:
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
+            raise ValueError("expected_sha256 must be 64 hexadecimal characters")
+        expected = expected.lower()
+    source, manifest_path = None, None
+    if source_manifest is not None:
+        manifest_path = _input(root, source_manifest, {".json"})
+        source = receipts.verify_file(receipts.load(manifest_path), root, path, "outputs")
+    if expected is not None:
+        actual = receipts.record(path, root)
+        if actual["sha256"] != expected:
+            raise ValueError("resource sha256 does not match expected_sha256")
+        source = source or actual
     resources = ssa.import_resources(str(path))
-    return {
+    result = {
         "path": _rel(root, path),
         "resources": [
             {"name": _resource_name(item), "label": _jsonable(_get(item, "label"))}
             for item in resources
         ],
     }
+    if source_manifest is not None or expected is not None:
+        result.update(verified=True, source=source)
+        if manifest_path is not None:
+            result["source_manifest"] = _rel(root, manifest_path)
+    return result
 
 
 def _export(ssa, root, args) -> dict:

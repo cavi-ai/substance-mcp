@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import install
 
+from cavi_substance_mcp import receipts
 from cavi_substance_mcp.sampler import operations, runner
 
 TIMEOUT = 30
@@ -122,6 +123,24 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(imported["resources"][0]["name"], "custom")
         with self.assertRaisesRegex(ValueError, "inside the workspace"):
             self.call("import_resource", project="missing.ssa", path="assets/custom.sbsar")
+
+    def test_import_resource_receipt(self):
+        self.create_project()
+        manifest = receipts.build(
+            "designer", "cook", self.workspace,
+            outputs=[self.workspace / "assets/custom.sbsar"],
+        )
+        receipts.write(self.workspace / "assets", manifest)
+        imported = self.call(
+            "import_resource", project="projects/Rock.ssa",
+            path="assets/custom.sbsar", source_manifest="assets/manifest.json",
+        )
+        self.assertTrue(imported["verified"])
+        self.assertEqual(imported["source"]["path"], "assets/custom.sbsar")
+        self.assertEqual(imported["source_manifest"], "assets/manifest.json")
+        with self.assertRaisesRegex(ValueError, "expected_sha256"):
+            self.call("import_resource", project="projects/Rock.ssa",
+                      path="assets/custom.sbsar", expected_sha256="0" * 64)
 
     def test_export_wait_seconds(self):
         self.create_project()

@@ -668,7 +668,8 @@ def _receipt_records(paths, root: Path) -> list[dict]:
 
 
 def _receipt_build(app, operation, root: Path, inputs=(), outputs=(), parameters=None,
-                   started=None, seconds=None, version=None, warnings=None) -> dict:
+                   started=None, seconds=None, version=None, warnings=None,
+                   provenance=None) -> dict:
     return {
         "schema": 1,
         "app": app,
@@ -680,6 +681,7 @@ def _receipt_build(app, operation, root: Path, inputs=(), outputs=(), parameters
         "inputs": _receipt_records(inputs, root),
         "outputs": _receipt_records(outputs, root),
         "warnings": list(warnings or []),
+        "provenance": list(provenance or []),
     }
 
 
@@ -737,6 +739,16 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[di
     return entry, manifest_path
 
 
+def _receipt_provenance(manifest_name, file_name, root: Path) -> list[dict]:
+    if (manifest_name is None) != (file_name is None):
+        raise ValueError("source_manifest and source_file must be provided together")
+    if manifest_name is None:
+        return []
+    source = input_file(root, file_name, {".sbsar"})
+    entry, manifest_path = _receipt_source(source, root, manifest_name, None)
+    return [{"manifest": _receipt_record(manifest_path, root), "file": entry}]
+
+
 def _painter_version():
     try:
         import substance_painter
@@ -751,6 +763,9 @@ def _export(params, root):
 
     started = time.monotonic()
     folder = export_destination(root(), required(params, "directory"))
+    provenance = _receipt_provenance(
+        params.get("source_manifest"), params.get("source_file"), root()
+    )
     preset, specs = params.get("preset"), params.get("maps")
     if (preset is None) == (specs is None):
         raise ValueError("Pass exactly one of preset or maps")
@@ -808,7 +823,8 @@ def _export(params, root):
     ):
         raise ValueError("Preset produced empty, existing, or out-of-directory output paths")
     if params.get("dry_run", True):
-        return {"dry_run": True, "files": [str(path) for path in files]}
+        return {"dry_run": True, "files": [str(path) for path in files],
+                "provenance": provenance}
     folder.mkdir(mode=0o700)
     result = export.export_project_textures(config)
     actual = [Path(path).resolve() for paths in result.textures.values() for path in paths]
@@ -838,6 +854,7 @@ def _export(params, root):
                     "bit_depth": depth, "padding": padding,
                     "dilation_distance": dilation, "udim_tiles": tiles},
         seconds=time.monotonic() - started, version=_painter_version(),
+        provenance=provenance,
     )
     manifest_path = _receipt_write(folder, manifest)
     return {
@@ -845,6 +862,7 @@ def _export(params, root):
         "status": result.status.name,
         "files": [str(path) for path in actual],
         "omitted_files": sorted(str(path) for path in set(files) - set(actual)),
+        "provenance": provenance,
         "manifest": str(manifest_path),
     }
 

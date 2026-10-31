@@ -24,9 +24,13 @@ def main(argv=None):
     verify.add_argument("--file", help="Verify one file instead of the whole manifest.")
     verify.add_argument("--role", choices=("inputs", "outputs"), default="outputs")
     verify.add_argument("--json", action="store_true")
+    chain = actions.add_parser("chain", help="Verify a manifest and its provenance chain")
+    chain.add_argument("manifest")
+    chain.add_argument("--workspace")
+    chain.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "receipts":
-        return _verify_receipt(args)
+        return _chain_receipt(args) if args.receipt_action == "chain" else _verify_receipt(args)
     try:
         result = start_painter() if args.action == "start" else runtime_status()
         print(json.dumps(result))
@@ -72,6 +76,22 @@ def _verify_receipt(args):
     return 0
 
 
+def _chain_receipt(args):
+    root = _root(args.workspace)
+    manifest_path = Path(args.manifest).expanduser()
+    if not manifest_path.is_absolute():
+        manifest_path = root / manifest_path
+    try:
+        manifest_path = manifest_path.resolve(strict=True)
+        result = {"ok": True, "chain": receipts.chain(manifest_path, root)}
+    except (OSError, ValueError) as exc:
+        result = {"ok": False, "error": str(exc)}
+        _print_receipt(result, args.json)
+        return 1
+    _print_receipt(result, args.json)
+    return 0
+
+
 def _display(path, root):
     try:
         return Path(path).relative_to(root).as_posix()
@@ -89,6 +109,10 @@ def _print_receipt(result, as_json):
     print(f"manifest: {result['manifest']}")
     if "file" in result:
         print(f"{result['role']}: {result['file']['path']}")
+        return
+    if "chain" in result:
+        for step in result["chain"]:
+            print(f"{step['path']}: {step.get('app')} {step.get('operation')}")
         return
     print(f"app: {result.get('app')} {result.get('operation')}")
     print(f"inputs: {result.get('inputs')} outputs: {result.get('outputs')}")

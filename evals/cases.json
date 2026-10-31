@@ -653,7 +653,9 @@
   "arguments": {
    "directory": "textures",
    "preset": "resource://eval-preset",
-   "dry_run": false
+   "dry_run": false,
+   "source_manifest": "material-manifest.json",
+   "source_file": "material.sbsar"
   },
   "kind": "success",
   "modes": [
@@ -667,7 +669,8 @@
    "textures/Body.png"
   ],
   "required": [
-   "manifest"
+   "manifest",
+   "provenance/0/file/sha256"
   ]
  },
  {

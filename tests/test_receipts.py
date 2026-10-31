@@ -120,13 +120,31 @@ class ReceiptTests(unittest.TestCase):
             presets = client.call("export_presets")["presets"]
             exported = client.call("export_textures", {
                 "directory": "painter-out", "preset": presets[0]["url"],
+                "source_manifest": cooked["manifest"], "source_file": cooked["sbsar"],
                 "dry_run": False,
             })
             painter_manifest = json.loads(Path(exported["manifest"]).read_text())
             self.assertEqual(painter_manifest["app"], "painter")
             self.assertEqual(painter_manifest["operation"], "export")
             self.assertTrue(painter_manifest["outputs"])
+            self.assertEqual(painter_manifest["provenance"][0]["file"]["sha256"],
+                             sbsar["sha256"])
             self.assertTrue((workspace / "painter-out/manifest.json").is_file())
+            chain = receipts.chain(Path(exported["manifest"]), workspace)
+            self.assertEqual([step["app"] for step in chain], ["painter", "designer"])
+            with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    code = cli.main([
+                        "receipts", "chain", exported["manifest"], "--json",
+                    ])
+                self.assertEqual(code, 0)
+                self.assertEqual([step["app"] for step in
+                                  json.loads(stream.getvalue())["chain"]],
+                                 ["painter", "designer"])
+            (workspace / cooked["sbsar"]).write_bytes(b"tampered")
+            with self.assertRaisesRegex(receipts.ReceiptError, "Size mismatch|SHA-256"):
+                receipts.chain(Path(exported["manifest"]), workspace)
 
     def test_sampler_to_painter_receipt_chain(self):
         workspace = self.root / "ws"
@@ -156,8 +174,17 @@ class ReceiptTests(unittest.TestCase):
                 "action": "sbsar_fill", "texture_set": "Body", "name": "From Sampler",
                 "sbsar": source["path"], "source_manifest": exported["manifest"],
             })
-        self.assertTrue(filled["verified"])
-        self.assertEqual(filled["source"]["sha256"], source["sha256"])
+            self.assertTrue(filled["verified"])
+            self.assertEqual(filled["source"]["sha256"], source["sha256"])
+            presets = client.call("export_presets")["presets"]
+            painter = client.call("export_textures", {
+                "directory": "painter-out", "preset": presets[0]["url"],
+                "source_manifest": exported["manifest"], "source_file": source["path"],
+                "dry_run": False,
+            })
+        self.assertEqual([step["app"] for step in
+                          receipts.chain(Path(painter["manifest"]), workspace)],
+                         ["painter", "sampler"])
 
     def test_sbsar_fill_rejects_unverified_source(self):
         workspace = self.root / "ws"
