@@ -376,13 +376,13 @@ async def sampler_export(
 @mcp.tool(annotations=WRITES)
 async def sampler_build(
     job: JobFile,
-    dry_run: StrictBool = False,
+    dry_run: Annotated[StrictBool, Field(description="Only explicit false runs the job.")] = True,
     check_sampler: StrictBool = False,
     check_project: StrictBool = False,
     check_build: StrictBool = False,
     timeout_seconds: Timeout = 1800,
 ) -> dict[str, Any]:
-    """Validate or run a batch job file and return its manifest or plan."""
+    """Validate a batch job file (default) or, with dry_run=false, run it."""
     if (check_sampler or check_project or check_build) and not dry_run:
         raise ValueError(
             "check_sampler, check_project and check_build require dry_run=true"

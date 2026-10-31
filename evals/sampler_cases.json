@@ -712,6 +712,45 @@
     ]
   },
   {
+    "id": "build-default-is-dry-run",
+    "tool": "sampler_build",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/unity.json"
+    },
+    "equals": {
+      "dry_run": true,
+      "directory": "jobs/unity"
+    },
+    "absent": [
+      "jobs/unity"
+    ]
+  },
+  {
+    "id": "build-checks-without-dry-run",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/check.json",
+      "check_sampler": true
+    },
+    "equals": {
+      "dry_run": true
+    },
+    "required": [
+      "sampler"
+    ],
+    "absent": [
+      "jobs/check"
+    ]
+  },
+  {
     "id": "build-unreal",
     "tool": "sampler_build",
     "kind": "success",
@@ -719,7 +758,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/unreal.json"
+      "job": "jobs/unreal.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -745,7 +785,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/unity.json"
+      "job": "jobs/unity.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -766,7 +807,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/blender.json"
+      "job": "jobs/blender.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -783,7 +825,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/generic.json"
+      "job": "jobs/generic.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -916,7 +959,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/existing.json"
+      "job": "jobs/existing.json",
+      "dry_run": false
     },
     "error": "already exists"
   },
@@ -928,7 +972,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/fail.json"
+      "job": "jobs/fail.json",
+      "dry_run": false
     },
     "error": "fake export failure",
     "absent": [
@@ -965,7 +1010,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/b2m.json"
+      "job": "jobs/b2m.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -1019,7 +1065,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/source.json"
+      "job": "jobs/source.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success",
@@ -1187,7 +1234,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/ai.json"
+      "job": "jobs/ai.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
@@ -1204,7 +1252,8 @@
       "simulated"
     ],
     "arguments": {
-      "job": "jobs/multiangle.json"
+      "job": "jobs/multiangle.json",
+      "dry_run": false
     },
     "equals": {
       "status": "success"
