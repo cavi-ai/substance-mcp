@@ -70,8 +70,8 @@ class InstallationTests(unittest.TestCase):
                     r"C:\Program Files\Adobe\Adobe Substance 3D Designer"))
             with patch.object(discovery.sys, "platform", "linux"), \
                     patch.object(discovery.shutil, "which", return_value=None):
-                self.assertEqual(runner.installation().bin_dir,
-                                 Path("/opt/Adobe/Adobe_Substance_3D_Designer"))
+                self.assertEqual(str(runner.installation().bin_dir),
+                                 "/opt/Adobe/Adobe_Substance_3D_Designer")
 
     def test_path_is_searched_after_the_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
