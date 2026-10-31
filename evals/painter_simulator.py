@@ -222,6 +222,8 @@ class PainterSimulator:
         self.drop_bake_end = False  # finish bakes without delivering BakingProcessEnded
         self.stop_allowed = True  # whether request_stop on a running bake succeeds
         self.stop_source = None
+        self.import_hook = None  # called with the path just before Painter reads an import
+        self.imports = []
         self.reset_bake()
 
     def reset_bake(self):
@@ -320,6 +322,11 @@ class PainterSimulator:
 
         def import_resource(path, usage, name=None, group=None):
             assert usage in (Usage.TEXTURE, Usage.BASE_MATERIAL) and Path(path).is_file()
+            if self.import_hook:
+                self.import_hook(Path(path))  # e.g. swap the source file at the worst moment
+            self.imports.append({"path": str(path), "usage": usage, "name": name,
+                                 "bytes": Path(path).read_bytes(),
+                                 "folder_mode": Path(path).parent.stat().st_mode & 0o777})
             if self.state == "import-failure":
                 raise RuntimeError("simulated import failure")
             name = name or Path(path).stem

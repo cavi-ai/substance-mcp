@@ -46,6 +46,7 @@ SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
                 "environment": "ENVIRONMENT"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
+SBSAR_LIMIT = 512 * 1024 * 1024
 MAX_NODES = 512
 # Painter export JSON: srcMapType documentMap/meshMap/virtualMap names; True = color source.
 DOCUMENT_MAPS = {
@@ -736,7 +737,40 @@ def _receipt_write(directory: Path, manifest: dict) -> Path:
     return path
 
 
-def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[dict, Path | None]:
+def snapshot_sbsar(path: Path, folder: Path | None = None):
+    """Read an .sbsar exactly once: enforce the size cap, hash it, optionally copy it.
+
+    Returns (sha256, size, copy path or None). Whatever is hashed here is what a caller
+    importing the copy gets, however the original changes afterwards.
+    """
+    digest, size, copy = hashlib.sha256(), 0, None
+    with path.open("rb") as source:
+        target = None
+        if folder is not None:
+            copy = Path(folder) / "source.sbsar"
+            target = copy.open("xb")
+        try:
+            while chunk := source.read(1024 * 1024):
+                size += len(chunk)
+                if size > SBSAR_LIMIT:
+                    raise ValueError("sbsar exceeds 512 MiB")
+                digest.update(chunk)
+                if target is not None:
+                    target.write(chunk)
+        finally:
+            if target is not None:
+                target.close()
+    return digest.hexdigest(), size, copy
+
+
+def _sbsar_entry(path: Path, root: Path, folder: Path | None = None):
+    digest, size, copy = snapshot_sbsar(path, folder)
+    relative = Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    return {"path": relative, "size": size, "sha256": digest}, copy
+
+
+def _receipt_source(path: Path, root: Path, manifest_name, expected,
+                    entry=None) -> tuple[dict, Path | None]:
     if expected is not None:
         if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
             raise ValueError("expected_sha256 must be 64 hexadecimal characters")
@@ -744,7 +778,8 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected) -> tuple[di
     manifest_path = None
     if manifest_name is not None:
         manifest_path = input_file(root, manifest_name, {".json"})
-    entry = _receipt_record(path, root)
+    if entry is None:
+        entry, _ = _sbsar_entry(path, root)
     if expected is not None and entry["sha256"] != expected:
         raise ValueError("sbsar sha256 does not match expected_sha256")
     if manifest_path is not None:
@@ -1282,21 +1317,33 @@ def _layer_edit(params, root):
             item = find_resource(resource, params.get("resource"), "smart_material")
         else:
             path = input_file(root(), required(params, "sbsar"), {".sbsar"})
-            if path.stat().st_size > 512 * 1024 * 1024:
-                raise ValueError("sbsar exceeds 512 MiB")
-            source, manifest_path = _receipt_source(
-                path, root(), params.get("source_manifest"), params.get("expected_sha256")
-            )
-            verified = (params.get("source_manifest") is not None
-                        or params.get("expected_sha256") is not None)
-            package = resource.import_project_resource(
-                str(path), resource.Usage.BASE_MATERIAL, name="cavi_sbsar_" + uuid.uuid4().hex)
+            # Hash and import one private copy so the file cannot change in between.
+            folder = Path(tempfile.mkdtemp(prefix=".cavi-sbsar-", dir=root()))
+            try:
+                entry, copy = _sbsar_entry(path, root(), folder)
+                source, manifest_path = _receipt_source(
+                    path, root(), params.get("source_manifest"), params.get("expected_sha256"),
+                    entry)
+                verified = (params.get("source_manifest") is not None
+                            or params.get("expected_sha256") is not None)
+                package = resource.import_project_resource(
+                    str(copy), resource.Usage.BASE_MATERIAL,
+                    name="cavi_sbsar_" + uuid.uuid4().hex)
+            except Exception as exc:
+                left = remove_tree(folder)
+                if left:
+                    raise RuntimeError(f"{type(exc).__name__}: {exc}; could not remove "
+                                       f"temporary files: {', '.join(left)}") from exc
+                raise
+            leftovers = remove_tree(folder)
             graphs = ([child for child in package.children()
                        if child.type() == resource.Type.SUBSTANCE]
                       if package.type() == resource.Type.SUBSTANCE_PACKAGE else [package])
             if not graphs:
-                raise RuntimeError(f"No material graph in {path.name}; imported resource "
-                                   f"{package.identifier().url()} kept (no Painter API removes it)")
+                raise RuntimeError(
+                    f"No material graph in {path.name}; imported resource "
+                    f"{package.identifier().url()} kept (no Painter API removes it)"
+                    + (f"; could not remove {', '.join(leftovers)}" if leftovers else ""))
             item = graphs[0]
         node, applied = None, []
         try:
@@ -1328,6 +1375,8 @@ def _layer_edit(params, root):
             result.update(parameters=applied, graphs=len(graphs),
                           active_channels=sorted(channel_label(c) for c in node.active_channels),
                           source=source, verified=verified)
+            if leftovers:
+                result["cleanup_failed"] = leftovers
             if manifest_path is not None:
                 result["source_manifest"] = manifest_path.relative_to(root()).as_posix()
         return result
