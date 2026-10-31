@@ -29,6 +29,10 @@ SUPPORTED_SCHEMAS = (SCHEMA, EXTERNAL_SCHEMA)
 EXTERNAL_ROLE = "app-resource"
 MANIFEST = "manifest.json"
 MAX_CHAIN = 128
+# The most a JSON file read from the workspace (a receipt, a job) may hold. They are small
+# by nature; a larger one is refused before it is parsed. painter/operations.py repeats
+# the number, and tests/test_painter_sbsar.py checks that the two agree.
+MAX_JSON_BYTES = 8 * 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
@@ -43,6 +47,21 @@ def sha256_file(path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def read_json(path, limit: int | None = None):
+    """Parse the JSON file ``path``, refusing one larger than ``limit`` (``MAX_JSON_BYTES``).
+
+    The file is never read past the limit, so a huge or growing file costs at most that
+    much memory. Raises ValueError (including JSON and UTF-8 decoding errors) or OSError.
+    """
+    limit = MAX_JSON_BYTES if limit is None else limit
+    with Path(path).open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        size = f"{limit // 2**20} MiB" if limit % 2**20 == 0 else f"{limit} bytes"
+        raise ValueError(f"file is larger than {size}")
+    return json.loads(data.decode("utf-8"))
 
 
 def _relative(value, label: str) -> str:
@@ -179,7 +198,7 @@ def build(app: str, operation: str, root: Path, inputs=(), outputs=(),
 def load(path: Path) -> dict:
     path = Path(path)
     try:
-        return _validate(json.loads(path.read_text(encoding="utf-8")))
+        return _validate(read_json(path))
     except ReceiptError:
         raise
     except (OSError, ValueError) as exc:

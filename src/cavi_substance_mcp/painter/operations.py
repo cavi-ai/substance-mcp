@@ -47,6 +47,8 @@ SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
+# The most a JSON file read from the workspace may hold; receipts.MAX_JSON_BYTES is the twin.
+MAX_JSON_BYTES = 8 * 1024 * 1024
 MAX_NODES = 512
 # Painter export JSON: srcMapType documentMap/meshMap/virtualMap names; True = color source.
 DOCUMENT_MAPS = {
@@ -808,7 +810,11 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected,
         raise ValueError("sbsar sha256 does not match expected_sha256")
     if manifest_path is not None:
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            with manifest_path.open("rb") as stream:
+                data = stream.read(MAX_JSON_BYTES + 1)
+            if len(data) > MAX_JSON_BYTES:
+                raise ValueError(f"file is larger than {MAX_JSON_BYTES // 2**20} MiB")
+            manifest = json.loads(data.decode("utf-8"))
         except (OSError, ValueError) as exc:
             raise ValueError(f"source_manifest is unreadable: {exc}") from exc
         if not isinstance(manifest, dict) or manifest.get("schema") != 1:

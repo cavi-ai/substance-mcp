@@ -60,6 +60,34 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipts.sha256_file(str(large)),
                          hashlib.sha256(b"x" * (3 * 1024 * 1024 + 5)).hexdigest())
 
+    def test_user_json_is_capped_at_8_mib(self):
+        self.assertEqual(receipts.MAX_JSON_BYTES, 8 * 1024 * 1024)
+        with patch.object(receipts, "MAX_JSON_BYTES", 2 * 1024 * 1024):
+            small = self.root / "manifest.json"
+            small.write_text(json.dumps({"schema": 1, "pad": "x" * (2 * 1024 * 1024)}))
+            with self.assertRaisesRegex(receipts.ReceiptError, r"larger than 2 MiB"):
+                receipts.load(small)
+
+    def test_a_receipt_at_the_cap_still_loads(self):
+        text = json.dumps({"schema": 1, "pad": ""})
+        size = 4096
+        padded = json.dumps({"schema": 1, "pad": "x" * (size - len(text))})
+        self.assertEqual(len(padded), size)
+        path = self.root / "manifest.json"
+        path.write_text(padded)
+        with patch.object(receipts, "MAX_JSON_BYTES", size):
+            self.assertEqual(receipts.load(path)["schema"], 1)
+        with patch.object(receipts, "MAX_JSON_BYTES", size - 1), \
+                self.assertRaisesRegex(receipts.ReceiptError, "larger than"):
+            receipts.load(path)
+
+    def test_the_cap_is_checked_before_the_file_is_parsed(self):
+        path = self.root / "manifest.json"
+        path.write_text("[" * 5000)
+        with patch.object(receipts, "MAX_JSON_BYTES", 1000), \
+                self.assertRaisesRegex(receipts.ReceiptError, "larger than"):
+            receipts.load(path)
+
     def test_write_manifest_builds_and_writes_atomically(self):
         source = self.root / "source.txt"
         source.write_text("input")
