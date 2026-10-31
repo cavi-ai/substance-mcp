@@ -8,7 +8,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import timedelta
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -43,7 +42,7 @@ async def exercise(mode, env, workspace):
     params = StdioServerParameters(command=sys.executable, args=SERVER, env=env)
     async with (
         stdio_client(params) as (reader, writer),
-        ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=90)) as session,
+        ClientSession(reader, writer, read_timeout_seconds=90) as session,
     ):
         await session.initialize()
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
@@ -54,11 +53,11 @@ async def exercise(mode, env, workspace):
             covered = [case for case in corpus if case["tool"] == tool.name]
             if not any(case["kind"] == "success" for case in covered):
                 raise AssertionError(f"Missing success coverage: {tool.name}")
-            if tool.inputSchema.get("required") and not any(
+            if tool.input_schema.get("required") and not any(
                 case["kind"] == "invalid" for case in covered
             ):
                 raise AssertionError(f"Missing invalid-input coverage: {tool.name}")
-            if not (tool.annotations and tool.annotations.readOnlyHint) and not any(
+            if not (tool.annotations and tool.annotations.read_only_hint) and not any(
                 case["kind"] == "safety" for case in covered
             ):
                 raise AssertionError(f"Missing safety coverage: {tool.name}")
@@ -68,7 +67,7 @@ async def exercise(mode, env, workspace):
                 reply = await session.call_tool(case["tool"], case["arguments"])
                 error = "\n".join(getattr(item, "text", "") for item in reply.content)
                 if case.get("error"):
-                    assert reply.isError, "Expected an explicit MCP tool error"
+                    assert reply.is_error, "Expected an explicit MCP tool error"
                     assert case["error"].lower() in error.lower(), error
                     for path, digest in protected.items():
                         assert path.is_file(), f"Failed call deleted {path.name}"
@@ -76,8 +75,8 @@ async def exercise(mode, env, workspace):
                             f"Failed call changed {path.name}"
                         )
                 else:
-                    assert not reply.isError, error
-                    data = reply.structuredContent
+                    assert not reply.is_error, error
+                    data = reply.structured_content
                     for path, value in case.get("equals", {}).items():
                         assert pointer(data, path) == value, f"Mismatch at {path}: {data}"
                     for path in case.get("required", []):

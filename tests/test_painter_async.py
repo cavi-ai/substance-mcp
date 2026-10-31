@@ -226,7 +226,7 @@ class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(elapsed, 1.0, "the server froze while Painter worked")
             self.assertFalse(call.done(), "the Painter call should still be running")
             reply = await call
-            self.assertFalse(reply.isError)
+            self.assertFalse(reply.is_error)
 
         with FakePainter(delay=2.5) as painter:
             await self.session(painter.port, work)
@@ -242,7 +242,7 @@ class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(elapsed, 1.0, "the server froze while polling")
             self.assertFalse(call.done(), "wait_ready should still be polling")
             reply = await call
-            self.assertFalse(reply.structuredContent["ready"])
+            self.assertFalse(reply.structured_content["ready"])
 
         with FakePainter(result={"connected": True, "open": False}) as painter:
             await self.session(painter.port, work)

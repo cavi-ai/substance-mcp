@@ -118,10 +118,10 @@ class EditSafetyTests(unittest.TestCase):
     def test_destructive_tools_are_annotated(self):
         tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
         for name in ("sampler_asset", "sampler_layer"):
-            self.assertTrue(tools[name].annotations.destructiveHint, name)
-            self.assertFalse(tools[name].annotations.readOnlyHint, name)
+            self.assertTrue(tools[name].annotations.destructive_hint, name)
+            self.assertFalse(tools[name].annotations.read_only_hint, name)
         for name in ("sampler_project", "sampler_export", "sampler_build", "sampler_pack"):
-            self.assertFalse(tools[name].annotations.destructiveHint, name)
+            self.assertFalse(tools[name].annotations.destructive_hint, name)
 
 
 if __name__ == "__main__":

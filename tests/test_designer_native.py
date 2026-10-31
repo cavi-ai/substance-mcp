@@ -6,7 +6,6 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
@@ -72,17 +71,17 @@ class DesignerNativeTests(unittest.TestCase):
         results = []
         async with (
             stdio_client(params) as (reader, writer),
-            ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=900)) as session,
+            ClientSession(reader, writer, read_timeout_seconds=900) as session,
         ):
             await session.initialize()
             for tool, arguments in calls:
                 started = time.monotonic()
                 reply = await session.call_tool(tool, arguments)
                 text = "\n".join(getattr(item, "text", "") for item in reply.content)
-                self.assertFalse(reply.isError, text)
+                self.assertFalse(reply.is_error, text)
                 print(f"\n[native] {tool} {arguments.get('action', '')}: "
                       f"{time.monotonic() - started:.2f} s", file=sys.stderr)
-                results.append(reply.structuredContent)
+                results.append(reply.structured_content)
         return results
 
     def test_cook_render_pack(self):

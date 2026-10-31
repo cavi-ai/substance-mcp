@@ -1,24 +1,21 @@
 """Typed stdio MCP surface for Substance 3D Designer's headless CLIs."""
 
-from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
+from ..core.mcp import Server
 from ..packing import USAGE, PackSpec
 from . import operations
 
-mcp = FastMCP(
+mcp = Server(
     "cavi-substance-designer-mcp",
     instructions=(
         "Runs Designer's sbscooker, sbsrender and substance3d_baker. Paths are relative to "
         "CAVI_SUBSTANCE_WORKSPACE; outputs go to new directories. Call designer_status first."
     ),
 )
-# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
-mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )

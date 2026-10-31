@@ -1,7 +1,6 @@
 import asyncio
 import sys
 import unittest
-from datetime import timedelta
 from importlib.metadata import version
 
 from mcp import ClientSession, StdioServerParameters
@@ -18,9 +17,9 @@ async def server_info(module):
     params = StdioServerParameters(command=sys.executable, args=["-m", module])
     async with (
         stdio_client(params) as (reader, writer),
-        ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=60)) as session,
+        ClientSession(reader, writer, read_timeout_seconds=60) as session,
     ):
-        return (await session.initialize()).serverInfo
+        return (await session.initialize()).server_info
 
 
 class ServerVersionTests(unittest.TestCase):

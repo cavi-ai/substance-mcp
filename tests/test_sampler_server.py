@@ -49,7 +49,7 @@ class ServerContractTests(unittest.TestCase):
 
     def test_build_defaults_to_a_dry_run(self):
         schema = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-        self.assertIs(schema["sampler_build"].inputSchema["properties"]["dry_run"]["default"],
+        self.assertIs(schema["sampler_build"].input_schema["properties"]["dry_run"]["default"],
                       True)
         plan = self.run_tool(server.sampler_build, job="jobs/rock.json")
         self.assertTrue(plan["dry_run"])

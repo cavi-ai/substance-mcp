@@ -11,7 +11,6 @@ import sys
 import tempfile
 import threading
 from contextlib import ExitStack
-from datetime import timedelta
 from pathlib import Path
 from socketserver import BaseRequestHandler, TCPServer
 
@@ -40,7 +39,7 @@ async def exercise(mode, env, workspace, adapter=None):
     )
     async with (
         stdio_client(params) as (reader, writer),
-        ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=90)) as session,
+        ClientSession(reader, writer, read_timeout_seconds=90) as session,
     ):
         await session.initialize()
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
@@ -51,11 +50,11 @@ async def exercise(mode, env, workspace, adapter=None):
             covered = [case for case in corpus if case["tool"] == tool.name]
             if not any(case["kind"] == "success" for case in covered):
                 raise AssertionError(f"Missing success coverage: {tool.name}")
-            if tool.inputSchema.get("required") and not any(
+            if tool.input_schema.get("required") and not any(
                 case["kind"] == "invalid" for case in covered
             ):
                 raise AssertionError(f"Missing invalid-input coverage: {tool.name}")
-            if not (tool.annotations and tool.annotations.readOnlyHint) and not any(
+            if not (tool.annotations and tool.annotations.read_only_hint) and not any(
                 case["kind"] == "safety" for case in covered
             ):
                 raise AssertionError(f"Missing safety coverage: {tool.name}")
@@ -76,7 +75,7 @@ async def exercise(mode, env, workspace, adapter=None):
                 arguments = dict(case["arguments"])
                 if mode != "protocol":
                     needs_lease = (case["tool"] not in {"session_control", "generate_mesh"}
-                                   and not tools[case["tool"]].annotations.readOnlyHint
+                                   and not tools[case["tool"]].annotations.read_only_hint
                                    and not case.get("without_lease"))
                     # keep_lease: continue the previous case's lease so ownership spans cases.
                     keep = needs_lease and case.get("keep_lease") and lease_id
@@ -84,30 +83,30 @@ async def exercise(mode, env, workspace, adapter=None):
                         if lease_id:
                             released = await session.call_tool("session_control", {
                                 "action": "release", "lease_id": lease_id})
-                            assert not released.isError, str(released.content)
+                            assert not released.is_error, str(released.content)
                             lease_id = None
                         state = await session.call_tool("session_control", {"action": "inspect"})
-                        assert not state.isError, str(state.content)
+                        assert not state.is_error, str(state.content)
                         if needs_lease:
                             claim = await session.call_tool("session_control", {
                                 "action": "claim", "owner": "eval-fixture",
-                                "expected_project": state.structuredContent["project_id"]})
-                            assert not claim.isError, str(claim.content)
-                            lease_id = claim.structuredContent["lease_id"]
+                                "expected_project": state.structured_content["project_id"]})
+                            assert not claim.is_error, str(claim.content)
+                            lease_id = claim.structured_content["lease_id"]
                     if arguments.get("expected_project") == "$project":
                         state = await session.call_tool("session_control", {"action": "inspect"})
-                        arguments["expected_project"] = state.structuredContent["project_id"]
+                        arguments["expected_project"] = state.structured_content["project_id"]
                     if arguments.get("lease_id") == "$lease" or needs_lease:
                         arguments["lease_id"] = lease_id
                 reply = await session.call_tool(case["tool"], arguments)
-                if not reply.isError and case["tool"] == "session_control":
+                if not reply.is_error and case["tool"] == "session_control":
                     if arguments.get("action") == "claim":
-                        lease_id = reply.structuredContent["lease_id"]
+                        lease_id = reply.structured_content["lease_id"]
                     elif arguments.get("action") == "release":
                         lease_id = None
                 error = "\n".join(getattr(item, "text", "") for item in reply.content)
                 if case.get("error"):
-                    assert reply.isError, "Expected an explicit MCP tool error"
+                    assert reply.is_error, "Expected an explicit MCP tool error"
                     assert case["error"].lower() in error.lower(), error
                     for path, digest in protected.items():
                         assert path.is_file(), f"Failed call deleted {path.name}"
@@ -115,15 +114,15 @@ async def exercise(mode, env, workspace, adapter=None):
                             f"Failed call changed {path.name}"
                         )
                 else:
-                    assert not reply.isError, error
-                    data = reply.structuredContent
+                    assert not reply.is_error, error
+                    data = reply.structured_content
                     for path, value in case.get("equals", {}).items():
                         assert pointer(data, path) == value, f"Mismatch at {path}: {data}"
                     for path in case.get("required", []):
                         pointer(data, path)
                     if case.get("image"):
                         blocks = [item for item in reply.content if item.type == "image"]
-                        assert len(blocks) == 1 and blocks[0].mimeType == "image/png"
+                        assert len(blocks) == 1 and blocks[0].mime_type == "image/png"
                         assert base64.b64decode(blocks[0].data).startswith(b"\x89PNG\r\n\x1a\n")
                     for path in case.get("files", []):
                         target = workspace / path

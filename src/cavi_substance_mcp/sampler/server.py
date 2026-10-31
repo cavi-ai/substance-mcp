@@ -1,10 +1,8 @@
 """Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
 
 import asyncio
-from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import (
     BaseModel,
@@ -16,11 +14,12 @@ from pydantic import (
 )
 
 from ..core import workspace
+from ..core.mcp import Server
 from ..packing import USAGE, PackSpec
 from . import batch, launch
 from . import pack as packer
 
-mcp = FastMCP(
+mcp = Server(
     "cavi-substance-sampler-mcp",
     instructions=(
         "Runs Sampler startup scripts through --run-script-silent. Quit Sampler first; an "
@@ -29,8 +28,6 @@ mcp = FastMCP(
         "Use sampler_build for multi-step batch jobs."
     ),
 )
-# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
-mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )

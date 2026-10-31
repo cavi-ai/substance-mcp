@@ -2,17 +2,16 @@
 
 import threading
 import time
-from importlib.metadata import version as package_version
 from typing import Annotated, Any, Literal
 
 import anyio.to_thread
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from .client import PainterClient
+from .core.mcp import Server
 
-mcp = FastMCP(
+mcp = Server(
     "cavi-substance-mcp",
     instructions=(
         "Requires licensed Painter with remote scripting; `cavi-substance-mcp runtime start` "
@@ -22,8 +21,6 @@ mcp = FastMCP(
         "retry uncertain mutations automatically."
     ),
 )
-# FastMCP has no version argument and would report the mcp SDK version as serverInfo.version.
-mcp._mcp_server.version = package_version("cavi-substance-mcp")
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )

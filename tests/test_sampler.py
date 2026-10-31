@@ -502,9 +502,9 @@ class SamplerServerTests(unittest.TestCase):
             {"sampler_status", "sampler_inspect", "sampler_project", "sampler_asset",
              "sampler_layer", "sampler_export", "sampler_build", "sampler_pack"},
         )
-        self.assertTrue(tools["sampler_status"].annotations.readOnlyHint)
-        self.assertTrue(tools["sampler_inspect"].annotations.readOnlyHint)
-        self.assertFalse(tools["sampler_asset"].annotations.readOnlyHint)
+        self.assertTrue(tools["sampler_status"].annotations.read_only_hint)
+        self.assertTrue(tools["sampler_inspect"].annotations.read_only_hint)
+        self.assertFalse(tools["sampler_asset"].annotations.read_only_hint)
 
 
 if __name__ == "__main__":

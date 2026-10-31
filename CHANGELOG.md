@@ -26,6 +26,10 @@
 
 ### Changed
 
+- Requires the MCP Python SDK 2.3 or later. The servers use its `MCPServer` and re-raise
+  anticipated failures (invalid arguments, refused paths, an unavailable or busy
+  application) as tool errors, so their messages still reach the client; other exceptions
+  are reported without their details.
 - Pillow requires 13.0 or later; the locked 12.3.0 had known vulnerabilities fixed in 13.0.0.
 - Package metadata: readme, MIT license expression and license file, authors, keywords,
   classifiers, project URLs and a description naming all three applications. The build
