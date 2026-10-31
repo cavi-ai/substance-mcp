@@ -11,6 +11,8 @@ Native project creation, texture-set and preset inspection, uniform fill creatio
 
 Baking, layer actions beyond `fill`/`texture_fill`, shelf search, mesh reload and custom export maps were checked against Painter's documented Python API and a read-only attribute probe, then tested only against the simulator; they have not been run natively.
 
+Designer and Sampler discovery, process checks and process termination are written for Windows as well as macOS and Linux (default install paths under `Program Files`, `tasklist`, `taskkill`). They have not run on Windows yet; the Windows CI leg is experimental until it has run green on a real runner.
+
 ## Install
 
 Requires Python 3.11+, uv, and a separately installed and licensed Adobe application.

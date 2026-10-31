@@ -39,7 +39,8 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   and `client.py` the loopback transport. `runtime.py` and `cli.py` hold the launcher and
   the `receipts` commands.
 - Designer server: `src/cavi_substance_mcp/designer/`. `server.py` holds the tools,
-  `operations.py` the workspace-confined operations and `runner.py` the bounded CLI runner.
+  `operations.py` the workspace-confined operations and `runner.py` the tool lookup and
+  report parsing; subprocesses run through `core/proc.py`.
 - Sampler server and batch CLI: `src/cavi_substance_mcp/sampler/`. `server.py` holds the
   tools, `operations.py` the scripts that run inside Sampler's embedded Python, `launch.py`
   the host side that starts Sampler and reads the response, `job.py` the batch job model,
@@ -53,7 +54,9 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   `sampler/targets.py` inside Sampler) is standard library only and never imports a
   host-side module. `tests/test_import_closure.py` enforces this.
 - `evals/`: `painter_simulator.py` (simulated Painter API), `designer_fake_cli.py`,
-  `sampler_fake_cli.py` (fake executables), the corpora
+  `sampler_fake_cli.py` (fake executables, installed by `launcher.py` as shebang scripts on
+  POSIX and `.cmd` wrappers on Windows; tests point discovery at them with
+  `CAVI_DESIGNER_BIN_DIR` and `CAVI_SAMPLER_BIN`), the corpora
   (`cases.json`, `designer_cases.json`, `sampler_cases.json`), the mcp-eval manifests
   (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`).
 - `tests/`: unit tests. `examples/`: synthetic job files and handoff walkthroughs.
@@ -76,7 +79,7 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
 
 ## Commits
 
-Use Conventional Commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `build:`, `test:`.
+Use Conventional Commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `build:`, `test:`, `ci:`.
 
 ## Security
 
