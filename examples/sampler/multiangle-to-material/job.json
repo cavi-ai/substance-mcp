@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "directory": "jobs/multiangle-material",
+  "project": {"name": "Multiangle Material"},
+  "steps": [
+    {"action": "create_asset", "name": "Angles", "empty": true},
+    {"action": "import_images", "asset": "Angles",
+     "images": ["photos/angle0.png", "photos/angle1.png"],
+     "import_option": "multiangle_to_material", "position": 0},
+    {"action": "insert_filter", "asset": "Angles",
+     "filter": "Make It Tile", "position": 1},
+    {"action": "export", "asset": "Angles", "target": "unreal", "resolution": 2048}
+  ]
+}

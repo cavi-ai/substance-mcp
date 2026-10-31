@@ -9,9 +9,9 @@ import tempfile
 import time
 from pathlib import Path
 
+from .. import packing
 from ..painter_operations import remove_tree
 from ..sampler import runner
-from . import packing
 from .operations import new_directory, rel, source
 
 WORKER = Path(__file__).with_name("sampler_worker.py")

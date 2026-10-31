@@ -107,8 +107,12 @@ def fixtures(output: Path) -> Path:
         folder.mkdir(parents=True)
     (workspace / "escape").symlink_to(outside, target_is_directory=True)
     (outside / "outside.ssa").write_text("{}")
-    (workspace / "maps/basecolor.png").write_bytes(b"fake-png")
-    (workspace / "maps/normal.png").write_bytes(b"fake-png")
+    from PIL import Image
+    Image.new("RGB", (32, 32), (204, 102, 51)).save(workspace / "maps/basecolor.png")
+    Image.new("RGB", (32, 32), (128, 128, 255)).save(workspace / "maps/normal.png")
+    Image.new("L", (32, 32), 64).save(workspace / "maps/roughness.png")
+    Image.new("L", (32, 32), 255).save(workspace / "maps/metallic.png")
+    Image.new("L", (32, 32), 200).save(workspace / "maps/ao.png")
     (workspace / "assets/custom.sbsar").write_bytes(b"fake-sbsar")
     (workspace / "existing/keep.txt").write_text("keep")
 
@@ -225,6 +229,40 @@ def fixtures(output: Path) -> Path:
         ],
     }
     (workspace / "jobs/resources.json").write_text(json.dumps(resources))
+    recipes = {
+        "ai": {
+            "schema": 1, "directory": "jobs/ai",
+            "project": {"name": "AI Material"},
+            "steps": [
+                {"action": "create_asset", "name": "AIMaterial", "empty": True},
+                {"action": "import_images", "asset": "AIMaterial",
+                 "images": ["maps/basecolor.png"],
+                 "import_option": "image_to_material_AI_powered", "position": 0},
+                {"action": "insert_filter", "asset": "AIMaterial",
+                 "filter": "Delighter (AI Powered)", "position": 1},
+                {"action": "insert_filter", "asset": "AIMaterial",
+                 "filter": "Make It Tile", "position": 2},
+                {"action": "export", "asset": "AIMaterial", "target": "unreal",
+                 "resolution": 64},
+            ],
+        },
+        "multiangle": {
+            "schema": 1, "directory": "jobs/multiangle",
+            "project": {"name": "Multiangle Material"},
+            "steps": [
+                {"action": "create_asset", "name": "Angles", "empty": True},
+                {"action": "import_images", "asset": "Angles",
+                 "images": ["maps/basecolor.png", "maps/normal.png"],
+                 "import_option": "multiangle_to_material", "position": 0},
+                {"action": "insert_filter", "asset": "Angles",
+                 "filter": "Make It Tile", "position": 1},
+                {"action": "export", "asset": "Angles", "target": "unreal",
+                 "resolution": 64},
+            ],
+        },
+    }
+    for name, data in recipes.items():
+        (workspace / "jobs" / f"{name}.json").write_text(json.dumps(data))
     install(output / "app")
     return workspace
 

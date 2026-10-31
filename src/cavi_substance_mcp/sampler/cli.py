@@ -6,7 +6,9 @@ import json
 import sys
 from pathlib import Path
 
-from . import batch, job
+from .. import packing
+from . import batch, job, operations
+from . import pack as packer
 
 
 def _fail(code: int, message: str) -> int:
@@ -108,6 +110,11 @@ def main(argv=None) -> int:
 
     commands.add_parser("schema", help="Print the batch job JSON Schema")
 
+    pack = commands.add_parser("pack", help="Pack workspace maps using a JSON spec")
+    pack.add_argument("file")
+    pack.add_argument("--workspace")
+    pack.add_argument("--json", action="store_true")
+
     doctor = commands.add_parser("doctor", help="Check Sampler batch prerequisites")
     doctor.add_argument("--workspace")
     doctor.add_argument("--launch", action="store_true")
@@ -118,6 +125,31 @@ def main(argv=None) -> int:
     try:
         if args.command == "schema":
             print(json.dumps(job.job_schema(), indent=2))
+            return 0
+        if args.command == "pack":
+            root = Path(args.workspace or operations.workspace()).expanduser().resolve(
+                strict=True
+            )
+            path = Path(args.file).expanduser()
+            if not path.is_absolute():
+                path = root / path
+            path = path.resolve()
+            if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() != ".json":
+                raise job.JobValidationError(
+                    "pack file must be a JSON file inside the workspace"
+                )
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                spec = packing.PackSpec.model_validate(data["pack"])
+                directory = data["directory"]
+                sources = data["sources"]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise job.JobValidationError(f"invalid pack file: {exc}") from exc
+            result = packer.pack_sync(directory, sources, spec, str(root))
+            _print(result, args.json, lambda value: [
+                f"directory: {value['directory']}",
+                f"maps: {len(value['maps'])}",
+            ])
             return 0
         if args.command == "doctor":
             result = batch.doctor(args.workspace)

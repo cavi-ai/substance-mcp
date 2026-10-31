@@ -1111,5 +1111,151 @@
     "absent": [
       "jobs/resources"
     ]
+  },
+  {
+    "id": "build-ai",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/ai.json"
+    },
+    "equals": {
+      "status": "success"
+    },
+    "files": [
+      "jobs/ai/manifest.json"
+    ]
+  },
+  {
+    "id": "build-multiangle",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/multiangle.json"
+    },
+    "equals": {
+      "status": "success"
+    },
+    "files": [
+      "jobs/multiangle/manifest.json"
+    ]
+  },
+  {
+    "id": "pack-success",
+    "tool": "sampler_pack",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "directory": "packed/rock",
+      "sources": {
+        "baseColor": "maps/basecolor.png",
+        "roughness": "maps/roughness.png",
+        "metallic": "maps/metallic.png",
+        "ambientOcclusion": "maps/ao.png"
+      },
+      "pack": {
+        "maps": [
+          {
+            "name": "Mask",
+            "channels": {
+              "R": "metallic",
+              "G": "ambientOcclusion",
+              "B": "0",
+              "A": "1-roughness"
+            }
+          },
+          {
+            "name": "Base",
+            "channels": {
+              "RGB": "baseColor"
+            }
+          }
+        ]
+      }
+    },
+    "equals": {
+      "directory": "packed/rock"
+    },
+    "files": [
+      "packed/rock/Mask.png",
+      "packed/rock/Base.png"
+    ]
+  },
+  {
+    "id": "pack-invalid-source",
+    "tool": "sampler_pack",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "directory": "packed/bad",
+      "sources": {
+        "baseColor": "../outside.png"
+      },
+      "pack": {
+        "maps": [
+          {
+            "name": "Mask",
+            "channels": {
+              "R": "metallic",
+              "G": "ambientOcclusion",
+              "B": "0",
+              "A": "1-roughness"
+            }
+          },
+          {
+            "name": "Base",
+            "channels": {
+              "RGB": "baseColor"
+            }
+          }
+        ]
+      }
+    },
+    "error": "inside the workspace"
+  },
+  {
+    "id": "pack-existing",
+    "tool": "sampler_pack",
+    "kind": "safety",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "directory": "existing",
+      "sources": {
+        "baseColor": "maps/basecolor.png"
+      },
+      "pack": {
+        "maps": [
+          {
+            "name": "Mask",
+            "channels": {
+              "R": "metallic",
+              "G": "ambientOcclusion",
+              "B": "0",
+              "A": "1-roughness"
+            }
+          },
+          {
+            "name": "Base",
+            "channels": {
+              "RGB": "baseColor"
+            }
+          }
+        ]
+      }
+    },
+    "error": "already exists"
   }
 ]

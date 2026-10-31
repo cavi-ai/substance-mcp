@@ -161,7 +161,7 @@ headless CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or
 | Tool | Actions / inputs |
 | --- | --- |
 | `designer_status` | binaries, versions, packages dir, templates, workspace, `sampler` |
-| `sampler` | Sampler batch jobs; see [Sampler batch tool](#sampler-batch-tool) |
+| `sampler` | Deprecated one-shot Sampler helper; use `cavi-substance-sampler-mcp`. |
 | `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
 | `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
 
@@ -228,6 +228,7 @@ run startup scripts.
 | `sampler_layer` | `set_parameters`, `apply_preset`, `set_channels` (IDs or unambiguous labels), `set_blend_parameters`, `remove`; removal needs `confirm=true` |
 | `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`, `wait_seconds`; `dry_run` defaults to true |
 | `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe; `check_project` adds source-project layer/parameter checks |
+| `sampler_pack` | new `directory`, `sources` usage→workspace image, `pack` channel spec; host-side packing |
 
 ### Engine targets
 
@@ -310,7 +311,8 @@ cavi-substance-sampler-mcp doctor --launch
 - Exit codes: `0` success, `2` invalid job, `3` app unavailable, `4` app running or
   lock conflict, `5` operation failure, `6` timeout.
 
-See `examples/sampler/photo-to-pbr/` for a complete job.
+See `examples/sampler/photo-to-pbr/`, `examples/sampler/ai-to-material/` and
+`examples/sampler/multiangle-to-material/` for complete recipes.
 
 ### Source projects
 
@@ -365,6 +367,28 @@ opening it. The source file is never opened by Sampler and stays byte-identical.
   authoring steps cover applies-to channels and blend parameters. Inspect a layer's
   `blend_parameters` for the available identifiers; they depend on the blend mode.
 
+### Packing
+
+`sampler_pack` packs workspace maps into a new directory using the shared channel
+spec:
+
+```json
+{"maps": [
+  {"name": "T_Rock_MaskMap", "format": "png", "bit_depth": 8,
+   "channels": {"R": "metallic", "G": "ambientOcclusion", "B": "0", "A": "1-roughness"}},
+  {"name": "T_Rock_BaseColor", "channels": {"RGB": "baseColor", "A": "opacity"}}],
+ "defaults": {"opacity": 1}}
+```
+
+The CLI form reads a JSON file with `directory`, `sources` and `pack`:
+
+```sh
+cavi-substance-sampler-mcp pack pack.json --json
+```
+
+Packing runs on the host, not inside Sampler. The Designer `material pack` action and
+the deprecated Designer `sampler` pack option remain compatible.
+
 Limitations:
 
 - Sampler exposes startup scripts and plugins, not remote control.
@@ -394,11 +418,12 @@ uv run --locked python -m unittest tests.test_sampler_native  # launch test need
 
 The evals run against a fake Sampler executable (`evals/sampler_fake_cli.py`).
 
-## Sampler batch tool
+## Sampler batch tool (deprecated)
 
-For multi-step jobs, engine targets and manifests, use the standalone
-`cavi-substance-sampler-mcp` server above. The Designer server's `sampler` tool
-remains a one-shot image-to-material or project-export helper:
+For multi-step jobs, engine targets, manifests and packing, use the standalone
+`cavi-substance-sampler-mcp` server above. The Designer server's `sampler` tool is
+deprecated and remains only as a one-shot image-to-material or project-export
+compatibility helper:
 `--run-script-silent sampler_worker.py -S job.json --skip-version-check
 --ignore-gpu-warning`. The worker is fixed; no user code runs inside Sampler.
 

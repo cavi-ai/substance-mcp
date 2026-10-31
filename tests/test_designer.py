@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import install, sbsar
 
-from cavi_substance_mcp.designer import operations, packing, runner
+from cavi_substance_mcp import packing
+from cavi_substance_mcp.designer import operations, runner
 
 HDRP = {"maps": [
     {"name": "T_Rock_MaskMap", "format": "png", "bit_depth": 8,

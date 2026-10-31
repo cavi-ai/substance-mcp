@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "directory": "jobs/ai-material",
+  "project": {"name": "AI Material"},
+  "steps": [
+    {"action": "create_asset", "name": "AIMaterial", "empty": true},
+    {"action": "import_images", "asset": "AIMaterial",
+     "images": ["photos/albedo.png"],
+     "import_option": "image_to_material_AI_powered", "position": 0},
+    {"action": "insert_filter", "asset": "AIMaterial",
+     "filter": "Delighter (AI Powered)", "position": 1},
+    {"action": "insert_filter", "asset": "AIMaterial",
+     "filter": "Make It Tile", "position": 2},
+    {"action": "export", "asset": "AIMaterial", "target": "unreal", "resolution": 2048}
+  ]
+}
