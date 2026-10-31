@@ -27,7 +27,8 @@ def default_root() -> Path:
 
 
 def root(explicit=None, *, create: bool = False) -> Path:
-    """The resolved workspace root: ``explicit``, else ``$CAVI_SUBSTANCE_WORKSPACE``, else the default.
+    """The resolved workspace root: ``explicit``, else ``$CAVI_SUBSTANCE_WORKSPACE``, else the
+    default.
 
     Nothing is touched unless ``create`` is true, so read-only operations can report a
     workspace that does not exist yet. With ``create`` the default is made on first use,

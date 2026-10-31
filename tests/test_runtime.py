@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from env import patched_environment
 
+RUNTIME = "cavi_substance_mcp.painter.runtime"
+
 
 class PainterLaunchTests(unittest.TestCase):
     def app(self, folder, identifier="com.adobe.Adobe-Substance-3D-Painter"):
@@ -36,9 +38,9 @@ class PainterLaunchTests(unittest.TestCase):
 
             with (
                 patch.dict("os.environ", {"CAVI_PAINTER_APP": str(app)}),
-                patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
-                patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
-                patch("cavi_substance_mcp.painter.runtime.subprocess.run", side_effect=run),
+                patch(f"{RUNTIME}.sys.platform", "darwin"),
+                patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
+                patch(f"{RUNTIME}.subprocess.run", side_effect=run),
             ):
                 result = start_painter()
         self.assertTrue(result["launch_requested"])
@@ -51,8 +53,8 @@ class PainterLaunchTests(unittest.TestCase):
         from cavi_substance_mcp.painter.runtime import start_painter
 
         with (
-            patch("cavi_substance_mcp.painter.runtime.PainterClient.call", return_value={"connected": True}),
-            patch("cavi_substance_mcp.painter.runtime.subprocess.run", side_effect=AssertionError("launched")),
+            patch(f"{RUNTIME}.PainterClient.call", return_value={"connected": True}),
+            patch(f"{RUNTIME}.subprocess.run", side_effect=AssertionError("launched")),
         ):
             result = start_painter()
         self.assertTrue(result["connected"])
@@ -74,9 +76,9 @@ class PainterLaunchTests(unittest.TestCase):
 
             with (
                 patch.dict("os.environ", {"CAVI_PAINTER_APP": str(app)}),
-                patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
-                patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
-                patch("cavi_substance_mcp.painter.runtime.subprocess.run", side_effect=run),
+                patch(f"{RUNTIME}.sys.platform", "darwin"),
+                patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
+                patch(f"{RUNTIME}.subprocess.run", side_effect=run),
                 self.assertRaisesRegex(RuntimeError, "already running"),
             ):
                 start_painter()
@@ -88,10 +90,10 @@ class PainterLaunchTests(unittest.TestCase):
             app = self.app(folder)
             with (
                 patch.dict("os.environ", {"CAVI_PAINTER_APP": str(app)}),
-                patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
-                patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
-                patch("cavi_substance_mcp.painter.runtime.discovery.running", return_value=None),
-                patch("cavi_substance_mcp.painter.runtime.subprocess.run", side_effect=AssertionError("launched")),
+                patch(f"{RUNTIME}.sys.platform", "darwin"),
+                patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
+                patch(f"{RUNTIME}.discovery.running", return_value=None),
+                patch(f"{RUNTIME}.subprocess.run", side_effect=AssertionError("launched")),
                 self.assertRaisesRegex(RuntimeError, "Cannot tell whether Painter"),
             ):
                 start_painter()
@@ -101,9 +103,9 @@ class PainterLaunchTests(unittest.TestCase):
 
         with (
             patched_environment(drop=("CAVI_PAINTER_APP",)),
-            patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
-            patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
-            patch("cavi_substance_mcp.painter.runtime.discovery.find_app",
+            patch(f"{RUNTIME}.sys.platform", "darwin"),
+            patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
+            patch(f"{RUNTIME}.discovery.find_app",
                   return_value=type("Found", (), {"path": None, "source": "default"})()),
             self.assertRaisesRegex(RuntimeError, "CAVI_PAINTER_APP"),
         ):
@@ -116,9 +118,9 @@ class PainterLaunchTests(unittest.TestCase):
             app = self.app(folder, identifier="com.corel.Painter")
             with (
                 patch.dict("os.environ", {"CAVI_PAINTER_APP": str(app)}),
-                patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
-                patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
-                patch("cavi_substance_mcp.painter.runtime.subprocess.run", side_effect=AssertionError("launched")),
+                patch(f"{RUNTIME}.sys.platform", "darwin"),
+                patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
+                patch(f"{RUNTIME}.subprocess.run", side_effect=AssertionError("launched")),
                 self.assertRaisesRegex(ValueError, "Adobe Substance"),
             ):
                 start_painter()
@@ -128,7 +130,7 @@ class PainterLaunchTests(unittest.TestCase):
 
         stdout = io.StringIO()
         with (
-            patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError("offline")),
+            patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError("offline")),
             contextlib.redirect_stdout(stdout),
         ):
             code = main(["runtime", "status"])

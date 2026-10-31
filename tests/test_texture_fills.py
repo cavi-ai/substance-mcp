@@ -6,7 +6,9 @@ from pathlib import Path
 from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import PainterSimulator
 
-PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0p0AAAAASUVORK5CYII=")
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0p0AAAAASUVORK5CYII="
+)
 
 
 class TextureFillTests(unittest.TestCase):
@@ -27,7 +29,8 @@ class TextureFillTests(unittest.TestCase):
             self.assertEqual(result["base_color_texture"]["width"], 1)
             self.assertEqual(len(simulator.layers), 1)
             self.assertEqual(len(simulator.resources), 1)
-            assigned = {channel.name: source for channel, source in simulator.layers[0].sources.items()}
+            assigned = {channel.name: source
+                        for channel, source in simulator.layers[0].sources.items()}
             assigned.update(Roughness=assigned["SpecularRoughness"],
                             Metallic=assigned["BaseMetalness"])
             self.assertEqual(assigned["BaseColor"].color_space, "sRGB")

@@ -53,5 +53,7 @@ def start_painter():
         "connected": False,
         "launch_requested": True,
         "app": str(app),
-        "reason": "Painter launch requested; inspect status after startup or license prompts finish",
+        "reason": (
+            "Painter launch requested; inspect status after startup or license prompts finish"
+        ),
     }

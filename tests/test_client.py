@@ -30,7 +30,8 @@ class RemoteTests(unittest.TestCase):
             simulator.setup("dirty-unsaved")
             client = OwnedPainterClient(port=simulator.port, workspace=Path(folder))
             with self.assertRaisesRegex(RuntimeError, "changed"):
-                client.call("close_project", {"expected_file": "another.spp", "discard_unsaved": True})
+                client.call("close_project", {"expected_file": "another.spp",
+                                              "discard_unsaved": True})
             self.assertTrue(client.call("status")["open"])
             result = client.call("close_project", {"expected_file": None, "discard_unsaved": True})
             self.assertTrue(result["closed"])

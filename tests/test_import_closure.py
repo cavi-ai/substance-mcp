@@ -59,7 +59,9 @@ REPORT = """
 def report():
     tops = {{name.split(".")[0] for name in sys.modules}} - {{"__main__"}}
     print(json.dumps({{
-        "package": sorted(name for name in sys.modules if name.split(".")[0] == "cavi_substance_mcp"),
+        "package": sorted(
+            name for name in sys.modules if name.split(".")[0] == "cavi_substance_mcp"
+        ),
         "third_party": sorted(tops - set(sys.stdlib_module_names) - {{"cavi_substance_mcp"}}),
     }}))
 """
@@ -198,7 +200,8 @@ class SyntaxFloorTests(unittest.TestCase):
             self.skipTest("no python3.11 on PATH; the 3.11 CI legs compile these natively")
         for relative in APPLICATION_MODULES:
             with self.subTest(file=relative):
-                code = "import sys; compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec')"
+                code = ("import sys; "
+                        "compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec')")
                 result = subprocess.run(
                     [executable, "-I", "-S", "-c", code, str(PACKAGE / relative)],
                     capture_output=True, text=True, timeout=60, check=False)

@@ -48,7 +48,8 @@ class DefaultTableTests(unittest.TestCase):
             ("sampler", "win32"):
                 r"C:\Program Files\Adobe\Adobe Substance 3D Sampler"
                 r"\Adobe Substance 3D Sampler.exe",
-            ("sampler", "linux"): "/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler",
+            ("sampler", "linux"):
+                "/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler",
             ("painter", "darwin"):
                 "/Applications/Adobe Substance 3D Painter/Adobe Substance 3D Painter.app",
             ("painter", "win32"):
@@ -262,7 +263,8 @@ class VersionTests(Scratch):
         (app / "Contents/MacOS").mkdir(parents=True)
         (app / "Contents/Info.plist").write_bytes(
             plistlib.dumps({"CFBundleShortVersionString": "from-plist"}))
-        program = write_launcher(app / "Contents/MacOS", "Thing", "print('version 1.2.3 (build 9)')\n")
+        program = write_launcher(
+            app / "Contents/MacOS", "Thing", "print('version 1.2.3 (build 9)')\n")
         with platform("linux"):
             self.assertEqual(discovery.version(program), "1.2.3")
 
@@ -475,7 +477,8 @@ class RunningWindowsTests(unittest.TestCase):
     def listing(text, code=0):
         return subprocess.CompletedProcess([], code, stdout=text, stderr="")
 
-    def check(self, output, executable=r"C:\Program Files\Adobe\Sampler\Adobe Substance 3D Sampler.exe"):
+    def check(self, output,
+              executable=r"C:\Program Files\Adobe\Sampler\Adobe Substance 3D Sampler.exe"):
         with platform("win32"), patch.object(discovery.subprocess, "run",
                                              return_value=self.listing(output)) as run:
             result = discovery.running(Path(executable))

@@ -11,7 +11,8 @@ from .runtime import runtime_status, start_painter
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="cavi-substance-mcp")
     commands = parser.add_subparsers(dest="command", required=True)
-    runtime = commands.add_parser("runtime", help="Launch Painter with remote scripting or inspect it")
+    runtime = commands.add_parser(
+        "runtime", help="Launch Painter with remote scripting or inspect it")
     runtime.add_argument("action", choices=("start", "status"))
     args = parser.parse_args(argv)
     try:

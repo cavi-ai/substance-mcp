@@ -78,5 +78,3 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
-# E501 is enforced once the pre-release format pass wraps existing long lines.
-ignore = ["E501"]

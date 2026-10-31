@@ -29,7 +29,8 @@ class JobFileTests(unittest.TestCase):
 
     def test_a_job_file_over_8_mib_is_refused_before_it_is_parsed(self):
         self.path.write_text(json.dumps(job_data()) + " " * (8 * 1024 * 1024))
-        with self.assertRaisesRegex(job.JobValidationError, r"cannot read job: .*larger than 8 MiB"):
+        with self.assertRaisesRegex(
+                job.JobValidationError, r"cannot read job: .*larger than 8 MiB"):
             job.load_job(self.path)
 
     def test_the_limit_is_the_receipt_limit(self):

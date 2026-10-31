@@ -36,8 +36,8 @@
   requires `hatchling>=1.27`.
 - The source distribution contains only `src/`, `tests/`, `evals/`, `examples/`, the README,
   `LICENSE`, `CHANGELOG.md` and `pyproject.toml`.
-- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets (line length is enforced after the
-  pre-release format pass).
+- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets, including the 100-character line
+  limit (`E501`).
 - `.gitignore` covers local plans, worktrees, editor state, logs, build output and Substance
   `.ssa` and `.spt` files.
 - Receipt verification is its own command, `cavi-substance-receipts verify` and `chain`

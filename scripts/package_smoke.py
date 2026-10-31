@@ -354,7 +354,8 @@ def invoke(script: Path, arguments: list[str], env: dict, cwd: Path) -> subproce
     )
 
 
-def check_receipts_script(script: Path, python: Path, env: dict, workspace: Path, cwd: Path) -> None:
+def check_receipts_script(
+        script: Path, python: Path, env: dict, workspace: Path, cwd: Path) -> None:
     """The receipts script verifies a real manifest and its chain, and rejects a changed file."""
     seed = (
         "import sys; from pathlib import Path; from cavi_substance_mcp import receipts;"
@@ -390,7 +391,8 @@ def check_no_painter_receipts_subcommand(script: Path, env: dict, cwd: Path) -> 
     """Receipts moved to their own script; the Painter script must refuse the old subcommand."""
     result = invoke(script, ["receipts", "verify", "handoff/manifest.json"], env, cwd)
     expect(result.returncode == 2 and "invalid choice" in result.stderr,
-           f"exited {result.returncode}, want an argparse refusal (2): {result.stderr.strip()[-300:]}")
+           f"exited {result.returncode}, want an argparse refusal (2): "
+           f"{result.stderr.strip()[-300:]}")
 
 
 def main(argv: list[str] | None = None) -> int:

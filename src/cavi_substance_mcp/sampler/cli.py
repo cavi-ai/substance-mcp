@@ -98,7 +98,8 @@ def main(argv=None) -> int:
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--json", action="store_true")
 
-    validate = commands.add_parser("validate", help="Validate a batch job without launching Sampler")
+    validate = commands.add_parser(
+        "validate", help="Validate a batch job without launching Sampler")
     validate.add_argument("job")
     validate.add_argument("--workspace")
     validate.add_argument("--check-sampler", action="store_true")
@@ -132,7 +133,8 @@ def main(argv=None) -> int:
             if not path.is_absolute():
                 path = root / path
             path = path.resolve()
-            if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() != ".json":
+            if (not path.is_relative_to(root) or not path.is_file()
+                    or path.suffix.lower() != ".json"):
                 raise job.JobValidationError(
                     "pack file must be a JSON file inside the workspace"
                 )
