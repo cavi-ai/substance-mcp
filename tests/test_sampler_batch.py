@@ -44,6 +44,7 @@ class JobModelTests(unittest.TestCase):
         self.assertEqual(parsed.schema_version, 1)
         self.assertEqual(parsed.steps[-1].target, "unreal")
         self.assertEqual(parsed.steps[-1].outputs, ["sbsar", "textures"])
+        self.assertEqual(parsed.steps[-1].wait_seconds, 600)
         self.assertIn("schema", job.job_schema()["properties"])
 
     def test_invalid_paths_and_references(self):
@@ -154,6 +155,41 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(plan["targets"][0]["target"], "unreal")
         self.assertFalse((self.workspace / "jobs/preview").exists())
 
+    def test_empty_asset_b2m_job(self):
+        data = {
+            "schema": 1,
+            "directory": "jobs/b2m",
+            "project": {"name": "B2MProject"},
+            "steps": [
+                {"action": "create_asset", "name": "Photo", "empty": True},
+                {"action": "import_images", "asset": "Photo",
+                 "images": ["photos/albedo.png"], "position": 0,
+                 "import_option": "image_to_material_B2M"},
+                {"action": "export", "asset": "Photo", "target": "generic",
+                 "outputs": ["sbsar"]},
+            ],
+        }
+        path = self.write_job("b2m.json", data)
+        manifest = batch.run_job_file(path, self.workspace)
+        self.assertEqual(manifest["status"], "success")
+        actions = [step["action"] for step in manifest["steps"]]
+        self.assertEqual(actions, ["create_asset", "import_images", "export"])
+
+    def test_validate_with_sampler(self):
+        path = self.write_job("check.json", job_data(directory="jobs/check"))
+        plan = batch.validate_with_sampler(path, self.workspace)
+        self.assertIn("sampler", plan)
+        self.assertTrue(plan["sampler"]["targets"]["unreal"]["available"])
+        self.assertIn("use_as_bitmap", plan["import_options"])
+        self.assertFalse((self.workspace / "jobs/check").exists())
+
+    def test_validate_with_missing_preset(self):
+        data = job_data(directory="jobs/missing-preset")
+        data["steps"][-1]["preset"] = "Missing Preset"
+        path = self.write_job("missing-preset.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "not installed"):
+            batch.validate_with_sampler(path, self.workspace)
+
     def test_failure_cleanup_and_keep(self):
         data = job_data(directory="jobs/fail")
         data["project"]["asset"]["name"] = "fail"
@@ -217,6 +253,28 @@ class BatchTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in results], ["success", "success"])
         self.assertTrue((self.workspace / "jobs/lock1/manifest.json").is_file())
         self.assertTrue((self.workspace / "jobs/lock2/manifest.json").is_file())
+
+    def test_cli_check_sampler_and_doctor_launch(self):
+        path = self.write_job("cli-check.json", job_data(directory="jobs/cli-check"))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "validate", path, "--workspace", str(self.workspace),
+                "--check-sampler", "--json",
+            ])
+        self.assertEqual(code, 0)
+        data = json.loads(output.getvalue())
+        self.assertIn("sampler", data)
+        self.assertTrue(data["sampler"]["targets"]["unreal"]["available"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "doctor", "--workspace", str(self.workspace), "--launch", "--json",
+            ])
+        self.assertEqual(code, 0)
+        data = json.loads(output.getvalue())
+        self.assertIn("probe", data)
+        self.assertTrue(data["probe"]["targets"]["unity"]["available"])
 
     def test_cli_validate_run_and_exit_codes(self):
         path = self.write_job("cli.json", job_data(directory="jobs/cli"))

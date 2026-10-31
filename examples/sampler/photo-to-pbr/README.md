@@ -5,6 +5,7 @@ Copy `job.json` to `jobs/photo-to-pbr.json` in a workspace that contains
 
 ```sh
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
+cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-sampler
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
 ```
 

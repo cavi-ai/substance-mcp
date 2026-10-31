@@ -192,6 +192,45 @@ def validate_job_file(name, workspace_path=None) -> dict:
         }
         for step in loaded.steps if isinstance(step, jobs.Export)
     ]
+    plan["import_options"] = sorted({
+        step.import_option for step in loaded.steps if isinstance(step, jobs.ImportImages)
+    })
+    return plan
+
+
+def check_sampler(plan: dict, probe: dict) -> None:
+    installed = set(probe.get("export_presets", []))
+    options = set(probe.get("import_options", []))
+    problems = []
+    for item in plan.get("targets", []):
+        preset = item.get("preset")
+        if preset is not None and preset not in installed:
+            problems.append(
+                f"export preset {preset!r} is not installed; available: "
+                + ", ".join(sorted(installed)[:64])
+            )
+    for option in plan.get("import_options", []):
+        if option not in options:
+            problems.append(f"import option {option!r} is not available")
+    if problems:
+        raise jobs.JobValidationError("; ".join(problems))
+
+
+def probe_sampler(workspace_path=None, timeout_seconds: float = 300,
+                  lock_timeout: float = 30) -> dict:
+    root = _root(workspace_path)
+    with WorkspaceLock(root, lock_timeout):
+        app_available(0)
+        return asyncio.run(operations.invoke(
+            "probe", {}, timeout_seconds, workspace_path=str(root)
+        ))
+
+
+def validate_with_sampler(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
+    plan = validate_job_file(name, workspace_path)
+    probe = probe_sampler(workspace_path, timeout_seconds)
+    check_sampler(plan, probe)
+    plan["sampler"] = probe
     return plan
 
 

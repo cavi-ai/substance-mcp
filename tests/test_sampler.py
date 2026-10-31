@@ -21,8 +21,10 @@ class SamplerTests(unittest.TestCase):
         root = Path(self.folder.name)
         self.workspace = root / "ws"
         (self.workspace / "maps").mkdir(parents=True)
+        (self.workspace / "assets").mkdir()
         (self.workspace / "maps/basecolor.png").write_bytes(b"fake-png")
         (self.workspace / "maps/normal.png").write_bytes(b"fake-png")
+        (self.workspace / "assets/custom.sbsar").write_bytes(b"fake-sbsar")
         (self.workspace / "outside").mkdir()
         (self.workspace / "outside/escape.ssa").write_text("{}")
         app = install(root)
@@ -77,6 +79,45 @@ class SamplerTests(unittest.TestCase):
         catalog = self.call("catalog")
         self.assertIn("Tiling", catalog["filters"])
         self.assertIn("Blender Cycles/Eevee", catalog["export_presets"])
+
+    def test_probe_and_catalog(self):
+        probe = self.call("probe")
+        self.assertTrue(probe["b2m_available"])
+        self.assertIn("openpbr", probe["material_models"])
+        self.assertIn("base_material", probe["predefined_presets"])
+        for name in ("unreal", "unity", "blender"):
+            self.assertTrue(probe["targets"][name]["available"])
+        catalog = self.call("catalog")
+        self.assertIn("image_to_material_B2M", catalog["import_options"])
+        self.assertTrue(catalog["export_targets"]["unreal"]["available"])
+
+    def test_create_empty_asset(self):
+        self.create_project()
+        made = self.call("create_asset", project="projects/Rock.ssa", name="Empty", empty=True)
+        self.assertEqual(made["asset"]["name"], "Empty")
+        self.assertEqual(made["asset"]["layer_count"], 0)
+        with self.assertRaisesRegex(ValueError, "empty assets"):
+            self.call("create_asset", project="projects/Rock.ssa", name="Bad",
+                      empty=True, preset="base_material")
+
+    def test_import_resource(self):
+        self.create_project()
+        imported = self.call(
+            "import_resource", project="projects/Rock.ssa", path="assets/custom.sbsar"
+        )
+        self.assertEqual(imported["resources"][0]["name"], "custom")
+        with self.assertRaisesRegex(ValueError, "inside the workspace"):
+            self.call("import_resource", project="missing.ssa", path="assets/custom.sbsar")
+
+    def test_export_wait_seconds(self):
+        self.create_project()
+        with self.assertRaisesRegex(ValueError, "wait_seconds"):
+            self.call("export", project="projects/Rock.ssa", asset="Rock", directory="x",
+                      dry_run=False, wait_seconds=0)
+        exported = self.call("export", project="projects/Rock.ssa", asset="Rock",
+                             directory="waited", format="sbsar", dry_run=False,
+                             wait_seconds=1)
+        self.assertEqual(exported["files"], ["waited/Rock.sbsar"])
 
     def test_layer_mutations_and_export(self):
         self.create_project()

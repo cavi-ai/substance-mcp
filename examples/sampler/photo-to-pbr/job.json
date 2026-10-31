@@ -2,14 +2,14 @@
   "schema": 1,
   "directory": "jobs/photo-to-pbr",
   "project": {
-    "name": "Photo PBR",
-    "asset": {
-      "name": "PhotoPBR",
-      "model": "openpbr",
-      "preset": "base_material"
-    }
+    "name": "Photo PBR"
   },
   "steps": [
+    {
+      "action": "create_asset",
+      "name": "PhotoPBR",
+      "empty": true
+    },
     {
       "action": "import_images",
       "asset": "PhotoPBR",

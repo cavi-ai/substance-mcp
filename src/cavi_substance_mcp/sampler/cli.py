@@ -38,12 +38,16 @@ def main(argv=None) -> int:
     validate = commands.add_parser("validate", help="Validate a batch job without launching Sampler")
     validate.add_argument("job")
     validate.add_argument("--workspace")
+    validate.add_argument("--check-sampler", action="store_true")
+    validate.add_argument("--timeout", type=float, default=300)
     validate.add_argument("--json", action="store_true")
 
     commands.add_parser("schema", help="Print the batch job JSON Schema")
 
     doctor = commands.add_parser("doctor", help="Check Sampler batch prerequisites")
     doctor.add_argument("--workspace")
+    doctor.add_argument("--launch", action="store_true")
+    doctor.add_argument("--timeout", type=float, default=300)
     doctor.add_argument("--json", action="store_true")
 
     args = parser.parse_args(argv)
@@ -53,6 +57,15 @@ def main(argv=None) -> int:
             return 0
         if args.command == "doctor":
             result = batch.doctor(args.workspace)
+            status = 0
+            if args.launch:
+                try:
+                    result["probe"] = batch.probe_sampler(args.workspace, args.timeout)
+                except Exception as exc:  # noqa: BLE001 -- report probe failure
+                    result["probe"] = {
+                        "status": "failed", "error": f"{type(exc).__name__}: {exc}",
+                    }
+                    status = getattr(exc, "code", 5)
             _print(result, args.json, lambda value: [
                 f"available: {value['available']}",
                 f"executable: {value['executable']}",
@@ -62,10 +75,19 @@ def main(argv=None) -> int:
                 f"workspace_writable: {value['workspace_writable']}",
                 f"lock_held: {value['lock_held']}",
                 "targets: " + ", ".join(value["targets"]),
+                "probe: " + (
+                    "ok" if value.get("probe", {}).get("status") != "failed"
+                    else "failed - " + value["probe"]["error"]
+                ) if "probe" in value else "probe: not run",
             ])
-            return 0
+            return status
         if args.command == "validate" or (args.command == "run" and args.dry_run):
-            result = batch.validate_job_file(args.job, args.workspace)
+            if args.command == "validate" and args.check_sampler:
+                result = batch.validate_with_sampler(
+                    args.job, args.workspace, args.timeout
+                )
+            else:
+                result = batch.validate_job_file(args.job, args.workspace)
             result["dry_run"] = True
             _print(result, args.json, lambda value: [
                 f"job: {value['job']}",
@@ -73,6 +95,7 @@ def main(argv=None) -> int:
                 f"project: {value['project']}",
                 f"steps: {', '.join(value['steps'])}",
                 "targets: " + ", ".join(item["target"] for item in value["targets"]),
+                "sampler: " + ("ok" if "sampler" in value else "not checked"),
             ])
             return 0
         manifest = asyncio.run(batch.run_job_file_async(
