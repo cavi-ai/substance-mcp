@@ -39,7 +39,7 @@ DEFAULT_TIMEOUT = 60.0
 SLOW_TIMEOUT = 600.0
 SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures", "layer_edit"})
 RESPONSE_LIMIT = 8 * 1024 * 1024
-SOURCE = Path(__file__).with_name("painter_operations.py").read_text()
+SOURCE = Path(__file__).with_name("painter_operations.py").read_text(encoding="utf-8")
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()
 CACHE_ATTR = "_cavi_mcp_payloads"
 CACHE_LIMIT = 8
