@@ -13,7 +13,7 @@ from home import isolate_home
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from launcher import write_launcher
-from sampler_fake_cli import install
+from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp import receipts
 from cavi_substance_mcp.core import proc
@@ -37,7 +37,7 @@ class SamplerTests(unittest.TestCase):
         app = install(root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({"CAVI_SAMPLER_APP": str(app), "CAVI_SUBSTANCE_WORKSPACE":
+        env.update({ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE":
                     str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -354,69 +354,72 @@ class SamplerTests(unittest.TestCase):
 
 
 class SamplerRunnerTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+
+    def program(self, body):
+        return write_launcher(self.root, "sampler", f"import signal, sys, time\n{body}")
+
+    def run_script(self, program, timeout):
+        with patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(program)}):
+            return asyncio.run(runner.run_script(self.root / "run.py", timeout, self.root))
+
     def test_timeout_kills_child(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            executable = root / "sampler"
-            executable.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
-            executable.chmod(0o755)
-            with (
-                patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
-                self.assertRaisesRegex(TimeoutError, "killed"),
-            ):
-                asyncio.run(runner.run_script(root / "run.py", 0.5, root))
+        program = self.program("time.sleep(30)\n")
+        with self.assertRaisesRegex(TimeoutError, "Sampler exceeded .* killed"):
+            self.run_script(program, 0.5)
 
-    @staticmethod
-    def _script(root, body):
-        executable = root / "sampler"
-        executable.write_text(f"#!{sys.executable}\nimport signal, sys, time\n{body}")
-        executable.chmod(0o755)
-        return executable
-
+    @unittest.skipIf(os.name == "nt", "a Windows process cannot catch a termination request")
     def test_timeout_asks_politely_before_killing(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            marker = root / "terminated"
-            executable = self._script(root, (
-                "def stop(*_):\n"
-                f"    open({str(marker)!r}, 'w').write('term')\n"
-                "    sys.exit(0)\n"
-                "signal.signal(signal.SIGTERM, stop)\n"
-                "time.sleep(30)\n"
-            ))
-            with (
-                patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
-                self.assertRaisesRegex(TimeoutError, "exceeded"),
-            ):
-                asyncio.run(runner.run_script(root / "run.py", 1.5, root))
-            self.assertTrue(marker.is_file())
+        marker = self.root / "terminated"
+        program = self.program(
+            "def stop(*_):\n"
+            f"    open({str(marker)!r}, 'w').write('term')\n"
+            "    sys.exit(0)\n"
+            "signal.signal(signal.SIGTERM, stop)\n"
+            "time.sleep(30)\n"
+        )
+        with self.assertRaisesRegex(TimeoutError, "exceeded"):
+            self.run_script(program, 1.5)
+        self.assertTrue(marker.is_file())
 
+    @unittest.skipIf(os.name == "nt", "a Windows process cannot ignore a termination request")
     def test_process_ignoring_sigterm_is_killed_after_the_grace_period(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            executable = self._script(root, (
-                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-                "time.sleep(30)\n"
-            ))
-            started = time.monotonic()
-            with (
-                patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
-                patch.object(proc, "TERM_GRACE", 0.5),
-                self.assertRaisesRegex(TimeoutError, "killed"),
-            ):
-                asyncio.run(runner.run_script(root / "run.py", 1.5, root))
-            self.assertLess(time.monotonic() - started, 10)
+        program = self.program(
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "time.sleep(30)\n"
+        )
+        started = time.monotonic()
+        with (
+            patch.object(proc, "TERM_GRACE", 0.5),
+            self.assertRaisesRegex(TimeoutError, "killed"),
+        ):
+            self.run_script(program, 1.5)
+        self.assertLess(time.monotonic() - started, 10)
 
-    def test_app_bundle_on_linux(self):
-        with tempfile.TemporaryDirectory() as folder:
-            app = install(Path(folder))
-            with (
-                patch.dict(os.environ, {"CAVI_SAMPLER_APP": str(app)}),
-                patch.object(runner.sys, "platform", "linux"),
-            ):
-                found = runner.installation()
-                self.assertTrue(found.executable.is_file())
-                self.assertEqual(found.version, "0.0.0-fake")
+    def test_app_bundle_layout(self):
+        # A macOS bundle, built by hand and never run: only discovery is under test.
+        app = self.root / "Fake Sampler.app"
+        macos = app / "Contents/MacOS"
+        macos.mkdir(parents=True)
+        (app / "Contents/Info.plist").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<plist version="1.0"><dict>'
+            '<key>CFBundleExecutable</key><string>Adobe Substance 3D Sampler</string>'
+            '<key>CFBundleShortVersionString</key><string>6.0.4</string>'
+            '</dict></plist>'
+        )
+        (macos / "Adobe Substance 3D Sampler").write_text("not run")
+        with (
+            patch.dict(os.environ, {"CAVI_SAMPLER_APP": str(app)}),
+            patch.object(runner.discovery.sys, "platform", "darwin"),
+        ):
+            found = runner.installation()
+            self.assertEqual(found.executable, macos / "Adobe Substance 3D Sampler")
+            self.assertEqual(found.source, "CAVI_SAMPLER_APP")
+            self.assertEqual(found.version, "6.0.4")
 
     def test_running_asks_discovery_about_the_installed_executable(self):
         installed = runner.Installation(Path("/fake/Adobe Substance 3D Sampler"), "test")
@@ -451,15 +454,11 @@ class SamplerRunnerTests(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), f"script_path={root}")
 
     def test_installation_override(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            executable = root / "sampler"
-            executable.write_text("#!/bin/sh\nexit 0\n")
-            executable.chmod(0o755)
-            with patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}):
-                found = runner.installation()
-                self.assertEqual(found.executable, executable)
-                self.assertEqual(found.source, "CAVI_SAMPLER_BIN")
+        executable = write_launcher(self.root, "sampler", "pass\n")
+        with patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}):
+            found = runner.installation()
+            self.assertEqual(found.executable, executable)
+            self.assertEqual(found.source, "CAVI_SAMPLER_BIN")
 
 
 class SamplerWorkspaceRootTests(unittest.TestCase):
@@ -468,7 +467,7 @@ class SamplerWorkspaceRootTests(unittest.TestCase):
         self.default = self.home / "Documents/SubstanceMCP"
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
-        patcher = patch.dict(os.environ, {"CAVI_SAMPLER_APP": str(install(Path(scratch.name)))})
+        patcher = patch.dict(os.environ, {ENV: str(install(Path(scratch.name)))})
         patcher.start()
         self.addCleanup(patcher.stop)
 

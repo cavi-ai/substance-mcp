@@ -289,7 +289,8 @@ class WindowsTreeKillTests(unittest.TestCase):
 
         async def fake_exec(*args, **_kwargs):
             seen.append(list(args))
-            os.kill(int(args[-1]), signal.SIGKILL)
+            # taskkill would end the tree; SIGTERM is TerminateProcess on a real Windows too.
+            os.kill(int(args[-1]), signal.SIGTERM)
             return Killer()
 
         calls = self.run_as_windows(fake_exec)

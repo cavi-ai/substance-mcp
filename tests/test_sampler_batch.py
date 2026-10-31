@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from sampler_fake_cli import install
+from launcher import write_launcher
+from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp.sampler import batch, cli, job, targets
 
@@ -119,7 +120,7 @@ class BatchTests(unittest.TestCase):
         app = install(root)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({"CAVI_SAMPLER_APP": str(app),
+        env.update({ENV: str(app),
                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()
@@ -317,9 +318,7 @@ class BatchTests(unittest.TestCase):
                 ]), 4)
         finally:
             lock.__exit__()
-        slow = self.workspace / "slow-sampler"
-        slow.write_text("#!/bin/sh\nsleep 30\n")
-        slow.chmod(0o755)
+        slow = write_launcher(self.workspace, "slow-sampler", "import time\ntime.sleep(30)\n")
         with (
             patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(slow)}),
             contextlib.redirect_stderr(io.StringIO()),

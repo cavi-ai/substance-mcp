@@ -99,7 +99,6 @@ async def exercise(mode, env, workspace):
 
 def fixtures(output: Path) -> Path:
     sys.path.insert(0, str(ROOT / "evals"))
-    from sampler_fake_cli import install
 
     workspace, outside = output / "workspace", output / "outside"
     for folder in (workspace / "maps", workspace / "assets", workspace / "jobs",
@@ -307,7 +306,6 @@ def fixtures(output: Path) -> Path:
     }
     for name, data in recipes.items():
         (workspace / "jobs" / f"{name}.json").write_text(json.dumps(data))
-    install(output / "app")
     return workspace
 
 
@@ -328,7 +326,9 @@ def main():
     env.update({"MCPEVAL_HOME": str(output / "store"),
                 "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
     if args.mode == "simulated":
-        env["CAVI_SAMPLER_APP"] = str(output / "app/Fake Sampler.app")
+        from sampler_fake_cli import ENV, install
+
+        env[ENV] = str(install(output / "app"))
     else:
         (output / "no-sampler").mkdir()
         env["CAVI_SAMPLER_BIN"] = str(output / "no-sampler")

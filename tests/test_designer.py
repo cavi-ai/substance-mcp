@@ -13,7 +13,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from designer_fake_cli import install, sbsar
+from designer_fake_cli import ENV, install, sbsar
 from launcher import write_launcher
 
 from cavi_substance_mcp import packing
@@ -95,18 +95,31 @@ class InstallationTests(unittest.TestCase):
                 found = runner.installation()
             self.assertEqual((found.source, found.bin_dir), ("default", default))
 
-    def test_app_resources(self):
+    def test_resources_sit_beside_the_fake_install(self):
         with tempfile.TemporaryDirectory() as folder:
-            app = install(Path(folder))
-            with patch.dict(os.environ, {"CAVI_DESIGNER_APP": str(app)}):
-                os.environ.pop("CAVI_DESIGNER_BIN_DIR", None)
+            bin_dir = install(Path(folder))
+            with patch.dict(os.environ, {ENV: str(bin_dir)}):
                 found = runner.installation()
                 self.assertTrue(found.binary("sbsrender"))
-                self.assertEqual(found.resources, (app / "Contents/Resources").resolve())
+                self.assertEqual(found.resources, (bin_dir.parent / "resources").resolve())
                 self.assertTrue(operations.builtin_file("packages/brick_1").is_file())
                 for bad in ("packages/../templates/x", "other/brick_1", "packages/a/b"):
                     with self.assertRaises(ValueError):
                         operations.builtin_file(bad)
+
+    def test_a_macos_bundle_keeps_its_tools_and_resources_where_designer_puts_them(self):
+        # The layout of a real macOS install, built by hand: nothing here is executed.
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder) / "Adobe Substance 3D Designer.app"
+            macos = write_launcher(app / "Contents/MacOS", "sbsrender", "print(1)\n").parent
+            (app / "Contents/Resources/packages").mkdir(parents=True)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
+            env["CAVI_DESIGNER_APP"] = str(app)
+            with patch.dict(os.environ, env, clear=True):
+                found = runner.installation()
+            self.assertEqual((found.source, found.bin_dir), ("CAVI_DESIGNER_APP", macos))
+            self.assertTrue(found.binary("sbsrender"))
+            self.assertEqual(found.resources, (app / "Contents/Resources").resolve())
 
 
 class PackingTests(unittest.TestCase):
@@ -199,7 +212,7 @@ class FakeCliTests(unittest.TestCase):
         self.log = root / "log.jsonl"
         app = install(root)
         env = {k: v for k, v in os.environ.items() if not k.startswith("CAVI_DESIGNER")}
-        env.update({"CAVI_DESIGNER_APP": str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
+        env.update({ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace),
                     "CAVI_FAKE_DESIGNER_LOG": str(self.log)})
         self.env = patch.dict(os.environ, env, clear=True)
         self.env.start()

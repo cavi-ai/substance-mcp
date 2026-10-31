@@ -8,6 +8,8 @@ import time
 import types
 from pathlib import Path
 
+# The variable that points the host at an install made by install().
+ENV = "CAVI_SAMPLER_BIN"
 VERSION = "0.0.0-fake"
 FILTERS = [
     "Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile",
@@ -588,40 +590,36 @@ def module():
     return module
 
 
+LAUNCHER = (
+    "import runpy, sys\n"
+    "sys.path.insert(0, {evals!r})\n"
+    "import sampler_fake_cli\n"
+    "args = sys.argv[1:]\n"
+    "if '--version' in args:\n"
+    "    print(sampler_fake_cli.VERSION)\n"
+    "    raise SystemExit(0)\n"
+    "if '--run-script-silent' in args or '--run-script' in args:\n"
+    "    index = args.index('--run-script-silent' if '--run-script-silent' in args "
+    "else '--run-script')\n"
+    "    script = args[index + 1]\n"
+    "    sys.modules['substance_sampler'] = sampler_fake_cli.module()\n"
+    "    runpy.run_path(script, run_name='__main__')\n"
+    "    import os\n"
+    "    raise SystemExit(int(os.environ.get('FAKE_SAMPLER_EXIT', '0')))\n"
+)
+
+
 def install(root: Path) -> Path:
-    app = Path(root) / "Fake Sampler.app"
-    macos = app / "Contents/MacOS"
-    macos.mkdir(parents=True)
-    (app / "Contents/Info.plist").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
-        '<plist version="1.0"><dict>'
-        '<key>CFBundleExecutable</key><string>Adobe Substance 3D Sampler</string>'
-        '<key>CFBundleShortVersionString</key><string>0.0.0-fake</string>'
-        '</dict></plist>'
-    )
-    executable = macos / "Adobe Substance 3D Sampler"
-    executable.write_text(
-        f"#!{sys.executable}\n"
-        "import runpy, sys\n"
-        f"sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})\n"
-        "import sampler_fake_cli\n"
-        "args = sys.argv[1:]\n"
-        "if '--version' in args:\n"
-        "    print(sampler_fake_cli.VERSION)\n"
-        "    raise SystemExit(0)\n"
-        "if '--run-script-silent' in args or '--run-script' in args:\n"
-        "    index = args.index('--run-script-silent' if '--run-script-silent' in args "
-        "else '--run-script')\n"
-        "    script = args[index + 1]\n"
-        "    sys.modules['substance_sampler'] = sampler_fake_cli.module()\n"
-        "    runpy.run_path(script, run_name='__main__')\n"
-        "    import os\n"
-        "    raise SystemExit(int(os.environ.get('FAKE_SAMPLER_EXIT', '0')))\n"
-    )
-    executable.chmod(0o755)
-    return app
+    """Install the fake Sampler under ``root``; return the executable ``ENV`` must name.
+
+    One launcher file, not a macOS bundle, so the same install works on every platform: a
+    shebang script on POSIX, a ``.cmd`` wrapper on Windows (see launcher.write_launcher).
+    """
+    from launcher import write_launcher  # only the test process installs; the tool never needs it
+
+    return write_launcher(
+        Path(root) / "fake-sampler", "Adobe Substance 3D Sampler",
+        LAUNCHER.format(evals=str(Path(__file__).resolve().parent)))
 
 
 def main():

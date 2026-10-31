@@ -217,7 +217,8 @@ class ExecutableTests(Scratch):
               patch.dict(os.environ, {"PATH": str(program.parent)})):
             found = self.find()
         self.assertEqual(found.source, "PATH")
-        self.assertEqual(Path(found.path).name, program.name)
+        # Windows spells the suffix as PATHEXT does (.CMD); its paths compare case-blind.
+        self.assertEqual(Path(found.path), program)
 
     def test_nothing_found(self):
         with (patch.object(discovery, "default_location", return_value=self.root / "none"),

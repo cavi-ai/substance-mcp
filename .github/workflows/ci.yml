@@ -35,8 +35,9 @@ jobs:
     name: unit · ${{ matrix.os }} · py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
-    # Windows is experimental: the fake Painter, Designer and Sampler CLIs the tests drive
-    # are shebang scripts, which Windows cannot execute. Promote the leg once they are ported.
+    # The Windows leg stays experimental until it has run green on a real runner. The fake
+    # Designer and Sampler programs now install as .cmd launchers there (evals/launcher.py),
+    # and process checks use tasklist, but none of that has run on Windows yet.
     continue-on-error: ${{ matrix.experimental }}
     permissions:
       contents: read

@@ -137,9 +137,9 @@ def main():
         env.pop(key, None)
     env.update({"MCPEVAL_HOME": str(output / "store"), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
     if args.mode == "simulated":
-        from designer_fake_cli import install
+        from designer_fake_cli import ENV, install
 
-        env["CAVI_DESIGNER_APP"] = str(install(output / "app"))
+        env[ENV] = str(install(output / "app"))
     else:
         (output / "no-designer").mkdir()
         env["CAVI_DESIGNER_BIN_DIR"] = str(output / "no-designer")
