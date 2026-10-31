@@ -36,9 +36,10 @@ class ReceiptError(ValueError):
     """A receipt is unreadable, unsupported, or does not match its files."""
 
 
-def _sha256(path: Path) -> str:
+def sha256_file(path) -> str:
+    """The SHA-256 of a file, as lower-case hex, read in 1 MiB blocks."""
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with Path(path).open("rb") as stream:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
@@ -122,7 +123,7 @@ def record(path: Path, root: Path) -> dict:
     return {
         "path": display,
         "size": path.stat().st_size,
-        "sha256": _sha256(path),
+        "sha256": sha256_file(path),
     }
 
 
@@ -149,7 +150,7 @@ def app_resource(name: str, path: Path, tool_version: str | None = None) -> dict
     return {
         "role": EXTERNAL_ROLE,
         "name": name,
-        "sha256": _sha256(path),
+        "sha256": sha256_file(path),
         "tool_version": tool_version,
     }
 
@@ -202,7 +203,7 @@ def _verify_entry(path: Path, entry: dict, label: str) -> None:
         raise ReceiptError(f"Missing {label} file {path}: {exc}") from exc
     if size != entry["size"]:
         raise ReceiptError(f"Size mismatch for {path}: {size} != {entry['size']}")
-    if _sha256(path) != entry["sha256"]:
+    if sha256_file(path) != entry["sha256"]:
         raise ReceiptError(f"SHA-256 mismatch for {path}")
 
 

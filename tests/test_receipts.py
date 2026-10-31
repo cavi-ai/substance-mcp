@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -49,6 +50,15 @@ class ReceiptTests(unittest.TestCase):
         path = receipts.write(self.root, manifest)
         self.assertEqual(json.loads(path.read_text()), manifest)
         self.assertEqual(path.name, "manifest.json")
+
+    def test_sha256_file_hashes_in_blocks(self):
+        small = self.root / "small.bin"
+        small.write_bytes(b"abc")
+        large = self.root / "large.bin"
+        large.write_bytes(b"x" * (3 * 1024 * 1024 + 5))
+        self.assertEqual(receipts.sha256_file(small), hashlib.sha256(b"abc").hexdigest())
+        self.assertEqual(receipts.sha256_file(str(large)),
+                         hashlib.sha256(b"x" * (3 * 1024 * 1024 + 5)).hexdigest())
 
     def test_verify_manifest_and_cli(self):
         output = self.root / "out.txt"

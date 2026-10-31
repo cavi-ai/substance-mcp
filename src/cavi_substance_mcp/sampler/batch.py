@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import shutil
 import tempfile
@@ -36,14 +35,6 @@ def _job_file(name, root: Path) -> Path:
     if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() != ".json":
         raise jobs.JobValidationError("job file must be a JSON file inside the workspace")
     return path
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 # Bookkeeping files at the top of a job directory. Per-export receipts deeper in the
@@ -360,7 +351,7 @@ def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: s
     manifest.update({
         "status": "success",
         "job": (job_dir / "job.json").relative_to(root).as_posix(),
-        "job_sha256": _sha256(job_dir / "job.json"),
+        "job_sha256": receipts.sha256_file(job_dir / "job.json"),
         "project": result.get("project"),
         "source": result.get("source"),
         "assets": result.get("assets", []),
