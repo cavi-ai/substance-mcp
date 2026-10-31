@@ -1,6 +1,7 @@
 """The Painter MCP server stays responsive while Painter works, and Painter calls never overlap."""
 
 import asyncio
+import inspect
 import json
 import os
 import sys
@@ -139,9 +140,11 @@ class TimeoutTests(unittest.TestCase):
 
 class HandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_painter_tool_is_a_coroutine(self):
-        tools = server.mcp._tool_manager.list_tools()
+        tools = await server.mcp.list_tools()
         self.assertTrue(tools)
-        self.assertEqual([tool.name for tool in tools if not tool.is_async], [])
+        # The module-level names are the undecorated coroutines (core.mcp.Server.tool).
+        self.assertEqual([tool.name for tool in tools
+                          if not inspect.iscoroutinefunction(getattr(server, tool.name))], [])
 
     async def test_slow_call_does_not_block_the_event_loop_or_other_handlers(self):
         def slow(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
