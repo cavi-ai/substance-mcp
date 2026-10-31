@@ -719,6 +719,51 @@ class BatchTests(unittest.TestCase):
         self.assertTrue((self.workspace / "jobs/lock1/manifest.json").is_file())
         self.assertTrue((self.workspace / "jobs/lock2/manifest.json").is_file())
 
+    def slow_job(self, name, directory):
+        data = job_data(directory=directory, asset="slow")
+        return self.write_job(f"{name}.json", data)
+
+    async def cancel_running_job(self, path, directory, **options):
+        task = asyncio.create_task(batch.run_job_file_async(
+            path, self.workspace, TIMEOUT, **options))
+        progress = self.workspace / directory / "progress.jsonl"
+        for _ in range(200):
+            if progress.is_file() and '"export"' in progress.read_text():
+                break
+            await asyncio.sleep(0.1)
+        else:
+            self.fail("job never reached the export step")
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    def test_cancelled_job_removes_its_directory(self):
+        path = self.slow_job("cancel", "jobs/cancel")
+        asyncio.run(self.cancel_running_job(path, "jobs/cancel"))
+        self.assertFalse((self.workspace / "jobs/cancel").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
+        retry = self.write_job("cancel-retry.json", job_data(directory="jobs/cancel"))
+        self.assertEqual(batch.run_job_file(retry, self.workspace)["status"], "success")
+
+    def test_cancelled_job_keeps_failure_record_on_request(self):
+        path = self.slow_job("cancel-keep", "jobs/cancel-keep")
+        asyncio.run(self.cancel_running_job(path, "jobs/cancel-keep", keep_on_failure=True))
+        folder = self.workspace / "jobs/cancel-keep"
+        failure = json.loads((folder / "failure.json").read_text())
+        self.assertEqual(failure["status"], "failed")
+        self.assertTrue(failure["cancelled"])
+        self.assertFalse((folder / "manifest.json").exists())
+
+    def test_interrupt_removes_job_directory(self):
+        path = self.write_job("interrupt.json", job_data(directory="jobs/interrupt"))
+        with (
+            patch.object(batch.operations, "invoke_job", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            asyncio.run(batch.run_job_file_async(path, self.workspace, TIMEOUT))
+        self.assertFalse((self.workspace / "jobs/interrupt").exists())
+        self.assertFalse(batch.lock_held(self.workspace))
+
     def test_cancelled_queued_job_does_not_leak_the_lock(self):
         queued = self.write_job("queued.json", job_data(directory="jobs/queued"))
         later = self.write_job("later.json", job_data(directory="jobs/later"))

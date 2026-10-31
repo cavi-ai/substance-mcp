@@ -1,6 +1,7 @@
 """Host-side execution, locking and manifests for Sampler batch jobs."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import shutil
@@ -381,8 +382,9 @@ def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict
     return manifest
 
 
-def _failure(root: Path, job_dir: Path, path: Path, error: Exception,
+def _failure(root: Path, job_dir: Path, path: Path, error: BaseException,
              started: str, seconds: float) -> dict:
+    cancelled = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt))
     payload = {
         "schema": 1,
         "app_name": "sampler",
@@ -392,7 +394,11 @@ def _failure(root: Path, job_dir: Path, path: Path, error: Exception,
         "workspace": str(root),
         "started": started,
         "seconds": round(seconds, 3),
-        "error": f"{type(error).__name__}: {error}",
+        "cancelled": cancelled,
+        "error": (
+            f"cancelled before completion ({type(error).__name__})" if cancelled
+            else f"{type(error).__name__}: {error}"
+        ),
     }
     (job_dir / "failure.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
@@ -424,9 +430,12 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
             )
             return _manifest(root, job_dir, path, loaded, result, started,
                              time.monotonic() - clock)
-        except Exception as exc:
+        except BaseException as exc:
+            # Cancellation and interrupts are not Exceptions; without this a cancelled
+            # run left jobs/<dir> behind and a retry into that directory was refused.
             if keep_on_failure:
-                _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
+                with contextlib.suppress(OSError):
+                    _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
             else:
                 operations.remove_tree(job_dir)
             if isinstance(exc, TimeoutError):

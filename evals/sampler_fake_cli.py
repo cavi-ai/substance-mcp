@@ -3,11 +3,15 @@
 import json
 import os
 import sys
+import time
 import types
 from pathlib import Path
 
 VERSION = "0.0.0-fake"
-FILTERS = ["Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile", "Delighter (AI Powered)"]
+FILTERS = [
+    "Equalize", "Tiling", "Brightness/Contrast", "Grain", "Make It Tile",
+    "Delighter (AI Powered)",
+]
 MATERIALS = ["Brick", "Fabric", "Metal"]
 GENERATORS = ["Noise", "Gradient", "Cells"]
 PRESETS = ["Unreal Engine 4", "Blender Cycles/Eevee", "Unity HD Render Pipeline Standard"]
@@ -313,6 +317,8 @@ class Asset:
                         w_resolution=0, h_resolution=0, **_):
         if "fail" in self.name.lower():
             raise RuntimeError("fake export failure")
+        if "slow" in self.name.lower():
+            time.sleep(float(os.environ.get("FAKE_SAMPLER_SLOW", "30")))
         target = Path(path)
         target.mkdir(parents=True, exist_ok=True)
         name = name or self.name
