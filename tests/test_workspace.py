@@ -235,17 +235,38 @@ class RemoveTreeTests(unittest.TestCase):
         )
         self.assertEqual(left[:-1], sorted(left[:-1], reverse=True))
 
-    @unittest.skipIf(os.name == "nt", "directory write bits do not block deletion on Windows")
-    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores permissions")
-    def test_read_only_entries_do_not_stop_removal(self):
-        locked = self.tree / "a/b"
-        locked.chmod(stat.S_IREAD | stat.S_IEXEC)
-        try:
+    def test_a_read_only_file_does_not_stop_removal(self):
+        # Windows refuses to delete a file with the read-only attribute. Emulate that on
+        # every platform (and for root, which ignores permission bits) by making unlink
+        # fail for a file whose write bit is clear.
+        target = self.tree / "top.txt"
+        target.chmod(stat.S_IREAD)
+        real = os.unlink
+
+        def unlink(path, *args, dir_fd=None, **kwargs):
+            if os.path.basename(str(path)) == "top.txt" and not (
+                    os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWUSR):
+                raise PermissionError(13, "read-only file", str(path))
+            return real(path, *args, dir_fd=dir_fd, **kwargs)
+
+        with patch.object(os, "unlink", unlink):
             self.assertEqual(workspace.remove_tree(self.tree), [])
-        finally:
-            if locked.exists():
-                locked.chmod(0o700)
         self.assertFalse(self.tree.exists())
+
+    def test_without_the_unlock_handler_that_file_would_be_left_behind(self):
+        target = self.tree / "top.txt"
+        target.chmod(stat.S_IREAD)
+        real = os.unlink
+
+        def unlink(path, *args, dir_fd=None, **kwargs):
+            if os.path.basename(str(path)) == "top.txt" and not (
+                    os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWUSR):
+                raise PermissionError(13, "read-only file", str(path))
+            return real(path, *args, dir_fd=dir_fd, **kwargs)
+
+        with patch.object(os, "unlink", unlink):
+            shutil.rmtree(self.tree, ignore_errors=True)
+        self.assertTrue(target.exists(), "the emulation no longer reproduces the failure")
 
     def test_the_unlock_handler_clears_the_read_only_bit_and_retries(self):
         target = self.tree / "top.txt"
