@@ -15,9 +15,9 @@ from unittest.mock import patch
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from cavi_substance_mcp import client as painter_client
-from cavi_substance_mcp import server
-from cavi_substance_mcp.client import PainterClient, PainterTimeout
+from cavi_substance_mcp.painter import client as painter_client
+from cavi_substance_mcp.painter import server
+from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout
 from evals.painter_simulator import PainterSimulator
 
 
@@ -209,7 +209,7 @@ class StdioResponsivenessTests(unittest.IsolatedAsyncioTestCase):
     async def session(self, port, work):
         env = {**os.environ, "CAVI_PAINTER_PORT": str(port)}
         params = StdioServerParameters(command=sys.executable,
-                                       args=["-m", "cavi_substance_mcp.server"], env=env)
+                                       args=["-m", "cavi_substance_mcp.painter.server"], env=env)
         async with stdio_client(params) as (reader, writer), ClientSession(
                 reader, writer) as session:
             await session.initialize()

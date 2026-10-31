@@ -3,9 +3,9 @@ import unittest
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from cavi_substance_mcp import server
 from cavi_substance_mcp.core.mcp import Server
 from cavi_substance_mcp.designer import server as designer_server
+from cavi_substance_mcp.painter import server as painter_server
 from cavi_substance_mcp.sampler import server as sampler_server
 
 
@@ -22,7 +22,7 @@ class AnticipatedErrorTests(unittest.TestCase):
         self.assertIn(text, str(caught.exception))
 
     def test_painter_validation_reaches_the_caller(self):
-        self.assert_reports(server.mcp, "inspect", {"action": "layer_stack"},
+        self.assert_reports(painter_server.mcp, "inspect", {"action": "layer_stack"},
                             "texture_set is required for action=layer_stack")
 
     def test_designer_validation_reaches_the_caller(self):
@@ -47,7 +47,7 @@ class AnticipatedErrorTests(unittest.TestCase):
 
     def test_decorated_tools_stay_directly_callable(self):
         with self.assertRaisesRegex(ValueError, "texture_set is required"):
-            asyncio.run(server.inspect(action="layer_stack"))
+            asyncio.run(painter_server.inspect(action="layer_stack"))
 
 
 if __name__ == "__main__":

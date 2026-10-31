@@ -19,8 +19,9 @@ from painter_simulator import PainterSimulator
 from sampler_fake_cli import ENV as SAMPLER_ENV
 from sampler_fake_cli import install as install_sampler
 
-from cavi_substance_mcp import painter_operations, receipts, receipts_cli
+from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
+from cavi_substance_mcp.painter import operations as painter_operations
 from cavi_substance_mcp.sampler import launch as sampler
 
 

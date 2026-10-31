@@ -44,6 +44,11 @@
   (module `cavi_substance_mcp.receipts_cli`), shared by all three servers. It replaces
   `cavi-substance-mcp receipts ...`, which is removed; the arguments, output and exit codes
   are unchanged. `npm run verify:package` runs it from the installed wheel.
+- The Painter server lives in the `cavi_substance_mcp.painter` subpackage, like Designer and
+  Sampler: `server`, `client`, `runtime` and `cli` moved there under the same names, and
+  `painter_operations` is now `painter.operations`. `cavi-substance-mcp` runs
+  `cavi_substance_mcp.painter.server:main`, and the module to run with `python -m` is
+  `cavi_substance_mcp.painter.server`. The old import paths are gone; there are no aliases.
 
 ### Changed (breaking)
 

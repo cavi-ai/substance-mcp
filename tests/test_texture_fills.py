@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import PainterSimulator
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0p0AAAAASUVORK5CYII=")

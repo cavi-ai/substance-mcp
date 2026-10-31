@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from home import isolate_home
 
-from cavi_substance_mcp import painter_operations
 from cavi_substance_mcp.core import workspace
+from cavi_substance_mcp.painter import operations as painter_operations
 
 
 def can_symlink() -> bool:
@@ -284,7 +284,7 @@ class RemoveTreeTests(unittest.TestCase):
 
 
 class PayloadParityTests(unittest.TestCase):
-    """painter_operations.py runs inside Painter and keeps its own copy of the path rules.
+    """painter/operations.py runs inside Painter and keeps its own copy of the path rules.
 
     The two copies may raise different exception types, but they must accept and refuse
     the same paths and resolve the accepted ones to the same place.

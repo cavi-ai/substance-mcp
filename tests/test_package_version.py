@@ -7,7 +7,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 SERVERS = {
-    "cavi_substance_mcp.server": "cavi-substance-mcp",
+    "cavi_substance_mcp.painter.server": "cavi-substance-mcp",
     "cavi_substance_mcp.designer.server": "cavi-substance-designer-mcp",
     "cavi_substance_mcp.sampler.server": "cavi-substance-sampler-mcp",
 }

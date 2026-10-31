@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from test_texturing import Fixture
 
-from cavi_substance_mcp import painter_operations as ops
+from cavi_substance_mcp.painter import operations as ops
 
 ORIGINAL = b"fixture"
 

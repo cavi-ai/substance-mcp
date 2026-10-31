@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from cavi_substance_mcp import server
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter import server
+from cavi_substance_mcp.painter.client import PainterClient
 
 
 class LeaseIdContractTests(unittest.IsolatedAsyncioTestCase):

@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from cavi_substance_mcp.client import PainterClient, PainterTimeout, PainterUnavailable
+from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout, PainterUnavailable
 
 
 def raw_server(respond):
@@ -73,13 +73,13 @@ class PayloadSourceTests(unittest.TestCase):
                 return real(self, *args, **kwargs)
 
             Path.read_text = spy
-            import cavi_substance_mcp.client  # noqa: F401
+            import cavi_substance_mcp.painter.client  # noqa: F401
             print(json.dumps(seen))
         """)
         done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
                               check=True)
         reads = dict(json.loads(done.stdout.splitlines()[-1]))
-        self.assertEqual(reads["painter_operations.py"], "utf-8")
+        self.assertEqual(reads["operations.py"], "utf-8")
 
 
 class MalformedReplyTests(unittest.TestCase):

@@ -14,8 +14,8 @@ from unittest.mock import patch
 from clock import Clock
 from owned_client import OwnedPainterClient
 
-from cavi_substance_mcp import painter_operations as lease
-from cavi_substance_mcp.client import PainterClient, PainterTimeout, PainterUnavailable
+from cavi_substance_mcp.painter import operations as lease
+from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout, PainterUnavailable
 from evals.painter_simulator import PainterSimulator
 
 PNG = base64.b64decode(

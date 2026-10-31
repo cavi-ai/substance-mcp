@@ -2,7 +2,7 @@
 """Build the distributions, install the wheel into a clean venv, and run what a user runs.
 
 The unit tests import the source tree. This proves the artifact: that the wheel
-carries the module `client.py` reads at import time, that neither distribution
+carries the module `painter/client.py` reads at import time, that neither distribution
 ships tests, evals or repository tooling, that both carry the LICENSE, and that
 each installed server script answers an MCP `initialize` and `tools/list` over
 stdio with the package version and the expected tool count, and that the receipts script
@@ -47,7 +47,7 @@ RECEIPTS_SCRIPT = "cavi-substance-receipts"
 # The files that run inside Painter and Sampler are loaded from the installed package, and
 # receipts_cli.py is the entry point of RECEIPTS_SCRIPT.
 REQUIRED_IN_WHEEL = (
-    "cavi_substance_mcp/painter_operations.py",
+    "cavi_substance_mcp/painter/operations.py",
     "cavi_substance_mcp/core/workspace.py",
     "cavi_substance_mcp/sampler/operations.py",
     "cavi_substance_mcp/receipts_cli.py",

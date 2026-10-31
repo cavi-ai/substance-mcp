@@ -1,6 +1,6 @@
 """Claim an explicit fixture-owned session for existing operation tests."""
 
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter.client import PainterClient
 
 
 class OwnedPainterClient(PainterClient):

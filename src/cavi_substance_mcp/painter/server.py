@@ -8,8 +8,8 @@ import anyio.to_thread
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from ..core.mcp import Server
 from .client import PainterClient
-from .core.mcp import Server
 
 mcp = Server(
     "cavi-substance-mcp",

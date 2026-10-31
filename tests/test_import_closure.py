@@ -15,7 +15,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from cavi_substance_mcp import client
+from cavi_substance_mcp.painter import client
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = SRC / "cavi_substance_mcp"
@@ -45,7 +45,7 @@ IN_APP = {
 # Source files whose every import statement, even one inside a function, is checked.
 # Value: top-level names the host application provides to code running inside it.
 APPLICATION_MODULES = {
-    "painter_operations.py": {"substance_painter", "PySide6"},
+    "painter/operations.py": {"substance_painter", "PySide6"},
     "receipts.py": set(),
     "core/workspace.py": set(),
     "sampler/names.py": set(),
@@ -161,7 +161,7 @@ class StaticImportTests(unittest.TestCase):
                     )
 
     def test_the_painter_payload_imports_nothing_from_the_package(self):
-        for top, level, module in imported_names(PACKAGE / "painter_operations.py"):
+        for top, level, module in imported_names(PACKAGE / "painter/operations.py"):
             with self.subTest(module=module):
                 self.assertEqual(level, 0)
                 self.assertNotEqual(top, "cavi_substance_mcp")

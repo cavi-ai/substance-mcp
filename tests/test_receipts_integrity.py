@@ -17,8 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install as install_designer
 
-from cavi_substance_mcp import painter_operations, receipts, receipts_cli
+from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
+from cavi_substance_mcp.painter import operations as painter_operations
 
 
 def sha(text: str) -> str:

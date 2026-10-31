@@ -49,7 +49,7 @@ Issues = "https://github.com/cavi-ai/substance-mcp/issues"
 Changelog = "https://github.com/cavi-ai/substance-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
-cavi-substance-mcp = "cavi_substance_mcp.server:main"
+cavi-substance-mcp = "cavi_substance_mcp.painter.server:main"
 cavi-substance-designer-mcp = "cavi_substance_mcp.designer.server:main"
 cavi-substance-sampler-mcp = "cavi_substance_mcp.sampler.server:main"
 cavi-substance-receipts = "cavi_substance_mcp.receipts_cli:main"

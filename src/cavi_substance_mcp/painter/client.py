@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from .core import workspace as workspaces
+from ..core import workspace as workspaces
 
 OPERATIONS = frozenset(
     {
@@ -48,7 +48,7 @@ OPERATION_TIMEOUTS = {"layer_edit": 120.0, **dict.fromkeys(SLOW_OPERATIONS, SLOW
 # How long status waits for a request already in flight before reporting it instead.
 STATUS_QUEUE_SECONDS = 0.5
 RESPONSE_LIMIT = 8 * 1024 * 1024
-SOURCE = Path(__file__).with_name("painter_operations.py").read_text(encoding="utf-8")
+SOURCE = Path(__file__).with_name("operations.py").read_text(encoding="utf-8")
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()
 CACHE_ATTR = "_cavi_mcp_payloads"
 CACHE_LIMIT = 8

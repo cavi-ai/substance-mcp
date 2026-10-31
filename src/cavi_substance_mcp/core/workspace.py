@@ -3,7 +3,7 @@
 Standard library only: the Sampler operations that run inside Sampler's embedded Python
 import this module, and it must not import anything else from this package.
 
-Painter runs painter_operations.py as a self-contained payload and cannot import this
+Painter runs painter/operations.py as a self-contained payload and cannot import this
 package, so that file keeps its own copy of ``input_file``, ``output_path`` and
 ``remove_tree``. tests/test_workspace.py checks that the two copies accept and refuse the
 same paths.

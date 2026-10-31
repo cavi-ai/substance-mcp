@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from test_texturing import Fixture
 
-from cavi_substance_mcp import painter_operations as ops
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter import operations as ops
+from cavi_substance_mcp.painter.client import PainterClient
 
 PRESET = "resource://eval-preset"
 

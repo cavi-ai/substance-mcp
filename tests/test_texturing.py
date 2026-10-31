@@ -4,8 +4,8 @@ from pathlib import Path
 
 from owned_client import OwnedPainterClient
 
-from cavi_substance_mcp import painter_operations as ops
-from cavi_substance_mcp.client import PainterClient
+from cavi_substance_mcp.painter import operations as ops
+from cavi_substance_mcp.painter.client import PainterClient
 from evals.painter_simulator import BakingStatus, BlendingMode, MeshMapUsage, PainterSimulator
 
 MASK_MAP = {"name": "T_$textureSet_MaskMap", "format": "png", "bit_depth": 8,

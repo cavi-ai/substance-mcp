@@ -5,8 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..core import discovery
 from .client import PainterClient
-from .core import discovery
 
 
 def runtime_status():

@@ -19,6 +19,7 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = "substance"
+SERVER = ["-m", "cavi_substance_mcp.painter.server"]
 MODES = ["protocol", "simulated"]
 
 
@@ -35,7 +36,7 @@ async def exercise(mode, env, workspace, adapter=None):
     selected = [case for case in corpus if mode in case["modes"]]
     results = []
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", f"cavi_{APP}_mcp.server"], env=env
+        command=sys.executable, args=SERVER, env=env
     )
     async with (
         stdio_client(params) as (reader, writer),
@@ -237,7 +238,7 @@ def main():
         ]
         if args.mode == "protocol":
             command.append("--gate-only")
-        command.extend(["--", sys.executable, "-m", f"cavi_{APP}_mcp.server"])
+        command.extend(["--", sys.executable, *SERVER])
         with (output / "mcpeval.json").open("w") as stream:
             evaluated = subprocess.run(command, env=env, cwd=ROOT, stdout=stream, check=False)
         failed = [case for case in results if not case["passed"]]

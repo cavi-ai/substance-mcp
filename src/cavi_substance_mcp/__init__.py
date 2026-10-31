@@ -1,1 +1,1 @@
-"""Typed MCP tools for Substance Painter."""
+"""MCP servers for Adobe Substance 3D Painter, Designer and Sampler."""
