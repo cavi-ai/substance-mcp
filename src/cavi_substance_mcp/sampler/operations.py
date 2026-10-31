@@ -500,7 +500,7 @@ def _save(ssa) -> None:
             _wait_changed(target, before)
 
 
-def _resource(ssa, kind: str, name: str, getter):
+def _resource(kind: str, name: str, getter):
     found = [item for item in getter(name) if _resource_name(item) == name]
     if not found:
         available = sorted({_resource_name(item) for item in getter("")})[:64]
@@ -951,7 +951,7 @@ def _insert_filter(ssa, root, args) -> dict:
     if project is None:
         raise ValueError("project is required for action=insert_filter")
     asset = _find_asset(ssa, asset_name)
-    resource = _resource(ssa, "Filter", name, ssa.get_filters)
+    resource = _resource("Filter", name, ssa.get_filters)
     layer = asset.insert_filter(resource, position, insert_above=insert_above)
     ssa.wait_for_computation()
     _save(ssa)
@@ -976,7 +976,7 @@ def _insert_material(ssa, root, args) -> dict:
     if project is None:
         raise ValueError("project is required for action=insert_material")
     asset = _find_asset(ssa, asset_name)
-    resource = _resource(ssa, "Material", name, ssa.get_materials)
+    resource = _resource("Material", name, ssa.get_materials)
     layer = asset.insert_material(
         resource, position, getattr(ssa.BlendMode, blend), insert_above=insert_above
     )
@@ -1333,7 +1333,7 @@ def _export(ssa, root, args) -> dict:
         raise ValueError("project is required for action=export")
     asset = _find_asset(ssa, asset_name)
     preset = (
-        _resource(ssa, "Export preset", preset_name, ssa.get_export_presets)
+        _resource("Export preset", preset_name, ssa.get_export_presets)
         if preset_name else None
     )
     directory_name = args.get("directory")

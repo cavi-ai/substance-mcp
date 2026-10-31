@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import ENV, install
+from sampler_jobs import run_job_file
 
 from cavi_substance_mcp.sampler import batch, launch
 
@@ -143,7 +144,7 @@ class ConcurrencyTests(unittest.TestCase):
 
     def test_every_launch_path_is_serialised(self):
         seed = self.write_job("seed", job("jobs/seed"))
-        batch.run_job_file(seed, self.workspace)
+        run_job_file(seed, self.workspace)
         project_job = self.write_job(
             "project", job("jobs/project", source="jobs/seed/RockProject.ssa"))
         build_job = self.write_job("build", job("jobs/build"))

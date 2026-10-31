@@ -291,10 +291,6 @@ def _display(path: Path, root: Path) -> str:
         return str(path)
 
 
-def load_and_verify(path: Path, root: Path, roles=("inputs", "outputs")) -> dict:
-    return verify(load(path), root, roles)
-
-
 def write_manifest(directory: Path, app: str, operation: str, root: Path, **fields) -> Path:
     """Build a receipt with ``build`` and write it as ``directory/manifest.json``.
 

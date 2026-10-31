@@ -8,7 +8,7 @@ from pathlib import Path
 
 # The variable that points the host at an install made by install().
 ENV = "CAVI_DESIGNER_BIN_DIR"
-TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
+TOOLS = ("sbscooker", "sbsrender", "substance3d_baker")
 COMMON = ("--inputs", "--output_path", "--output_name", "--output_size", "--output_format",
           "--udim", "--name_suffix_low", "--name_suffix_high")
 PROJECTION = ("--high_scene_paths", "--use_lowdef_as_highdef", "--use_cage", "--cage_scene_path",
@@ -212,8 +212,7 @@ def main():
     if "--version" in argv:
         print("version 0.0.0-fake (build 0 commit 0x0)")
         return
-    {"sbscooker": cooker, "sbsrender": render, "substance3d_baker": baker,
-     "sbsupdater": lambda _: None}[tool](argv)
+    {"sbscooker": cooker, "sbsrender": render, "substance3d_baker": baker}[tool](argv)
 
 
 if __name__ == "__main__":

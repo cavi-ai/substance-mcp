@@ -9,9 +9,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import ENV, install
+from sampler_jobs import run_job_file
 
 from cavi_substance_mcp import receipts
-from cavi_substance_mcp.sampler import batch, job, launch
+from cavi_substance_mcp.sampler import job, launch
 
 
 def job_data():
@@ -51,7 +52,7 @@ class JobManifestTests(unittest.TestCase):
         self.folder.cleanup()
 
     def run_job(self):
-        return batch.run_job_file("jobs/rock.json", self.workspace)
+        return run_job_file("jobs/rock.json", self.workspace)
 
     def test_manifest_is_a_standard_receipt_without_machine_paths(self):
         manifest = self.run_job()
@@ -98,7 +99,7 @@ class JobManifestTests(unittest.TestCase):
 
         with patch.object(launch, "invoke_job", fail), \
                 self.assertRaisesRegex(RuntimeError, "boom"):
-            batch.run_job_file("jobs/rock.json", self.workspace, keep_on_failure=True)
+            run_job_file("jobs/rock.json", self.workspace, keep_on_failure=True)
         record = json.loads((self.workspace / "jobs/rock/failure.json").read_text())
         self.assertEqual(record["app"], "sampler")
         self.assertNotIn("workspace", record)

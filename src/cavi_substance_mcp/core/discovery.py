@@ -59,10 +59,6 @@ def platform_name() -> str:
     return "linux" if sys.platform.startswith("linux") else sys.platform
 
 
-def executable_name(name: str) -> str:
-    return name + ".exe" if sys.platform == "win32" and not name.lower().endswith(".exe") else name
-
-
 def default_location(key: str) -> Path:
     """The default install location of ``key`` on this platform (it may not exist)."""
     table = DEFAULTS[key]

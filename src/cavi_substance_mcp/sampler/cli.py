@@ -27,16 +27,10 @@ def _print(value, as_json: bool, lines) -> None:
 def _exit(exc: Exception) -> tuple[int, str]:
     if isinstance(exc, (job.JobValidationError, FileNotFoundError, NotADirectoryError)):
         return 2, str(exc)
-    if isinstance(exc, batch.AppUnavailable):
-        return 3, str(exc)
-    if isinstance(exc, (batch.AppRunning, batch.LockTimeout)):
-        return 4, str(exc)
-    if isinstance(exc, batch.JobTimeout):
-        return 6, str(exc)
-    if isinstance(exc, TimeoutError):
-        return 6, str(exc)
     if isinstance(exc, batch.BatchError):
         return exc.code, str(exc)
+    if isinstance(exc, TimeoutError):
+        return 6, str(exc)
     return 5, f"{type(exc).__name__}: {exc}"
 
 

@@ -72,13 +72,6 @@ class DefaultTableTests(unittest.TestCase):
             self.assertEqual(discovery.platform_name(), "freebsd14")
             self.assertTrue(str(discovery.default_location("sampler")).startswith("/opt/Adobe"))
 
-    def test_executable_suffix_is_added_on_windows_only(self):
-        with platform("win32"):
-            self.assertEqual(discovery.executable_name("sbsrender"), "sbsrender.exe")
-            self.assertEqual(discovery.executable_name("a.exe"), "a.exe")
-        with platform("linux"):
-            self.assertEqual(discovery.executable_name("sbsrender"), "sbsrender")
-
 
 class DirectoryTests(Scratch):
     def find(self):

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
+from sampler_jobs import run_job_file
 
 from cavi_substance_mcp.sampler import batch, cli, job, targets
 
@@ -147,7 +148,7 @@ class BatchTests(unittest.TestCase):
         steps.append({"action": "export", "asset": "Rock", "target": "unreal",
                       "resolution": 64})
         seed["steps"] = steps
-        batch.run_job_file(self.write_job(f"{name}-seed.json", seed), self.workspace)
+        run_job_file(self.write_job(f"{name}-seed.json", seed), self.workspace)
         return f"{directory}/RockProject.ssa"
 
     def source_job(self, name, source, steps):
@@ -346,7 +347,7 @@ class BatchTests(unittest.TestCase):
 
     def test_run_unreal_manifest(self):
         path = self.write_job("rock.json", job_data())
-        manifest = batch.run_job_file(path, self.workspace)
+        manifest = run_job_file(path, self.workspace)
         self.assertEqual(manifest["status"], "success")
         self.assertEqual(manifest["project"], "jobs/rock/RockProject.ssa")
         self.assertEqual(manifest["job"], "jobs/rock/job.json")
@@ -366,7 +367,7 @@ class BatchTests(unittest.TestCase):
             with self.subTest(target=target):
                 path = self.write_job(f"{target}.json", job_data(
                     directory=f"jobs/{target}", target=target))
-                manifest = batch.run_job_file(path, self.workspace)
+                manifest = run_job_file(path, self.workspace)
                 export = next(step for step in manifest["steps"]
                               if step["action"] == "export")
                 self.assertEqual(export["result"]["target"], target)
@@ -395,7 +396,7 @@ class BatchTests(unittest.TestCase):
             ],
         }
         path = self.write_job("b2m.json", data)
-        manifest = batch.run_job_file(path, self.workspace)
+        manifest = run_job_file(path, self.workspace)
         self.assertEqual(manifest["status"], "success")
         actions = [step["action"] for step in manifest["steps"]]
         self.assertEqual(actions, ["create_asset", "import_images", "export"])
@@ -406,7 +407,7 @@ class BatchTests(unittest.TestCase):
             seed["steps"][0],
             {"action": "export", "asset": "Rock", "target": "unreal", "resolution": 64},
         ]
-        batch.run_job_file(self.write_job("seed-export.json", seed), self.workspace)
+        run_job_file(self.write_job("seed-export.json", seed), self.workspace)
         source = self.workspace / "jobs/seed-export/RockProject.ssa"
         digest = source.read_bytes()
         data = {
@@ -418,7 +419,7 @@ class BatchTests(unittest.TestCase):
                  "directory": "unity"},
             ],
         }
-        manifest = batch.run_job_file(self.write_job("source-export.json", data),
+        manifest = run_job_file(self.write_job("source-export.json", data),
                                       self.workspace)
         self.assertEqual(manifest["status"], "success")
         self.assertEqual(manifest["source"], "jobs/seed-export/RockProject.ssa")
@@ -433,7 +434,7 @@ class BatchTests(unittest.TestCase):
             {"action": "export", "asset": "Rock", "target": "unreal", "resolution": 64},
         ]
         seed_path = self.write_job("seed.json", seed)
-        batch.run_job_file(seed_path, self.workspace)
+        run_job_file(seed_path, self.workspace)
         source = self.workspace / "jobs/seed/RockProject.ssa"
         digest = source.read_bytes()
         data = {
@@ -457,7 +458,7 @@ class BatchTests(unittest.TestCase):
             ],
         }
         path = self.write_job("source.json", data)
-        manifest = batch.run_job_file(path, self.workspace)
+        manifest = run_job_file(path, self.workspace)
         self.assertEqual(manifest["status"], "success")
         self.assertEqual(manifest["source"], "jobs/seed/RockProject.ssa")
         self.assertEqual(manifest["project"], "jobs/source-copy/RockCopy.ssa")
@@ -575,10 +576,10 @@ class BatchTests(unittest.TestCase):
             step["asset"] = "fail"
         path = self.write_job("fail.json", data)
         with self.assertRaisesRegex(RuntimeError, "fake export failure"):
-            batch.run_job_file(path, self.workspace)
+            run_job_file(path, self.workspace)
         self.assertFalse((self.workspace / "jobs/fail").exists())
         with self.assertRaisesRegex(RuntimeError, "fake export failure"):
-            batch.run_job_file(path, self.workspace, keep_on_failure=True)
+            run_job_file(path, self.workspace, keep_on_failure=True)
         self.assertTrue((self.workspace / "jobs/fail/failure.json").is_file())
         self.assertFalse((self.workspace / "jobs/fail/manifest.json").exists())
 
@@ -586,7 +587,7 @@ class BatchTests(unittest.TestCase):
         (self.workspace / "jobs/existing").mkdir()
         path = self.write_job("existing.json", job_data(directory="jobs/existing"))
         with self.assertRaisesRegex(job.JobValidationError, "already exists"):
-            batch.run_job_file(path, self.workspace)
+            run_job_file(path, self.workspace)
 
     def test_import_resource_and_create_asset(self):
         data = job_data(directory="jobs/resources", target="blender", project_asset=False)
@@ -605,7 +606,7 @@ class BatchTests(unittest.TestCase):
         self.assertTrue(plan["imports_resources"])
         self.assertEqual(plan["imported_resources"], ["custom"])
         self.assertFalse(plan["preflight_skip_resources"])
-        manifest = batch.run_job_file(path, self.workspace)
+        manifest = run_job_file(path, self.workspace)
         actions = [step["action"] for step in manifest["steps"]]
         self.assertEqual(actions[:3], ["create_asset", "import_resource", "import_images"])
         self.assertEqual(manifest["steps"][1]["result"]["resources"][0]["name"], "custom")
@@ -676,7 +677,7 @@ class BatchTests(unittest.TestCase):
             {"action": "export", "all_assets": True, "outputs": ["sbsar"],
              "directory": "everything"},
         ])
-        manifest = batch.run_job_file(self.write_job("slugs.json", data), self.workspace)
+        manifest = run_job_file(self.write_job("slugs.json", data), self.workspace)
         outputs = {row["path"] for row in manifest["outputs"]}
         self.assertIn("jobs/slugs/single/Rock_01/sbsar/Rock 01.sbsar", outputs)
         for selector in ("several", "everything"):
@@ -691,7 +692,7 @@ class BatchTests(unittest.TestCase):
                 ])
                 path = self.write_job(f"clash-{len(first)}{first[0]}.json", data)
                 with self.assertRaisesRegex(ValueError, "share export directory"):
-                    batch.run_job_file(path, self.workspace)
+                    run_job_file(path, self.workspace)
                 self.assertFalse((self.workspace / data["directory"]).exists())
 
     def test_remove_layer(self):
@@ -699,7 +700,7 @@ class BatchTests(unittest.TestCase):
         data["steps"].insert(-1, {"action": "remove_layer", "asset": "Rock",
                                   "layer": "Tiling", "confirm": True})
         path = self.write_job("remove.json", data)
-        manifest = batch.run_job_file(path, self.workspace)
+        manifest = run_job_file(path, self.workspace)
         removed = next(step for step in manifest["steps"] if step["action"] == "remove_layer")
         self.assertEqual(removed["result"]["removed"], "Tiling")
 
@@ -742,7 +743,7 @@ class BatchTests(unittest.TestCase):
         self.assertFalse((self.workspace / "jobs/cancel").exists())
         self.assertFalse(batch.lock_held(self.workspace))
         retry = self.write_job("cancel-retry.json", job_data(directory="jobs/cancel"))
-        self.assertEqual(batch.run_job_file(retry, self.workspace)["status"], "success")
+        self.assertEqual(run_job_file(retry, self.workspace)["status"], "success")
 
     def test_cancelled_job_keeps_failure_record_on_request(self):
         path = self.slow_job("cancel-keep", "jobs/cancel-keep")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..core import discovery, proc
 
-TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
+TOOLS = ("sbscooker", "sbsrender", "substance3d_baker")
 
 
 @dataclass

@@ -337,8 +337,8 @@ def doctor(workspace_path=None) -> dict:
     }
 
 
-def _manifest(root: Path, job_dir: Path, job: jobs.Job, result: dict, started: str,
-              seconds: float, inputs: list[dict]) -> dict:
+def _manifest(root: Path, job_dir: Path, result: dict, started: str, seconds: float,
+              inputs: list[dict]) -> dict:
     manifest = receipts.build(
         "sampler", "build", root,
         inputs=[root / row["path"] for row in inputs], outputs=_outputs(job_dir),
@@ -407,8 +407,8 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 payload, timeout_seconds, workspace_path=str(root),
                 progress_file=job_dir / "progress.jsonl", on_progress=on_progress,
             )
-            return _manifest(root, job_dir, loaded, result, started,
-                             time.monotonic() - clock, inputs)
+            return _manifest(root, job_dir, result, started, time.monotonic() - clock,
+                             inputs)
         except BaseException as exc:
             # Cancellation and interrupts are not Exceptions; without this a cancelled
             # run left jobs/<dir> behind and a retry into that directory was refused.
@@ -420,12 +420,3 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
             if isinstance(exc, TimeoutError):
                 raise JobTimeout(str(exc)) from exc
             raise
-
-
-def run_job_file(name, workspace_path=None, timeout_seconds: float = 1800,
-                 wait_for_app: float = 0, keep_on_failure: bool = False,
-                 lock_timeout: float = 300, on_progress=None) -> dict:
-    return asyncio.run(run_job_file_async(
-        name, workspace_path, timeout_seconds, wait_for_app, keep_on_failure,
-        lock_timeout, on_progress,
-    ))

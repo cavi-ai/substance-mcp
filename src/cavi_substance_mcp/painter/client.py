@@ -165,9 +165,7 @@ def not_ready_reasons(status: dict) -> list[str]:
 
 
 class PainterClient:
-    def __init__(self, host="127.0.0.1", port=None, workspace=None):
-        if host != "127.0.0.1":
-            raise ValueError("Painter connection must use IPv4 loopback")
+    def __init__(self, port=None, workspace=None):
         self.port = int(port if port is not None else os.environ.get("CAVI_PAINTER_PORT", "60041"))
         if not 1 <= self.port <= 65535:
             raise ValueError("Invalid Painter port")
@@ -247,15 +245,6 @@ class PainterClient:
         waiting = not_ready_reasons(status)
         return {**status, "ready": not waiting, "waiting_on": waiting,
                 "waited_seconds": round(time.monotonic() - start, 3)}
-
-    def wait_ready(self, timeout_seconds: float = 60, interval: float = 0.5):
-        start = time.monotonic()
-        deadline = start + timeout_seconds
-        while True:
-            result = self.readiness(deadline, start)
-            if result["ready"] or time.monotonic() + interval >= deadline:
-                return result
-            time.sleep(interval)
 
     def _post(self, expression: str, timeout: float):
         body = json.dumps({"python": base64.b64encode(expression.encode()).decode()})

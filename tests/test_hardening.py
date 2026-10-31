@@ -12,7 +12,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 from clock import Clock
-from owned_client import OwnedPainterClient
+from owned_client import OwnedPainterClient, wait_ready
 
 from cavi_substance_mcp.painter import operations as lease
 from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout, PainterUnavailable
@@ -212,7 +212,7 @@ class ProjectTests(unittest.TestCase):
     def test_wait_ready_polls_until_edition_state(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("loading")
-            result = PainterClient(port=simulator.port, workspace=folder).wait_ready(10, 0.01)
+            result = wait_ready(simulator.port, folder, 10, 0.01)
             self.assertTrue(result["ready"])
             self.assertTrue(result["edition_state"])
             self.assertFalse(result["busy"])
@@ -221,7 +221,7 @@ class ProjectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
             simulator.setup("closed")
             started = time.monotonic()
-            result = PainterClient(port=simulator.port, workspace=folder).wait_ready(1, 0.1)
+            result = wait_ready(simulator.port, folder, 1, 0.1)
             self.assertFalse(result["ready"])
             self.assertFalse(result["open"])
             self.assertLess(time.monotonic() - started, 3)

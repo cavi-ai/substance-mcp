@@ -9,6 +9,8 @@ import threading
 import time
 import unittest
 
+from owned_client import wait_ready
+
 from cavi_substance_mcp.painter.client import PainterClient, PainterTimeout, PainterUnavailable
 
 
@@ -162,40 +164,40 @@ def scripted(*replies):
 
 
 class WaitReadyTransportTests(unittest.TestCase):
-    def client(self, *replies):
+    def serve(self, *replies):
         port, close = raw_server(scripted(*replies))
         self.addCleanup(close)
-        return PainterClient(port=port)
+        return port
 
     def test_http_5xx_while_painter_starts_is_not_ready_yet(self):
-        result = self.client(503, 500, READY).wait_ready(5, 0.01)
+        result = wait_ready(self.serve(503, 500, READY), None, 5, 0.01)
         self.assertTrue(result["ready"])
 
     def test_persistent_5xx_times_out_as_not_ready(self):
-        result = self.client(503).wait_ready(0.5, 0.05)
+        result = wait_ready(self.serve(503), None, 0.5, 0.05)
         self.assertFalse(result["ready"])
         self.assertFalse(result["connected"])
         self.assertIn("503", result["reason"])
 
     def test_client_errors_are_still_failures(self):
         with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
-            self.client(404).wait_ready(1, 0.05)
+            wait_ready(self.serve(404), None, 1, 0.05)
 
 
 class ReadinessTests(unittest.TestCase):
-    def client(self, *replies):
+    def serve(self, *replies):
         port, close = raw_server(scripted(*replies))
         self.addCleanup(close)
-        return PainterClient(port=port)
+        return port
 
     def test_baking_without_busy_is_not_ready(self):
-        result = self.client({**READY, "baking": True}).wait_ready(0.4, 0.05)
+        result = wait_ready(self.serve({**READY, "baking": True}), None, 0.4, 0.05)
         self.assertFalse(result["ready"])
         self.assertEqual(result["waiting_on"], ["baking"])
 
     def test_pending_mesh_reload_is_not_ready(self):
         pending = {**READY, "mesh_reload": {"pending": True, "status": None, "path": "m.obj"}}
-        result = self.client(pending).wait_ready(0.4, 0.05)
+        result = wait_ready(self.serve(pending), None, 0.4, 0.05)
         self.assertFalse(result["ready"])
         self.assertEqual(result["waiting_on"], ["mesh_reload"])
 
@@ -203,7 +205,7 @@ class ReadinessTests(unittest.TestCase):
         baking = {**READY, "baking": True}
         pending = {**READY, "mesh_reload": {"pending": True, "status": None, "path": "m.obj"}}
         done = {**READY, "mesh_reload": {"pending": False, "status": "SUCCESS", "path": "m.obj"}}
-        result = self.client(baking, pending, done).wait_ready(5, 0.01)
+        result = wait_ready(self.serve(baking, pending, done), None, 5, 0.01)
         self.assertTrue(result["ready"])
         self.assertEqual(result["waiting_on"], [])
         self.assertEqual(result["mesh_reload"]["status"], "SUCCESS")
@@ -212,13 +214,13 @@ class ReadinessTests(unittest.TestCase):
         failed = {**READY, "mesh_reload": {"pending": False, "status": "ERROR", "path": "m.obj"}}
         started = time.monotonic()
         with self.assertRaisesRegex(RuntimeError, "Mesh reload failed.*m.obj"):
-            self.client(failed).wait_ready(30, 0.05)
+            wait_ready(self.serve(failed), None, 30, 0.05)
         self.assertLess(time.monotonic() - started, 3)
 
     def test_unreachable_painter_reports_connection_as_the_wait(self):
         port, close = raw_server(lambda connection: None)
         close()
-        result = PainterClient(port=port).wait_ready(0.3, 0.05)
+        result = wait_ready(port, None, 0.3, 0.05)
         self.assertFalse(result["ready"])
         self.assertEqual(result["waiting_on"], ["connection"])
 

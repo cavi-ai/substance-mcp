@@ -73,12 +73,6 @@ class RemoteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown operation"):
             PainterClient().call("execute_python", {"code": "print(1)"})
 
-    def test_remote_host_is_rejected(self):
-        from cavi_substance_mcp.painter.client import PainterClient
-
-        with self.assertRaisesRegex(ValueError, "loopback"):
-            PainterClient(host="example.com")
-
     def test_official_http_contract_and_data_encoding(self):
         from cavi_substance_mcp.painter.client import PainterClient
 
