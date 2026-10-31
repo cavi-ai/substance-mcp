@@ -58,7 +58,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 | `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
 | `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
-| `layer_edit` | `fill`, `texture_fill`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
+| `layer_edit` | `fill`, `texture_fill`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
 
@@ -73,7 +73,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 - `fill` adds a uniquely named fill (sRGB color, raw roughness/metallic); `values` sets `normal`, `height`, `emissive`, `opacity`, `ao`, `user0`–`user7` when the Texture Set has them and refuses otherwise. `texture_fill` embeds a workspace PNG (≤16 MiB, ≤4096 px) as sRGB base color; the imported resource stays on failure (Painter has no removal API).
 - New layers go on top, inside `parent_uid` (a group) or above `above_uid`. `group`, `smart_material` and `sbsar_fill` need a unique `name`.
 - `fill_mask` adds a `black`/`white` mask. `smart_mask` and `generator` insert a shelf resource (name or `resource://` URL; ambiguous names are refused) into a layer's mask, adding a black mask when missing.
-- `sbsar_fill` imports a workspace `.sbsar` as a project resource and makes it the fill's material source; `parameters` sets substance inputs (color inputs refused). Generators accept `parameters` too.
+- `sbsar_fill` imports a workspace `.sbsar` as a project resource and makes it the fill's material source; `parameters` sets substance inputs (color inputs refused). `source_manifest` verifies the `.sbsar` against a receipt before importing; `expected_sha256` verifies the file directly. Both refuse before any resource is imported. Generators accept `parameters` too.
 - `set_properties` changes `name`, `visible`, `blend_mode` (Painter `BlendingMode` name) and `opacity` for one `channel` or all; failures restore previous values.
 - `delete` removes nodes this lease created; other nodes need `confirm_name` equal to the current name.
 - Failed layer actions remove the nodes they created and report anything left.
@@ -129,13 +129,24 @@ sizes and SHA-256 hashes.
  "parameters": {"source": "templates/..."}}
 ```
 
-- Designer: `cook`, `render`, `pack`, `bake`.
+- Designer: `cook`, `render`, `pack`, `bake`; the deprecated `sampler` helper also
+  writes a receipt.
 - Painter: `export_textures`, `save_copy`; `sbsar_fill` results record the imported
-  `.sbsar` as `source`.
+  `.sbsar` as `source` and set `verified` when `source_manifest` or
+  `expected_sha256` was checked.
 - Sampler: job manifests use `app_name` (`app` already holds the installation);
-  `sampler_pack` output uses the shared fields.
+  `sampler_export`, `sampler_project create/save_as` and `sampler_pack` output use
+  the shared fields.
 
-A downstream stage verifies its input hash against the previous manifest. See
+Verify a manifest and every file it records:
+
+```sh
+cavi-substance-mcp receipts verify handoff/designer/manifest.json
+cavi-substance-mcp receipts verify handoff/designer/manifest.json \
+  --file handoff/designer/rock.sbsar --role outputs --json
+```
+
+A downstream stage can also verify one file directly. See
 `examples/pipeline/designer-to-painter/` for a complete handoff.
 
 ## Validation

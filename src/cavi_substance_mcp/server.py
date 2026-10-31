@@ -24,8 +24,8 @@ READ_ONLY = ToolAnnotations(
 MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
 CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 LeaseId = Annotated[str | None, Field(max_length=128, description="From session_control claim.")]
-WorkspaceFile = Annotated[str | None, Field(description="Existing file relative to the workspace.")]
-NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
+WorkspaceFile = Annotated[str | None, Field(description="Workspace file.")]
+NewDirectory = Annotated[str, Field(description="New workspace directory.")]
 UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
@@ -147,10 +147,10 @@ def layer_edit(
                     "generator", "sbsar_fill", "set_properties", "delete"],
     texture_set: TextureSetName,
     name: Annotated[str | None, Field(min_length=1, max_length=63,
-                                      description="New layer name; rename in set_properties.")] = None,
+                                      description="Layer name.")] = None,
     uid: Annotated[Uid, Field(description="Target node.")] = None,
-    parent_uid: Annotated[Uid, Field(description="Insert inside this group.")] = None,
-    above_uid: Annotated[Uid, Field(description="Insert above this layer.")] = None,
+    parent_uid: Annotated[Uid, Field(description="Insert inside group.")] = None,
+    above_uid: Annotated[Uid, Field(description="Insert above layer.")] = None,
     base_color: Annotated[Rgb | None, Field(description="fill: sRGB 0-1.")] = None,
     base_color_texture: Annotated[
         WorkspaceFile, Field(description="texture_fill: workspace PNG, embedded as sRGB.")
@@ -159,14 +159,16 @@ def layer_edit(
     metallic: UnitValue = 0.0,
     values: Annotated[
         dict[str, UnitValue | Rgb] | None,
-        Field(description="fill extras: normal, height, emissive, opacity, ao, user0-7."),
+        Field(description="fill: extra channel values."),
     ] = None,
     mask: Literal["black", "white"] | None = None,
     resource: Annotated[str | None, Field(max_length=256, description="Shelf name or URL.")] = None,
     sbsar: WorkspaceFile = None,
+    source_manifest: WorkspaceFile = None,
+    expected_sha256: str | None = None,
     parameters: Annotated[
         dict[str, float | int | str | bool | list[float]] | None,
-        Field(description="sbsar_fill/generator substance parameters."),
+        Field(description="Substance parameters."),
     ] = None,
     blend_mode: Annotated[str | None, Field(max_length=32)] = None,
     opacity: UnitValue | None = None,
@@ -175,9 +177,10 @@ def layer_edit(
     confirm_name: Annotated[str | None, Field(max_length=63)] = None,
     lease_id: LeaseId = None,
 ) -> dict[str, Any]:
-    """Edit a Texture Set layer stack. New layers need a unique name; failures roll back.
-    delete needs confirm_name unless this lease created the node."""
+    """Edit a layer stack; failures roll back. delete needs confirm_name."""
     if action in LAYER_ACTIONS:
+        if source_manifest is not None or expected_sha256 is not None:
+            raise ValueError("source_manifest and expected_sha256 are only valid for sbsar_fill")
         if action == "fill":
             if base_color_texture is not None:
                 raise ValueError("base_color_texture is only valid for action=texture_fill")
@@ -199,10 +202,14 @@ def layer_edit(
         need(resource, "resource", action)
     if action == "sbsar_fill":
         need(sbsar, "sbsar", action)
+    elif source_manifest is not None or expected_sha256 is not None:
+        raise ValueError("source_manifest and expected_sha256 are only valid for sbsar_fill")
     return PainterClient().call("layer_edit", {
         "action": action, "texture_set": texture_set, "name": name, "uid": uid,
         "parent_uid": parent_uid, "above_uid": above_uid, "mask": mask, "resource": resource,
-        "sbsar": sbsar, "parameters": parameters, "blend_mode": blend_mode, "opacity": opacity,
+        "sbsar": sbsar, "source_manifest": source_manifest,
+        "expected_sha256": expected_sha256,
+        "parameters": parameters, "blend_mode": blend_mode, "opacity": opacity,
         "channel": channel, "visible": visible, "confirm_name": confirm_name,
     }, lease_id=lease_id)
 

@@ -91,6 +91,9 @@
     },
     "files": [
       "projects/Rock.ssa"
+    ],
+    "required": [
+      "manifest"
     ]
   },
   {
@@ -215,6 +218,9 @@
     },
     "files": [
       "copy/RockCopy.ssa"
+    ],
+    "required": [
+      "manifest"
     ]
   },
   {
@@ -496,6 +502,9 @@
     },
     "files": [
       "out/Rock.sbsar"
+    ],
+    "required": [
+      "manifest"
     ]
   },
   {
@@ -886,7 +895,8 @@
       "dry_run": false
     },
     "required": [
-      "files/0"
+      "files/0",
+      "manifest"
     ],
     "files": [
       "out_target/Rock_basecolor.png"

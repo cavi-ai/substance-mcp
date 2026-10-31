@@ -61,11 +61,20 @@ class SamplerJobTests(FakeSampler):
         with Image.open(self.ws / "out/packed/T_MaskMap.png") as image:
             self.assertEqual((image.size, image.mode), ((256, 256), "RGBA"))
         self.assertFalse(list(self.ws.glob("out/sampler_*")))
+        receipt = json.loads((self.ws / out["manifest"]).read_text())
+        self.assertEqual((receipt["app"], receipt["operation"]),
+                         ("sampler", "image_to_material"))
+        self.assertIn("out/packed/T_MaskMap.png",
+                      [item["path"] for item in receipt["outputs"]])
 
     def test_export_project(self):
         out = self.run_job("export_project", project="scene.ssa", directory="exp", format="tif")
         self.assertEqual(out["asset"], "rock")
         self.assertEqual(out["maps"]["normal"], "exp/normal.tif")
+        receipt = json.loads((self.ws / out["manifest"]).read_text())
+        self.assertEqual((receipt["app"], receipt["operation"]),
+                         ("sampler", "export_project"))
+        self.assertEqual(receipt["inputs"][0]["path"], "scene.ssa")
 
     def test_refuses_when_running(self):
         idle = subprocess.Popen([str(self.exe), "--idle"])

@@ -1417,7 +1417,8 @@
    "/project": null
   },
   "required": [
-   "/seconds"
+   "/seconds",
+   "manifest"
   ],
   "files": [
    "s_i2m/normal.png",
@@ -1484,6 +1485,9 @@
    "s_pack/packed/T_BaseColor.png",
    "s_pack/packed/T_Normal.png",
    "s_pack/photo.ssa"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -1513,6 +1517,9 @@
   },
   "absent": [
    "s_multi/opacity.tif"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -1536,6 +1543,9 @@
   },
   "files": [
    "s_exr/height.exr"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -1588,6 +1598,9 @@
   },
   "files": [
    "s_exp/baseColor.png"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -1606,7 +1619,10 @@
   ],
   "equals": {
    "/asset": "b"
-  }
+  },
+  "required": [
+   "manifest"
+  ]
  },
  {
   "id": "sampler-i2m-missing-images",

@@ -177,6 +177,12 @@ def main():
     }.items():
         (workspace / path).write_bytes(content)
     (workspace / "color.png").write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC'))
+    material = (workspace / "material.sbsar").read_bytes()
+    (workspace / "material-manifest.json").write_text(json.dumps({
+        "schema": 1, "app": "designer", "operation": "cook", "inputs": [],
+        "outputs": [{"path": "material.sbsar", "size": len(material),
+                     "sha256": hashlib.sha256(material).hexdigest()}],
+    }))
     (workspace / "existing").mkdir()
     env = dict(os.environ)
     env.update(

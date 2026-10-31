@@ -1951,6 +1951,22 @@
   ]
  },
  {
+  "id": "layer-sbsar-hash-mismatch",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "sbsar_fill",
+   "texture_set": "Body",
+   "name": "Bad hash",
+   "sbsar": "material.sbsar",
+   "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "error": "expected_sha256"
+ },
+ {
   "id": "layer-sbsar-escape",
   "tool": "layer_edit",
   "arguments": {
