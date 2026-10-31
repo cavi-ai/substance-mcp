@@ -358,13 +358,21 @@ async def sampler_build(
     dry_run: StrictBool = False,
     check_sampler: StrictBool = False,
     check_project: StrictBool = False,
+    check_build: StrictBool = False,
     timeout_seconds: Timeout = 1800,
 ) -> dict[str, Any]:
     """Validate or run a batch job file and return its manifest or plan."""
-    if (check_sampler or check_project) and not dry_run:
-        raise ValueError("check_sampler and check_project are only valid with dry_run=true")
+    if (check_sampler or check_project or check_build) and not dry_run:
+        raise ValueError(
+            "check_sampler, check_project and check_build require dry_run=true"
+        )
     root = operations.workspace()
     if dry_run:
+        if check_build:
+            return {
+                **await batch.check_build_async(job, root, timeout_seconds),
+                "dry_run": True,
+            }
         if check_project:
             return {**await batch.validate_with_project_async(job, root), "dry_run": True}
         if check_sampler:

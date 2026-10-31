@@ -485,6 +485,72 @@ class BatchTests(unittest.TestCase):
         with self.assertRaisesRegex(job.JobValidationError, "material .* not available"):
             batch.validate_with_sampler(path, self.workspace)
 
+    def test_check_build_success(self):
+        path = self.write_job("build-check.json", job_data(directory="jobs/build-check"))
+        plan = batch.check_build(path, self.workspace)
+        self.assertEqual(plan["build_check"]["status"], "ok")
+        self.assertEqual(plan["build_check"]["exports_skipped"], 1)
+        self.assertTrue(plan["build_check"]["steps"])
+        self.assertIn("sampler", plan)
+        self.assertFalse((self.workspace / "jobs/build-check").exists())
+        self.assertFalse(list(self.workspace.glob(".cavi-build-*")))
+
+    def test_check_build_failure(self):
+        data = job_data(directory="jobs/build-bad")
+        data["steps"] = [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Missing",
+             "parameters": {"value": 1}},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ]
+        path = self.write_job("build-bad.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "Missing"):
+            batch.check_build(path, self.workspace)
+        self.assertFalse((self.workspace / "jobs/build-bad").exists())
+        self.assertFalse(list(self.workspace.glob(".cavi-build-*")))
+
+    def test_check_build_source_project(self):
+        source = self.source_seed("build-seed", material=False)
+        digest = (self.workspace / source).read_bytes()
+        path = self.source_job("build-source", source, [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+             "parameters": {"Tiling": 3}},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ])
+        plan = batch.check_build(path, self.workspace)
+        self.assertEqual(plan["build_check"]["status"], "ok")
+        self.assertEqual(plan["build_check"]["exports_skipped"], 1)
+        self.assertEqual((self.workspace / source).read_bytes(), digest)
+        self.assertFalse((self.workspace / "jobs/build-source").exists())
+        self.assertFalse(list(self.workspace.glob(".cavi-build-*")))
+
+    def test_check_build_refuses_import_resource(self):
+        data = job_data(directory="jobs/build-resource")
+        data["steps"] = [
+            {"action": "import_resource", "path": "assets/custom.sbsar"},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ]
+        path = self.write_job("build-resource.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "import_resource"):
+            batch.check_build(path, self.workspace)
+        self.assertFalse(list(self.workspace.glob(".cavi-build-*")))
+
+    def test_cli_check_build(self):
+        path = self.write_job("cli-build.json", job_data(directory="jobs/cli-build"))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = cli.main([
+                "validate", path, "--workspace", str(self.workspace),
+                "--check-build", "--json",
+            ])
+        self.assertEqual(code, 0)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["build_check"]["status"], "ok")
+        self.assertEqual(data["build_check"]["exports_skipped"], 1)
+        self.assertFalse((self.workspace / "jobs/cli-build").exists())
+
     def test_validate_with_sampler(self):
         path = self.write_job("check.json", job_data(directory="jobs/check"))
         plan = batch.validate_with_sampler(path, self.workspace)

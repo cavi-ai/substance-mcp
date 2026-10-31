@@ -337,6 +337,76 @@ def validate_with_project(name, workspace_path=None, timeout_seconds: float = 30
     return asyncio.run(validate_with_project_async(name, workspace_path, timeout_seconds))
 
 
+def _last_progress_error(path: Path) -> dict | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("status") == "error":
+            return event
+    return None
+
+
+async def check_build_async(name, workspace_path=None,
+                            timeout_seconds: float = 1800) -> dict:
+    root = _root(workspace_path)
+    path = _job_file(name, root)
+    loaded = jobs.load_job(path)
+    plan = validate_job_file(path, root)
+    if any(isinstance(step, jobs.ImportResource) for step in loaded.steps):
+        raise jobs.JobValidationError(
+            "build check does not support import_resource; use check_sampler or run the job"
+        )
+    exports = [step for step in loaded.steps if isinstance(step, jobs.Export)]
+    temporary = Path(tempfile.mkdtemp(prefix=".cavi-build-", dir=root))
+    job_dir = temporary / "job"
+    try:
+        job_dir.mkdir()
+        payload = loaded.model_dump(by_alias=True)
+        payload["directory"] = job_dir.relative_to(root).as_posix()
+        payload["steps"] = [
+            step for step in payload["steps"] if step.get("action") != "export"
+        ]
+        payload["_probe"] = True
+        try:
+            result = await operations.invoke_job(
+                payload, timeout_seconds, workspace_path=str(root),
+                progress_file=job_dir / "progress.jsonl",
+            )
+        except Exception as exc:
+            event = _last_progress_error(job_dir / "progress.jsonl")
+            if isinstance(exc, TimeoutError):
+                raise JobTimeout(str(exc)) from exc
+            if event is not None:
+                raise jobs.JobValidationError(
+                    f"build check failed at step {event.get('step')} "
+                    f"({event.get('action')}): {event.get('error')}"
+                ) from exc
+            raise
+        probe = result.get("probe")
+        if isinstance(probe, dict):
+            check_sampler(plan, probe)
+            plan["sampler"] = probe
+        plan["build_check"] = {
+            "status": "ok",
+            "steps": result.get("steps", []),
+            "exports_skipped": len(exports),
+            "warnings": [],
+        }
+        return plan
+    finally:
+        operations.remove_tree(temporary)
+
+
+def check_build(name, workspace_path=None, timeout_seconds: float = 1800) -> dict:
+    return asyncio.run(check_build_async(name, workspace_path, timeout_seconds))
+
+
 def doctor(workspace_path=None) -> dict:
     root = Path(
         workspace_path or operations.workspace()

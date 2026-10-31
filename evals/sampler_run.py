@@ -229,6 +229,39 @@ def fixtures(output: Path) -> Path:
         ],
     }
     (workspace / "jobs/resources.json").write_text(json.dumps(resources))
+    build_check = {
+        "schema": 1,
+        "directory": "jobs/build-check",
+        "project": {"name": "BuildProject",
+                    "asset": {"name": "Rock", "model": "openpbr",
+                              "preset": "base_material"}},
+        "steps": [
+            {"action": "import_images", "asset": "Rock",
+             "images": ["maps/basecolor.png"], "position": 0,
+             "import_option": "use_as_bitmap"},
+            {"action": "insert_filter", "asset": "Rock", "filter": "Tiling",
+             "position": 1},
+            {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+             "parameters": {"Tiling": 3}},
+            {"action": "export", "asset": "Rock", "target": "unreal",
+             "resolution": 64},
+        ],
+    }
+    (workspace / "jobs/build-check.json").write_text(json.dumps(build_check))
+    build_bad = {
+        "schema": 1,
+        "directory": "jobs/build-check-bad",
+        "project": {"name": "BuildProject",
+                    "asset": {"name": "Rock", "model": "openpbr",
+                              "preset": "base_material"}},
+        "steps": [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Missing",
+             "parameters": {"x": 1}},
+            {"action": "export", "asset": "Rock", "target": "unreal",
+             "resolution": 64},
+        ],
+    }
+    (workspace / "jobs/build-check-bad.json").write_text(json.dumps(build_bad))
     recipes = {
         "ai": {
             "schema": 1, "directory": "jobs/ai",
