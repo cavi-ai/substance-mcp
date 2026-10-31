@@ -1368,6 +1368,12 @@ def _set_properties(params, node, stack, layerstack, textureset):
     if "name" in changes and (not isinstance(changes["name"], str) or not changes["name"].strip()
                               or len(changes["name"]) > 63):
         raise ValueError("Layer name must be nonempty and at most 63 characters")
+    if "name" in changes and isinstance(node, layerstack.LayerNode):
+        # Same sibling-uniqueness rule that creation enforces.
+        owner = node.get_parent()
+        siblings = (owner.sub_layers() if owner is not None
+                    else layerstack.get_root_layer_nodes(stack))
+        new_name(changes, [item for item in siblings if item.uid() != node.uid()])
     if "visible" in changes and type(changes["visible"]) is not bool:
         raise ValueError("visible must be a boolean")
     if "opacity" in changes:
