@@ -154,7 +154,12 @@ async def _run_payload(payload: dict, timeout_seconds: float, progress_file=None
 
 async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
                   on_progress=None, aliases=None) -> dict:
-    version = await asyncio.to_thread(lambda: runner.installation().version)
+    # The version probe is part of the caller's budget, not an addition to it.
+    budget = time.monotonic() + timeout_seconds
+    version = await asyncio.to_thread(
+        lambda: runner.installation().version_within(timeout_seconds))
+    if (remaining := budget - time.monotonic()) <= 0:
+        raise TimeoutError(f"Sampler exceeded {timeout_seconds:g} s before it was started")
     job = Path(tempfile.mkdtemp(prefix="cavi-sampler-"))
     request, response, script = job / "request.json", job / "response.json", job / "run.py"
     stop = asyncio.Event()
@@ -174,7 +179,7 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
             encoding="utf-8",
         )
         started = time.monotonic()
-        result = await runner.run_script(script, timeout_seconds, job)
+        result = await runner.run_script(script, remaining, job)
         deadline = time.monotonic() + 2
         while not response.is_file() and result.returncode == 0 and time.monotonic() < deadline:
             await asyncio.sleep(0.1)

@@ -41,8 +41,9 @@ DEFAULTS = {
         "linux": "/opt/Adobe/Adobe_Substance_3D_Painter/Adobe Substance 3D Painter",
     },
 }
-# The command that probes the version: the output of ``<program> --version``.
-VERSION_TIMEOUT = 20
+# Seconds ``<program> --version`` may take. The probe runs before the work it serves, so it
+# is short: a program that does not answer in time is reported without a version.
+VERSION_TIMEOUT = 5.0
 VERSION_PATTERNS = (re.compile(r"version\s+(\S+)", re.IGNORECASE),
                     re.compile(r"\b(\d+\.\d+(?:\.\d+)*[\w.+-]*)"))
 PROBE_TIMEOUT = 10
@@ -161,14 +162,17 @@ def _resolve_app(path: Path) -> Path | None:
     return path if path.is_file() else None
 
 
-def version(path) -> str | None:
+def version(path, timeout: float | None = None) -> str | None:
     """The version of an installed application or tool, probed once per (path, mtime).
 
     Inside a macOS bundle the answer is the bundle's Info.plist, and the application is
     never run. Elsewhere it is parsed from ``<path> --version``. A failed probe is cached
     too, so an executable that cannot answer is not run again on every status call.
+
     The probe blocks for at most ``VERSION_TIMEOUT`` seconds; call it from a thread when
-    inside an event loop.
+    inside an event loop. ``timeout`` shortens that for a caller with less time left, and
+    cannot lengthen it. An answer that never came because ``timeout`` ran out is not
+    cached, since a longer wait might have got one.
     """
     if path is None:
         return None
@@ -178,19 +182,31 @@ def version(path) -> str | None:
     except OSError:
         return None
     if key not in _VERSIONS:
-        _VERSIONS[key] = _probe_version(path)
+        limit = VERSION_TIMEOUT if timeout is None else min(timeout, VERSION_TIMEOUT)
+        if limit <= 0:
+            return None
+        try:
+            found = _probe_version(path, limit)
+        except TimeoutError:
+            if limit < VERSION_TIMEOUT:
+                return None
+            found = None
+        _VERSIONS[key] = found
     return _VERSIONS[key]
 
 
-def _probe_version(path: Path) -> str | None:
+def _probe_version(path: Path, timeout: float) -> str | None:
+    """The version ``path`` reports; raises TimeoutError if it does not answer in time."""
     bundle = bundle_of(path) if platform_name() == "darwin" else None
     if bundle is not None:
         info = _plist(bundle)
         value = info.get("CFBundleShortVersionString") or info.get("CFBundleVersion")
         return value if isinstance(value, str) else None
     try:
-        result = proc.run_sync([path, "--version"], VERSION_TIMEOUT)
-    except (OSError, TimeoutError):
+        result = proc.run_sync([path, "--version"], timeout)
+    except TimeoutError:
+        raise
+    except OSError:
         return None
     return parse_version(result.stdout + "\n" + result.stderr)
 

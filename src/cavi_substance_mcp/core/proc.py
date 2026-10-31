@@ -163,8 +163,17 @@ async def run(args, timeout: float, *, cwd=None, env=None, stdout_limit: int | N
 
 
 def run_sync(args, timeout: float, **kwargs) -> Result:
-    """``run`` for code that is not async. Safe to call from a running event loop's thread:
-    the work happens on a short-lived worker thread with its own loop."""
+    """``run`` for code that is not async.
+
+    On a thread without a running event loop, which includes a worker thread started by
+    ``asyncio.to_thread``, it runs on a new loop right there. Called from a running loop's
+    own thread it is also safe: the work then happens on a short-lived worker thread with
+    its own loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(run(args, timeout, **kwargs))
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, run(args, timeout, **kwargs)).result()
 

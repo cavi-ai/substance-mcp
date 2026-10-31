@@ -353,6 +353,20 @@ class SamplerTests(unittest.TestCase):
                       filter="Missing", position=0)
 
 
+class VersionProbeBudgetTests(unittest.TestCase):
+    def test_a_program_that_never_answers_version_cannot_outlast_the_budget(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name).resolve()
+        program = write_launcher(root, "sampler", "import time\ntime.sleep(60)\n")
+        environment = {"CAVI_SAMPLER_BIN": str(program), "CAVI_SUBSTANCE_WORKSPACE": str(root)}
+        with patch.dict(os.environ, environment):
+            started = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, "exceeded"):
+                asyncio.run(launch.invoke("catalog", {}, 1.0))
+            self.assertLess(time.monotonic() - started, 4)
+
+
 class SamplerRunnerTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

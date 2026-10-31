@@ -15,6 +15,7 @@ from launcher import write_launcher
 from sampler_fake_cli import ENV, install
 from sampler_jobs import run_job_file
 
+from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.sampler import batch, cli, job, targets
 
 TIMEOUT = 60
@@ -320,8 +321,11 @@ class BatchTests(unittest.TestCase):
         finally:
             lock.__exit__()
         slow = write_launcher(self.workspace, "slow-sampler", "import time\ntime.sleep(30)\n")
+        # The program never answers --version either; keep that probe short so the run
+        # itself is what times out.
         with (
             patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(slow)}),
+            patch.object(discovery, "VERSION_TIMEOUT", 0.1),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             self.assertEqual(cli.main([

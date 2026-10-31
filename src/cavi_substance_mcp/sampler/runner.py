@@ -28,7 +28,11 @@ class Installation:
     @property
     def version(self) -> str | None:
         """Blocks for up to a probe's timeout the first time; call from a thread in async code."""
-        return discovery.version(self.executable)
+        return self.version_within(None)
+
+    def version_within(self, timeout: float | None) -> str | None:
+        """``version``, waiting no longer than ``timeout`` seconds for a program to answer."""
+        return discovery.version(self.executable, timeout)
 
 
 def installation() -> Installation:
