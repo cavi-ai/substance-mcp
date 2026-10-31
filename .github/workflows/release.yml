@@ -71,6 +71,11 @@ jobs:
       # The exact files that will be uploaded, not a second build.
       - name: Smoke test the built distributions
         run: uv run --locked python scripts/package_smoke.py --dist dist
+      # A release whose documentation does not build stops before anything is published.
+      - name: Build and verify the documentation
+        run: |
+          uv run --locked python -m scripts.docs.build
+          uv run --locked python -m scripts.docs.verify
       - name: Record the checksums
         run: |
           set -euo pipefail
@@ -143,3 +148,69 @@ jobs:
           set -euo pipefail
           gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  docs:
+    name: publish the release documentation
+    needs: [github-release]
+    if: ${{ github.ref_type == 'tag' && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # attach the documentation archive to the GitHub Release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.32"
+          python-version: "3.13"
+          enable-cache: false
+      - name: Build, verify and package the documentation
+        id: artifact
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          commit="$(git rev-parse HEAD)"
+          epoch="$(git show -s --format=%ct "$commit")"
+          identity=(--version "$version" --tag "$TAG" --commit "$commit" --source-date-epoch "$epoch")
+          uv run --locked python -m scripts.docs.build "${identity[@]}"
+          uv run --locked python -m scripts.docs.verify "${identity[@]}"
+          output="$RUNNER_TEMP/substance-mcp-docs-release"
+          envelope="$RUNNER_TEMP/cavi-oss-release.json"
+          uv run --locked python -m scripts.docs.release_artifact \
+            --docs-root "docs/substance-mcp/v${version}" --output "$output" \
+            --repository "$GITHUB_REPOSITORY" "${identity[@]}" > "$envelope"
+          {
+            echo "directory=$output"
+            echo "name=substance-mcp-docs-${TAG}.tar.gz"
+            echo "envelope=$envelope"
+          } >> "$GITHUB_OUTPUT"
+      - name: Attach the documentation to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          DIRECTORY: ${{ steps.artifact.outputs.directory }}
+          ARTIFACT: ${{ steps.artifact.outputs.name }}
+        run: gh release upload "$TAG" "$DIRECTORY/$ARTIFACT" "$DIRECTORY/$ARTIFACT.sha256"
+      - name: Send the release to cavi-home
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
+          ENVELOPE: ${{ steps.artifact.outputs.envelope }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::CONSUMER_DISPATCH_TOKEN is required"
+            exit 1
+          fi
+          python3 - "$ENVELOPE" > "$RUNNER_TEMP/payload.json" <<'PY'
+          import json
+          import sys
+
+          envelope = json.load(open(sys.argv[1]))
+          print(json.dumps({"event_type": "cavi-oss-release", "client_payload": envelope}))
+          PY
+          gh api --method POST /repos/cavi-ai/cavi-home/dispatches --input "$RUNNER_TEMP/payload.json"

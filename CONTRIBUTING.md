@@ -68,8 +68,11 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`, which
   share `common.py`).
 - `tests/`: unit tests. `examples/`: synthetic job files and handoff walkthroughs.
-- Documentation: `README.md`. Update it and `CHANGELOG.md` when a tool, receipt or job
-  contract changes.
+- Documentation: `docs/substance-mcp/source` (published to cavi-ai.xyz with each release)
+  and `README.md`. Update them and `CHANGELOG.md` when a tool, receipt or job contract
+  changes. `tests/test_docs.py` checks that each server's tool table matches its tools;
+  build and verify the docs with `uv run --locked python -m scripts.docs.build` and
+  `uv run --locked python -m scripts.docs.verify`.
 
 ## Rules for changes
 

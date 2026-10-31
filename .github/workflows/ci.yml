@@ -30,6 +30,10 @@ jobs:
           python-version: "3.13"
       - run: uv sync --locked --dev
       - run: uv run --locked ruff check .
+      - name: Build and verify the documentation
+        run: |
+          uv run --locked python -m scripts.docs.build
+          uv run --locked python -m scripts.docs.verify
 
   unit:
     name: unit · ${{ matrix.os }} · py${{ matrix.python }}

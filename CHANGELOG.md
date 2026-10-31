@@ -9,6 +9,9 @@
   `.pr-gates` (the commands CI runs), issue forms, a pull request template and a Dependabot
   configuration for `uv`, `npm` and GitHub Actions.
 - Trademark and non-affiliation notice in the README.
+- Versioned documentation for cavi-ai.xyz in `docs/substance-mcp/source`; the release workflow
+  builds, verifies and attaches it to each GitHub release, and the README links to it instead of
+  repeating it.
 - CI on Linux, macOS and Windows across Python 3.11-3.13 with pinned actions, a lowest-dependency
   leg, CodeQL, a package smoke test (`npm run verify:package`), a tag-driven release workflow
   with PyPI trusted publishing, and a nightly upgrade and vulnerability canary.
