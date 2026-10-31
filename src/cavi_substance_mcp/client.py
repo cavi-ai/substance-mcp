@@ -106,6 +106,30 @@ def unwrap(result):
     raise TypeError("Painter returned an unexpected response")
 
 
+def not_ready_reasons(status: dict) -> list[str]:
+    """What an editable project is still waiting on; raises when a mesh reload failed."""
+    if not status.get("connected"):
+        return ["connection"]
+    reload = status.get("mesh_reload") or {}
+    if not reload.get("pending") and str(reload.get("status")).upper() == "ERROR":
+        raise RuntimeError(
+            f"Mesh reload failed (status ERROR) for {reload.get('path')}; inspect Painter "
+            "before continuing"
+        )
+    waiting = []
+    if not status.get("open"):
+        waiting.append("project_open")
+    if status.get("busy"):
+        waiting.append("busy")
+    if status.get("open") and not status.get("edition_state"):
+        waiting.append("edition_state")
+    if status.get("baking"):
+        waiting.append("baking")
+    if reload.get("pending"):
+        waiting.append("mesh_reload")
+    return waiting
+
+
 class PainterClient:
     def __init__(self, host="127.0.0.1", port=None, workspace=None):
         if host != "127.0.0.1":
@@ -146,26 +170,32 @@ class PainterClient:
             result = self._post(full_expression(operation, params, self.workspace), timeout)
         return unwrap(result)
 
+    def probe(self, deadline: float) -> dict:
+        """One status read bounded by deadline; transient failures read as not connected."""
+        remaining = deadline - time.monotonic()
+        try:
+            return self.call("status", timeout=max(0.5, min(10.0, remaining)))
+        except (PainterTimeout, PainterUnavailable) as exc:
+            return {"connected": False, "reason": str(exc)}
+        except PainterHTTPError as exc:
+            # Painter's scripting server answers 5xx while it is starting or busy.
+            if exc.status < 500:
+                raise
+            return {"connected": False, "reason": str(exc)}
+
+    def readiness(self, deadline: float, start: float) -> dict:
+        status = self.probe(deadline)
+        waiting = not_ready_reasons(status)
+        return {**status, "ready": not waiting, "waiting_on": waiting,
+                "waited_seconds": round(time.monotonic() - start, 3)}
+
     def wait_ready(self, timeout_seconds: float = 60, interval: float = 0.5):
         start = time.monotonic()
         deadline = start + timeout_seconds
         while True:
-            remaining = deadline - time.monotonic()
-            try:
-                status = self.call("status", timeout=max(0.5, min(10.0, remaining)))
-            except (PainterTimeout, PainterUnavailable) as exc:
-                status = {"connected": False, "reason": str(exc)}
-            except PainterHTTPError as exc:
-                # Painter's scripting server answers 5xx while it is starting or busy.
-                if exc.status < 500:
-                    raise
-                status = {"connected": False, "reason": str(exc)}
-            ready = bool(
-                status.get("open") and not status.get("busy") and status.get("edition_state")
-            )
-            if ready or time.monotonic() + interval >= deadline:
-                return {**status, "ready": ready,
-                        "waited_seconds": round(time.monotonic() - start, 3)}
+            result = self.readiness(deadline, start)
+            if result["ready"] or time.monotonic() + interval >= deadline:
+                return result
             time.sleep(interval)
 
     def _post(self, expression: str, timeout: float):

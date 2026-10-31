@@ -413,6 +413,8 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
     if operation in {"open_project", "create_project"}:
         if project.is_open():
             raise RuntimeError("A project is already open; close it in Painter before replacing it")
+        # A mesh reload result describes the previous project.
+        vars(substance_painter).pop(RELOAD_ATTR, None)
         if operation == "open_project":
             path = input_file(root(), required(params, "path"), {".spp"})
             project.open(str(path))
@@ -451,6 +453,7 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         if project.needs_saving() and not discard:
             raise RuntimeError("Project has unsaved changes; save it or explicitly discard them")
         project.close()
+        vars(substance_painter).pop(RELOAD_ATTR, None)
         return {"closed": not project.is_open()}
     if (vars(substance_painter).get(BAKE_ATTR) or {}).get("running"):
         raise RuntimeError("Painter is baking and not idle; poll bake action=status")

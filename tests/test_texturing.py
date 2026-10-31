@@ -227,7 +227,18 @@ class ProjectTests(Fixture):
         self.assertEqual(status["mesh_reload"]["status"], "SUCCESS")
         self.sim.state = "reload-error"
         self.client.call("reload_mesh", {"path": "input.obj"})
-        self.assertEqual(self.waiter().wait_ready(10, 0.01)["mesh_reload"]["status"], "ERROR")
+        with self.assertRaisesRegex(RuntimeError, "Mesh reload failed"):
+            self.waiter().wait_ready(10, 0.01)
+        self.assertEqual(self.waiter().call("status")["mesh_reload"]["status"], "ERROR")
+
+    def test_mesh_reload_result_belongs_to_one_project(self):
+        self.sim.state = "reload-error"
+        self.client.call("reload_mesh", {"path": "input.obj"})
+        with self.assertRaisesRegex(RuntimeError, "Mesh reload failed"):
+            self.waiter().wait_ready(10, 0.01)
+        self.sim.state = "open"
+        self.client.call("close_project", {"expected_file": "simulated-original.spp"})
+        self.assertIsNone(self.waiter().call("status")["mesh_reload"])
 
 
 class ShelfTests(Fixture):
