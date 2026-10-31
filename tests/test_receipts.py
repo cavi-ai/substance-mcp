@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install
+from env import DESIGNER, SAMPLER, patched_environment
 from owned_client import OwnedPainterClient
 from painter_simulator import PainterSimulator
 from sampler_fake_cli import ENV as SAMPLER_ENV
@@ -154,11 +155,8 @@ class ReceiptTests(unittest.TestCase):
         (workspace / "maps").mkdir(parents=True)
         (workspace / "source.sbs").write_text("fake-sbs")
         app = install(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(DESIGNER, {
+                DESIGNER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             cooked = asyncio.run(designer.cook(
                 "source.sbs", None, "designer-out", True, True, 30
             ))
@@ -212,11 +210,8 @@ class ReceiptTests(unittest.TestCase):
         workspace = self.root / "ws"
         workspace.mkdir()
         app = install_sampler(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({SAMPLER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(SAMPLER, {
+                SAMPLER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             created = asyncio.run(sampler.invoke(
                 "create_project", {"directory": "projects", "name": "Rock"}, 30
             ))
@@ -253,11 +248,8 @@ class ReceiptTests(unittest.TestCase):
         workspace.mkdir()
         (workspace / "source.sbs").write_text("fake-sbs")
         app = install(self.root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(workspace)})
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(DESIGNER, {
+                DESIGNER_ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(workspace)}):
             cooked = asyncio.run(designer.cook(
                 "source.sbs", None, "designer-out", True, True, 30
             ))

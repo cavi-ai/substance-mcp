@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from env import patched_environment
+
 
 class PainterLaunchTests(unittest.TestCase):
     def app(self, folder, identifier="com.adobe.Adobe-Substance-3D-Painter"):
@@ -97,10 +99,8 @@ class PainterLaunchTests(unittest.TestCase):
     def test_missing_painter_is_reported(self):
         from cavi_substance_mcp.painter.runtime import start_painter
 
-        env = {key: value for key, value in __import__("os").environ.items()
-               if key != "CAVI_PAINTER_APP"}
         with (
-            patch.dict("os.environ", env, clear=True),
+            patched_environment(drop=("CAVI_PAINTER_APP",)),
             patch("cavi_substance_mcp.painter.runtime.sys.platform", "darwin"),
             patch("cavi_substance_mcp.painter.runtime.PainterClient.call", side_effect=ConnectionError()),
             patch("cavi_substance_mcp.painter.runtime.discovery.find_app",

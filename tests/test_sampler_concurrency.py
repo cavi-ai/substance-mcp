@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -9,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import SAMPLER, patched_environment
 from sampler_fake_cli import ENV, install
 from sampler_jobs import run_job_file
 
@@ -61,11 +61,8 @@ class ConcurrencyTests(unittest.TestCase):
         self.workspace = root / "ws"
         (self.workspace / "jobs").mkdir(parents=True)
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
         created = asyncio.run(launch.invoke(
             "create_project", {"directory": "projects", "name": "Rock"}, TIMEOUT))

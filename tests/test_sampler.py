@@ -12,6 +12,7 @@ from home import isolate_home
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
 
@@ -35,11 +36,8 @@ class SamplerTests(unittest.TestCase):
         (self.workspace / "outside").mkdir()
         (self.workspace / "outside/escape.ssa").write_text("{}")
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE":
-                    str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
 
     def tearDown(self):
@@ -448,9 +446,8 @@ class SamplerRunnerTests(unittest.TestCase):
         with patch.dict(os.environ, {"CAVI_SAMPLER_SCRIPT_PATH": "/x/scripts",
                                      "SAMPLER_SCRIPT_PATH": "/adobe/other"}):
             self.assertEqual(runner.scripts_dir(), Path("/x/scripts"))
-        env = {k: v for k, v in os.environ.items() if k != "CAVI_SAMPLER_SCRIPT_PATH"}
-        env["SAMPLER_SCRIPT_PATH"] = "/adobe/other"
-        with patch.dict(os.environ, env, clear=True):
+        with patched_environment(
+                add={"SAMPLER_SCRIPT_PATH": "/adobe/other"}, drop=("CAVI_SAMPLER_SCRIPT_PATH",)):
             self.assertNotEqual(runner.scripts_dir(), Path("/adobe/other"))
             self.assertEqual(runner.scripts_dir().name, "scripts")
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from designer_fake_cli import ENV as DESIGNER_ENV
 from designer_fake_cli import install as install_designer
+from env import DESIGNER, patched_environment
 
 from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
@@ -355,11 +356,8 @@ class DesignerBuiltinTests(Workspace):
     def setUp(self):
         super().setUp()
         self.app = install_designer(Path(self.folder.name))
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith("CAVI_DESIGNER")}
-        env.update({DESIGNER_ENV: str(self.app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.root)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(DESIGNER, {
+            DESIGNER_ENV: str(self.app), "CAVI_SUBSTANCE_WORKSPACE": str(self.root)})
         self.env.start()
 
     def tearDown(self):

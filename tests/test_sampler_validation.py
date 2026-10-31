@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from sampler_jobs import job_data
+
 from cavi_substance_mcp import receipts
 from cavi_substance_mcp.sampler import batch, job, names, operations
 
@@ -13,20 +15,6 @@ BAD_NAMES = ["A:B", "x*y", "a<b", "a>b", 'say"hi"', "a|b", "what?", "CON", "con"
              "tab\tname"]
 GOOD_NAMES = ["Rock 01", "Photo PBR", "Café", "a-b_c.d (1)", "Mossy #2", "COM", "CONSOLE",
               "COM10"]
-
-
-def job_data(**changes):
-    data = {
-        "schema": 1,
-        "directory": "jobs/rock",
-        "project": {"name": "RockProject", "asset": {"name": "Rock"}},
-        "steps": [
-            {"action": "insert_filter", "asset": "Rock", "filter": "Tiling"},
-            {"action": "export", "asset": "Rock", "directory": "exports"},
-        ],
-    }
-    data.update(changes)
-    return data
 
 
 class JobFileTests(unittest.TestCase):

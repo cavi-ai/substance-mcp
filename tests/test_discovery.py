@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import patched_environment
 from launcher import write_launcher
 
 from cavi_substance_mcp.core import discovery, proc
@@ -29,8 +30,7 @@ class Scratch(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
-        environment = {k: v for k, v in os.environ.items() if k not in OVERRIDES}
-        patcher = patch.dict(os.environ, environment, clear=True)
+        patcher = patched_environment(drop=OVERRIDES)
         patcher.start()
         self.addCleanup(patcher.stop)
 

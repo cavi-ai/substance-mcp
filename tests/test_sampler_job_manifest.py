@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -8,26 +7,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import SAMPLER, patched_environment
 from sampler_fake_cli import ENV, install
-from sampler_jobs import run_job_file
+from sampler_jobs import job_data, run_job_file
 
 from cavi_substance_mcp import receipts
 from cavi_substance_mcp.sampler import job, launch
-
-
-def job_data():
-    asset = "Rock"
-    return {
-        "schema": 1,
-        "directory": "jobs/rock",
-        "project": {"name": "RockProject",
-                    "asset": {"name": asset, "model": "openpbr", "preset": "base_material"}},
-        "steps": [
-            {"action": "import_images", "asset": asset, "images": ["photos/albedo.png"],
-             "position": 0, "import_option": "use_as_bitmap"},
-            {"action": "export", "asset": asset, "target": "unreal", "resolution": 1024},
-        ],
-    }
 
 
 class JobManifestTests(unittest.TestCase):
@@ -39,11 +24,8 @@ class JobManifestTests(unittest.TestCase):
             (self.workspace / folder).mkdir(parents=True)
         (self.workspace / "photos/albedo.png").write_bytes(b"fake-png")
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
         (self.workspace / "jobs/rock.json").write_text(json.dumps(job_data()))
 

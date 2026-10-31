@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import FAKE_SAMPLER, patched_environment
 from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp.sampler import launch, server
@@ -22,11 +23,8 @@ class EditSafetyTests(unittest.TestCase):
         self.workspace = root / "ws"
         self.workspace.mkdir()
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_", "FAKE_SAMPLER"))}
-        env.update({ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(FAKE_SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
         self.call("create_project", directory="projects", name="Rock")
         self.project = self.workspace / "projects/Rock.ssa"

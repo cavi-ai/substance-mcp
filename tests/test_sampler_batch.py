@@ -11,34 +11,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
-from sampler_jobs import run_job_file
+from sampler_jobs import job_data, run_job_file
 
 from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.sampler import batch, cli, job, targets
 
 TIMEOUT = 60
-
-
-def job_data(directory="jobs/rock", target="unreal", asset="Rock", project_asset=True):
-    project = {"name": "RockProject"}
-    if project_asset:
-        project["asset"] = {"name": asset, "model": "openpbr", "preset": "base_material"}
-    return {
-        "schema": 1,
-        "directory": directory,
-        "project": project,
-        "steps": [
-            {"action": "import_images", "asset": asset, "images": ["photos/albedo.png"],
-             "position": 0, "import_option": "use_as_bitmap"},
-            {"action": "insert_filter", "asset": asset, "filter": "Tiling", "position": 1},
-            {"action": "set_parameters", "asset": asset, "layer": "Tiling",
-             "parameters": {"Tiling": 3}},
-            {"action": "apply_preset", "asset": asset, "layer": "Tiling", "preset": "Wet"},
-            {"action": "export", "asset": asset, "target": target, "resolution": 1024},
-        ],
-    }
 
 
 class JobModelTests(unittest.TestCase):
@@ -120,11 +101,8 @@ class BatchTests(unittest.TestCase):
             (self.workspace / "photos" / name).write_bytes(b"fake-png")
         (self.workspace / "assets/custom.sbsar").write_bytes(b"fake-sbsar")
         app = install(root)
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("CAVI_SAMPLER", "SAMPLER_"))}
-        env.update({ENV: str(app),
-                    "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
-        self.env = patch.dict(os.environ, env, clear=True)
+        self.env = patched_environment(SAMPLER, {
+            ENV: str(app), "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
         self.env.start()
 
     def tearDown(self):
