@@ -33,6 +33,7 @@ READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 WRITES = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
 ProjectPath = Annotated[str, Field(description="Existing .ssa relative to the workspace.")]
 NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
@@ -148,7 +149,7 @@ async def sampler_project(
     }, timeout_seconds)
 
 
-@mcp.tool(annotations=WRITES)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def sampler_asset(
     action: Literal[
         "create", "delete", "import_resource", "set_metadata", "activate_channels",
@@ -163,7 +164,9 @@ async def sampler_asset(
     empty: StrictBool = False,
     metadata: AssetMetadata | None = None,
     channels: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
-    path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
+    path: Annotated[
+        str | None, Field(description="import_resource: workspace .sbsar or .sbs.")
+    ] = None,
     source_manifest: str | None = None,
     expected_sha256: str | None = None,
     resources: Annotated[list[ResourceNameArg] | None, Field(min_length=1, max_length=64)] = None,
@@ -174,9 +177,13 @@ async def sampler_asset(
     filter: PlainName | None = None,
     material: PlainName | None = None,
     blend_mode: BlendMode = "blend_normal",
+    confirm: Annotated[StrictBool, Field(description="Required true for action=delete.")] = False,
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """Create assets/resources, set metadata or channels, or extend asset layers."""
+    """Create assets/resources, set metadata or channels, or extend asset layers.
+
+    Edits run on a copy that replaces the project only after Sampler saved it.
+    """
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
         "empty": empty, "metadata": metadata, "channels": channels, "path": path,
@@ -203,6 +210,10 @@ async def sampler_asset(
     unexpected = extras(action, values, ASSET_PARAMS)
     if unexpected:
         raise ValueError(f"Not valid for action={action}: {', '.join(unexpected)}")
+    if action == "delete" and not confirm:
+        raise ValueError("confirm must be true for action=delete")
+    if action != "delete" and confirm:
+        raise ValueError("confirm is only valid for action=delete")
     if action == "create":
         need(name, "name", action)
     if action == "import_resource":
@@ -262,7 +273,7 @@ async def sampler_asset(
     return await operations.invoke(operation, arguments, timeout_seconds)
 
 
-@mcp.tool(annotations=WRITES)
+@mcp.tool(annotations=DESTRUCTIVE)
 async def sampler_layer(
     action: Literal[
         "set_parameters", "apply_preset", "set_channels", "set_blend_parameters", "remove",

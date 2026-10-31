@@ -418,6 +418,13 @@ def module():
     def save_project():
         if state.path is None:
             return False
+        mode = os.environ.get("FAKE_SAMPLER_SAVE")
+        if mode == "fail":
+            return False
+        if mode == "hang":
+            # A save that is killed halfway leaves a truncated project behind.
+            state.path.write_text('{"assets": [')
+            time.sleep(60)
         state.save()
         return True
 

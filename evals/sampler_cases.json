@@ -307,9 +307,44 @@
     "arguments": {
       "action": "delete",
       "project": "projects/Rock.ssa",
-      "asset": "Missing"
+      "asset": "Missing",
+      "confirm": true
     },
     "error": "not found"
+  },
+  {
+    "id": "asset-delete-no-confirm",
+    "tool": "sampler_asset",
+    "kind": "safety",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "action": "delete",
+      "project": "projects/Rock.ssa",
+      "asset": "Rock"
+    },
+    "error": "confirm must be true"
+  },
+  {
+    "id": "asset-delete",
+    "tool": "sampler_asset",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "action": "delete",
+      "project": "projects/Rock.ssa",
+      "asset": "Brick",
+      "confirm": true
+    },
+    "equals": {
+      "deleted": "Brick",
+      "saved": true,
+      "project": "projects/Rock.ssa"
+    }
   },
   {
     "id": "asset-import-images",

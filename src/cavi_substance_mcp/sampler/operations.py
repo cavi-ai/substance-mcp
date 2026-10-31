@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from .. import receipts
@@ -38,6 +39,15 @@ IMPORT_OPTIONS = (
 )
 RESPONSE_LIMIT = 8 * 1024 * 1024
 LOCK_WAIT = 60
+WORK_PREFIX = ".cavi-work-"
+# Operations that save the project they open. They run on a disposable copy so a
+# failure or a timeout kill can never leave the user's .ssa half written.
+MUTATING = frozenset({
+    "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
+    "insert_material", "set_parameters", "apply_preset", "set_metadata",
+    "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
+    "remove_layer",
+})
 _HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
@@ -220,6 +230,7 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
                 payload.get("error") if isinstance(payload, dict) else payload
                 or "Sampler operation failed"
             )
+            detail = _unalias(detail, aliases)
             for kind in (ValueError, FileExistsError, TypeError, RuntimeError):
                 prefix = f"{kind.__name__}: "
                 if detail.startswith(prefix):
@@ -237,6 +248,51 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
         remove_tree(job)
 
 
+def _unalias(value, aliases):
+    if not aliases:
+        return value
+    if isinstance(value, str):
+        for old, new in aliases.items():
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, list):
+        return [_unalias(item, aliases) for item in value]
+    if isinstance(value, dict):
+        return {key: _unalias(item, aliases) for key, item in value.items()}
+    return value
+
+
+async def _copy_file(source: Path, target: Path) -> None:
+    """Copy without blocking the event loop or leaving a stray thread on cancellation."""
+    with source.open("rb") as reader, target.open("wb") as writer:
+        while chunk := reader.read(8 * 1024 * 1024):
+            writer.write(chunk)
+            await asyncio.sleep(0)
+    shutil.copystat(source, target)
+
+
+async def _invoke_on_copy(root: Path, operation: str, arguments: dict,
+                          timeout_seconds: float, lock_timeout: float) -> dict:
+    """Run a mutating operation on a copy and replace the project only on success."""
+    original = _input(root, arguments["project"], PROJECT)
+    work = original.with_name(f"{WORK_PREFIX}{uuid.uuid4().hex[:12]}-{original.name}")
+    aliases = {_rel(root, work): _rel(root, original)}
+    try:
+        await _copy_file(original, work)
+        reply = await _run_payload(
+            {"operation": operation, "workspace": str(root),
+             "arguments": {**arguments, "project": _rel(root, work)}},
+            timeout_seconds, lock_timeout=lock_timeout, aliases=aliases,
+        )
+        if reply.get("saved"):
+            if not work.is_file() or work.stat().st_size == 0:
+                raise RuntimeError("Sampler reported a save but wrote no project data")
+            os.replace(work, original)
+    finally:
+        work.unlink(missing_ok=True)
+    return _unalias(reply, aliases)
+
+
 async def invoke(operation: str, arguments: dict, timeout_seconds: float,
                  workspace_path=None, lock_timeout: float = LOCK_WAIT) -> dict:
     if workspace_path is None:
@@ -244,6 +300,12 @@ async def invoke(operation: str, arguments: dict, timeout_seconds: float,
     else:
         root = Path(workspace_path).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
+    if operation in MUTATING and arguments.get("project") is not None:
+        # Hold the lock across copy, run and replace so two edits of one project
+        # cannot lose each other's changes.
+        async with exclusive(root, lock_timeout):
+            return await _invoke_on_copy(
+                root, operation, arguments, timeout_seconds, lock_timeout)
     return await _run_payload(
         {"operation": operation, "arguments": arguments, "workspace": str(root)},
         timeout_seconds, lock_timeout=lock_timeout,
@@ -1313,7 +1375,8 @@ def _set_metadata(ssa, root, args) -> dict:
         if not isinstance(custom, dict) or len(custom) > 64:
             raise ValueError("custom_metadata must be an object with at most 64 entries")
         for key, value in custom.items():
-            if not isinstance(key, str) or not isinstance(value, (bool, int, float, str, type(None))):
+            simple = (bool, int, float, str, type(None))
+            if not isinstance(key, str) or not isinstance(value, simple):
                 raise TypeError("custom_metadata keys and values must be simple JSON values")
         metadata.custom_metadata = dict(custom)
     ssa.wait_for_computation()
