@@ -236,6 +236,9 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
                 if detail.startswith(prefix):
                     raise kind(detail[len(prefix):])
             raise RuntimeError(detail)
+        if result.returncode != 0:
+            # A response file proves the script ran, not that Sampler shut down cleanly.
+            raise RuntimeError(runner.failure(result))
         reply = payload.get("result")
         if not isinstance(reply, dict):
             raise TypeError("Sampler operation returned an unexpected response")

@@ -13,11 +13,14 @@ MAC_APP = Path("/Applications/Adobe Substance 3D Sampler/Adobe Substance 3D Samp
 MAC_EXE = MAC_APP / "Contents/MacOS/Adobe Substance 3D Sampler"
 DEFAULT_EXECUTABLES = {
     "darwin": MAC_EXE,
-    "win32": Path(r"C:\Program Files\Adobe\Adobe Substance 3D Sampler\Adobe Substance 3D Sampler.exe"),
+    "win32": Path(
+        r"C:\Program Files\Adobe\Adobe Substance 3D Sampler\Adobe Substance 3D Sampler.exe"
+    ),
     "linux": Path("/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler"),
 }
 STDOUT_LIMIT = 1024 * 1024
 STDERR_LIMIT = 1024 * 1024
+TERM_GRACE = 3.0
 
 
 def _platform() -> str:
@@ -166,6 +169,28 @@ def _kill(process):
         pass
 
 
+def _terminate(process):
+    if process.returncode is not None:
+        return
+    try:
+        if sys.platform != "win32":
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except ProcessLookupError:
+        pass
+
+
+async def _stop(process):
+    """Ask the process group to exit, then kill it if it outlives TERM_GRACE."""
+    _terminate(process)
+    try:
+        await asyncio.wait_for(process.wait(), TERM_GRACE)
+    except TimeoutError:
+        _kill(process)
+        await process.wait()
+
+
 async def _collect(process):
     out, err, _ = await asyncio.gather(
         _drain(process.stdout, STDOUT_LIMIT), _drain(process.stderr, STDERR_LIMIT), process.wait()
@@ -193,9 +218,11 @@ async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> R
     try:
         (out, cut), (err, _) = await asyncio.wait_for(_collect(process), timeout)
     except TimeoutError:
-        _kill(process)
-        await process.wait()
+        await _stop(process)
         raise TimeoutError(f"Sampler exceeded {timeout:g} s and was killed") from None
+    except asyncio.CancelledError:
+        await _stop(process)
+        raise
     finally:
         _kill(process)
     return Result(process.returncode, out.decode(errors="replace"),

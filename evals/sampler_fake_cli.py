@@ -593,6 +593,8 @@ def install(root: Path) -> Path:
         "    script = args[index + 1]\n"
         "    sys.modules['substance_sampler'] = sampler_fake_cli.module()\n"
         "    runpy.run_path(script, run_name='__main__')\n"
+        "    import os\n"
+        "    raise SystemExit(int(os.environ.get('FAKE_SAMPLER_EXIT', '0')))\n"
     )
     executable.chmod(0o755)
     return app
