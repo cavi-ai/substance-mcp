@@ -97,7 +97,7 @@ class InstallationTests(unittest.TestCase):
             with patch.dict(os.environ, {ENV: str(bin_dir)}):
                 found = runner.installation()
                 self.assertTrue(found.binary("sbsrender"))
-                self.assertEqual(found.resources, (bin_dir.parent / "resources").resolve())
+                self.assertTrue(found.resources.samefile((bin_dir.parent / "resources").resolve()))
                 self.assertTrue(operations.builtin_file("packages/brick_1").is_file())
                 for bad in ("packages/../templates/x", "other/brick_1", "packages/a/b"):
                     with self.assertRaises(ValueError):

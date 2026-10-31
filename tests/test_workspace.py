@@ -32,7 +32,7 @@ class RootTests(unittest.TestCase):
         self.default = self.home / "Documents" / "SubstanceMCP"
 
     def test_default_is_documents_substancemcp(self):
-        self.assertEqual(workspace.default_root(), self.default)
+        self.assertEqual(workspace.default_root().resolve(), self.default.resolve())
         self.assertEqual(workspace.root(), self.default)
 
     def test_environment_selects_the_root(self):
