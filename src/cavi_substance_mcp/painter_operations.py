@@ -377,7 +377,7 @@ def dispatch(operation: str, params: dict, workspace: str) -> dict:
     if operation == "session_control":
         return session.control(params, identity)
     if operation in READ_ONLY or (
-        operation == "export_textures" and params.get("dry_run", True) is True
+        operation == "export_textures" and flag(params, "dry_run", True)
     ):
         return _execute(operation, params, workspace)
     with session.edit(params.get("lease_id"), identity):
@@ -827,7 +827,7 @@ def _export(params, root):
         not path.is_relative_to(folder) or path == folder or path.exists() for path in files
     ):
         raise ValueError("Preset produced empty, existing, or out-of-directory output paths")
-    if params.get("dry_run", True):
+    if flag(params, "dry_run", True):
         return {"dry_run": True, "files": [str(path) for path in files],
                 "provenance": provenance}
     folder.mkdir(mode=0o700)
