@@ -60,6 +60,35 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipts.sha256_file(str(large)),
                          hashlib.sha256(b"x" * (3 * 1024 * 1024 + 5)).hexdigest())
 
+    def test_write_manifest_builds_and_writes_atomically(self):
+        source = self.root / "source.txt"
+        source.write_text("input")
+        directory = self.root / "out"
+        directory.mkdir()
+        (directory / "result.txt").write_text("output")
+        path = receipts.write_manifest(
+            directory, "test", "write", self.root, inputs=[source],
+            outputs=[directory / "result.txt"], parameters={"a": 1}, seconds=0.5,
+            version="1.2",
+        )
+        self.assertEqual(path, directory / "manifest.json")
+        written = json.loads(path.read_text())
+        self.assertEqual(written["parameters"], {"a": 1})
+        self.assertEqual(written["version"], "1.2")
+        self.assertEqual([row["path"] for row in written["inputs"]], ["source.txt"])
+        self.assertEqual([row["path"] for row in written["outputs"]], ["out/result.txt"])
+        receipts.verify(written, self.root)
+        self.assertEqual(sorted(item.name for item in directory.iterdir()),
+                         ["manifest.json", "result.txt"])
+
+    def test_write_manifest_writes_nothing_when_a_file_is_missing(self):
+        directory = self.root / "out"
+        directory.mkdir()
+        with self.assertRaises(receipts.ReceiptError):
+            receipts.write_manifest(directory, "test", "write", self.root,
+                                    outputs=[directory / "missing.txt"])
+        self.assertEqual(list(directory.iterdir()), [])
+
     def test_verify_manifest_and_cli(self):
         output = self.root / "out.txt"
         output.write_text("output")

@@ -295,6 +295,15 @@ def load_and_verify(path: Path, root: Path, roles=("inputs", "outputs")) -> dict
     return verify(load(path), root, roles)
 
 
+def write_manifest(directory: Path, app: str, operation: str, root: Path, **fields) -> Path:
+    """Build a receipt with ``build`` and write it as ``directory/manifest.json``.
+
+    ``fields`` are the optional arguments of ``build``. Nothing is written if a listed file
+    is missing or outside the root.
+    """
+    return write(directory, build(app, operation, root, **fields))
+
+
 def write(directory: Path, manifest: dict) -> Path:
     path = Path(directory) / MANIFEST
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")

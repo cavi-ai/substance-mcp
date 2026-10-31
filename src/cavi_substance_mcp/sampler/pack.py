@@ -23,19 +23,14 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
         files[usage] = workspace.input_file(root, name, packing.READABLE)
     packing.check_spec(spec)
     started = time.monotonic()
-    destination = workspace.new_output_dir(root, directory, parents=True)
-    try:
+    with workspace.new_output_directory(root, directory, parents=True) as destination:
         result = packing.pack(spec, files, destination)
-        manifest = receipts.build(
-            "sampler", "pack", root, inputs=list(files.values()),
+        manifest_path = receipts.write_manifest(
+            destination, "sampler", "pack", root, inputs=list(files.values()),
             outputs=[item["path"] for item in result["maps"]],
             parameters={"pack": spec.model_dump(mode="json")},
             seconds=time.monotonic() - started,
         )
-        manifest_path = receipts.write(destination, manifest)
-    except BaseException:
-        workspace.remove_tree(destination)
-        raise
     return {
         "directory": destination.relative_to(root).as_posix(),
         "maps": [

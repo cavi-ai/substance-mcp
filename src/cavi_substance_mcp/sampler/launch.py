@@ -214,7 +214,7 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
         if tailer is not None:
             stop.set()
             await tailer
-        workspace.remove_tree(job)
+        workspace.remove_scratch(job)
 
 
 def _unalias(value, aliases):

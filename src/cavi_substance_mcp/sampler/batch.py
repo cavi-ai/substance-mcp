@@ -241,7 +241,7 @@ async def validate_with_project_async(name, workspace_path=None,
             raise jobs.JobValidationError("; ".join(result["problems"]))
         return plan
     finally:
-        workspace.remove_tree(temporary)
+        workspace.remove_scratch(temporary)
 
 
 def validate_with_project(name, workspace_path=None, timeout_seconds: float = 300) -> dict:
@@ -311,7 +311,7 @@ async def check_build_async(name, workspace_path=None,
         }
         return plan
     finally:
-        workspace.remove_tree(temporary)
+        workspace.remove_scratch(temporary)
 
 
 def check_build(name, workspace_path=None, timeout_seconds: float = 1800) -> dict:
@@ -416,7 +416,7 @@ async def run_job_file_async(name, workspace_path=None, timeout_seconds: float =
                 with contextlib.suppress(OSError):
                     _failure(root, job_dir, path, exc, started, time.monotonic() - clock)
             else:
-                workspace.remove_tree(job_dir)
+                workspace.remove_scratch(job_dir)
             if isinstance(exc, TimeoutError):
                 raise JobTimeout(str(exc)) from exc
             raise

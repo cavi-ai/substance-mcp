@@ -329,9 +329,9 @@ class WorkspaceRootTests(unittest.TestCase):
         self.default = self.home / "Documents/SubstanceMCP"
 
     def test_default_workspace_is_created_for_an_output_directory(self):
-        made = operations.new_directory("out")
-        self.assertEqual(made, self.default / "out")
-        self.assertTrue(made.is_dir())
+        with operations.new_directory("out") as made:
+            self.assertEqual(made, self.default / "out")
+            self.assertTrue(made.is_dir())
 
     def test_reading_never_creates_the_default_workspace(self):
         status = asyncio.run(operations.status())
@@ -344,8 +344,10 @@ class WorkspaceRootTests(unittest.TestCase):
     def test_missing_explicit_workspace_is_refused_and_not_created(self):
         missing = self.home / "not-there"
         with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}):
-            with self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
-                operations.new_directory("out")
+            with self.assertRaisesRegex(
+                    ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"
+            ), operations.new_directory("out"):
+                self.fail("the body must not run")
             self.assertFalse(asyncio.run(operations.status())["workspace_exists"])
         self.assertFalse(missing.exists())
 
