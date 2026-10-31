@@ -115,8 +115,10 @@ class Lease:
         }
 
     def matches(self, token):
+        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
         return (isinstance(token, str) and self.token is not None
-                and secrets.compare_digest(token, self.token))
+                and secrets.compare_digest(token.encode("utf-8", "surrogatepass"),
+                                           self.token.encode()))
 
     def require(self, token, project):
         if not self.matches(token):

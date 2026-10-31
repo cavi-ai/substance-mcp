@@ -28,6 +28,18 @@ class LeaseTests(unittest.TestCase):
         self.assertEqual(public["owner"], "agent-A")
         self.assertNotIn(token, str(public))
 
+    def test_non_ascii_token_is_a_mismatch_not_a_type_error(self):
+        token = self.claim()
+        for value in ("t\u00f6ken", "\u4ee4\u724c" * 8, "\ud800", token + "\u00e9"):
+            with self.subTest(value=value):
+                self.assertFalse(self.session.matches(value))
+                with self.assertRaisesRegex(RuntimeError, "lease"), self.session.edit(
+                        value, lambda: self.project):
+                    self.fail("A foreign token edited")
+                with self.assertRaisesRegex(RuntimeError, "lease"):
+                    self.session.control({"action": "release", "lease_id": value}, self.project)
+        self.assertTrue(self.session.matches(token))
+
     def test_competing_claim_and_release_cannot_steal_ownership(self):
         token = self.claim()
         with self.assertRaisesRegex(RuntimeError, "agent-A"):

@@ -28,7 +28,10 @@ READ_ONLY = ToolAnnotations(
 )
 MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
 CLOSING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
-LeaseId = Annotated[str | None, Field(max_length=128, description="From session_control claim.")]
+LeaseId = Annotated[
+    str | None,
+    Field(max_length=128, pattern=r"^[A-Za-z0-9_-]+$", description="From session_control claim."),
+]
 WorkspaceFile = Annotated[str | None, Field(description="Workspace file.")]
 NewDirectory = Annotated[str, Field(description="New workspace directory.")]
 UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
