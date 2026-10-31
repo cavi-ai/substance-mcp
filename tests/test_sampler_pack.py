@@ -49,6 +49,9 @@ class PackTests(unittest.TestCase):
                          {"packed/rock/Mask.png", "packed/rock/Base.png"})
         self.assertTrue((self.workspace / "packed/rock/Mask.png").is_file())
         self.assertTrue((self.workspace / "packed/rock/Base.png").is_file())
+        receipt = json.loads((self.workspace / result["manifest"]).read_text())
+        self.assertEqual((receipt["app"], receipt["operation"]), ("sampler", "pack"))
+        self.assertTrue(receipt["outputs"])
 
     def test_existing_directory(self):
         (self.workspace / "packed/existing").mkdir(parents=True)

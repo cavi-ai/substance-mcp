@@ -665,6 +665,9 @@
   },
   "files": [
    "textures/Body.png"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -2421,6 +2424,9 @@
   "files": [
    "packed-real/T_Body_MaskMap.png",
    "packed-real/T_Body_BaseColor.png"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {

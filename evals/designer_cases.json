@@ -69,6 +69,9 @@
   },
   "files": [
    "cooked/source.sbsar"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -182,6 +185,9 @@
    "rendered_pack/packed/T_Rock_MaskMap.png",
    "rendered_pack/packed/T_Rock_BaseColor.png",
    "rendered_pack/packed/T_Rock_Normal.png"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {
@@ -251,6 +257,9 @@
   "files": [
    "packed/Mask16.png",
    "packed/Base.tga"
+  ],
+  "required": [
+   "manifest"
   ]
  },
  {

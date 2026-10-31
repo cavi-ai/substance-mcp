@@ -1,6 +1,8 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import datetime
 import hashlib
+import json
 import math
 import os
 import re
@@ -512,12 +514,20 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
         return {"saved": True, "file": project.file_path(), "needs_saving": project.needs_saving()}
     if operation == "save_copy":
         folder = export_destination(root(), required(params, "directory"))
+        started = time.monotonic()
         folder.mkdir(mode=0o700)
         path = folder / "project.spp"
         project.save_as_copy(str(path), project.ProjectSaveMode.Full)
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError("Painter did not produce a saved project copy")
-        return {"path": str(path), "bytes": path.stat().st_size}
+        manifest = _receipt_build(
+            "painter", "save_copy", root(), outputs=[path],
+            parameters={"directory": required(params, "directory")},
+            seconds=time.monotonic() - started, version=_painter_version(),
+        )
+        manifest_path = _receipt_write(folder, manifest)
+        return {"path": str(path), "bytes": path.stat().st_size,
+                "manifest": str(manifest_path)}
     if operation == "export_textures":
         return _export(params, root)
     raise ValueError(f"Unknown operation: {operation}")
@@ -624,9 +634,72 @@ def export_maps(specs, default_format, default_depth):
     return maps
 
 
-def _export(params, root):
-    from substance_painter import export, textureset
+RECEIPT_MANIFEST = "manifest.json"
 
+
+def _receipt_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _receipt_record(path: Path, root: Path) -> dict:
+    path = Path(path).resolve()
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "size": path.stat().st_size,
+        "sha256": _receipt_hash(path),
+    }
+
+
+def _receipt_records(paths, root: Path) -> list[dict]:
+    seen, found = set(), []
+    for item in paths:
+        path = Path(item).resolve()
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        found.append(_receipt_record(path, root))
+    return found
+
+
+def _receipt_build(app, operation, root: Path, inputs=(), outputs=(), parameters=None,
+                   started=None, seconds=None, version=None, warnings=None) -> dict:
+    return {
+        "schema": 1,
+        "app": app,
+        "operation": operation,
+        "version": version,
+        "started": started or datetime.datetime.now(datetime.UTC).isoformat(),
+        "seconds": round(seconds, 3) if seconds is not None else None,
+        "parameters": parameters or {},
+        "inputs": _receipt_records(inputs, root),
+        "outputs": _receipt_records(outputs, root),
+        "warnings": list(warnings or []),
+    }
+
+
+def _receipt_write(directory: Path, manifest: dict) -> Path:
+    path = Path(directory) / RECEIPT_MANIFEST
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _painter_version():
+    try:
+        import substance_painter
+
+        return getattr(substance_painter, "__version__", None)
+    except Exception:  # noqa: BLE001 -- optional native attribute
+        return None
+
+
+def _export(params, root):
+    from substance_painter import export, project, textureset
+
+    started = time.monotonic()
     folder = export_destination(root(), required(params, "directory"))
     preset, specs = params.get("preset"), params.get("maps")
     if (preset is None) == (specs is None):
@@ -700,11 +773,29 @@ def _export(params, root):
         raise RuntimeError(
             "Export output does not match the requested directory; inspect partial output"
         )
+    inputs = []
+    try:
+        file_path = project.file_path()
+    except Exception:  # noqa: BLE001 -- unsaved or unavailable project path
+        file_path = None
+    if file_path and Path(file_path).resolve().is_relative_to(root()):
+        inputs.append(Path(file_path))
+    manifest = _receipt_build(
+        "painter", "export", root(), inputs=inputs, outputs=actual,
+        parameters={"preset": preset, "maps": specs,
+                    "texture_sets": [item.name() for item in sets],
+                    "resolution": params.get("resolution"), "file_format": fmt,
+                    "bit_depth": depth, "padding": padding,
+                    "dilation_distance": dilation, "udim_tiles": tiles},
+        seconds=time.monotonic() - started, version=_painter_version(),
+    )
+    manifest_path = _receipt_write(folder, manifest)
     return {
         "dry_run": False,
         "status": result.status.name,
         "files": [str(path) for path in actual],
         "omitted_files": sorted(str(path) for path in set(files) - set(actual)),
+        "manifest": str(manifest_path),
     }
 
 
@@ -1080,6 +1171,7 @@ def _layer_edit(params, root):
         if action != "sbsar_fill" and values:
             raise ValueError("parameters apply to sbsar_fill and generator only")
         graphs = []
+        source = None
         if action == "group":
             item = None
         elif action == "smart_material":
@@ -1097,6 +1189,7 @@ def _layer_edit(params, root):
                 raise RuntimeError(f"No material graph in {path.name}; imported resource "
                                    f"{package.identifier().url()} kept (no Painter API removes it)")
             item = graphs[0]
+            source = _receipt_record(path, root())
         node, applied = None, []
         try:
             with layerstack.ScopedModification(f"Create {action} {name}"):
@@ -1125,7 +1218,8 @@ def _layer_edit(params, root):
             result["layers"] = [child.uid() for child in node.sub_layers()]
         if action == "sbsar_fill":
             result.update(parameters=applied, graphs=len(graphs),
-                          active_channels=sorted(channel_label(c) for c in node.active_channels))
+                          active_channels=sorted(channel_label(c) for c in node.active_channels),
+                          source=source)
         return result
     node = node_by_uid(layerstack, required(params, "uid", None), texture_set)
     if action == "delete":

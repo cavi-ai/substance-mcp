@@ -433,6 +433,8 @@ def _manifest(root: Path, job_dir: Path, path: Path, job: jobs.Job, result: dict
     found = runner.installation()
     manifest = {
         "schema": 1,
+        "app_name": "sampler",
+        "operation": "build",
         "status": "success",
         "job": (job_dir / "job.json").relative_to(root).as_posix(),
         "job_sha256": _sha256(job_dir / "job.json"),
@@ -460,6 +462,8 @@ def _failure(root: Path, job_dir: Path, path: Path, error: Exception,
              started: str, seconds: float) -> dict:
     payload = {
         "schema": 1,
+        "app_name": "sampler",
+        "operation": "build",
         "status": "failed",
         "job": path.relative_to(root).as_posix(),
         "workspace": str(root),
