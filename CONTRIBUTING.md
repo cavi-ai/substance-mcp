@@ -65,7 +65,8 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   POSIX and `.cmd` wrappers on Windows; tests point discovery at them with
   `CAVI_DESIGNER_BIN_DIR` and `CAVI_SAMPLER_BIN`), the corpora
   (`cases.json`, `designer_cases.json`, `sampler_cases.json`), the mcp-eval manifests
-  (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`).
+  (`*.manifest.json`) and the runners (`run.py`, `designer_run.py`, `sampler_run.py`, which
+  share `common.py`).
 - `tests/`: unit tests. `examples/`: synthetic job files and handoff walkthroughs.
 - Documentation: `README.md`. Update it and `CHANGELOG.md` when a tool, receipt or job
   contract changes.
