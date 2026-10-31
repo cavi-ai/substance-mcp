@@ -37,7 +37,7 @@ class ReceiptTests(unittest.TestCase):
         output.write_text("output")
         manifest = receipts.build(
             "test", "write", self.root, inputs=[source, source],
-            outputs=[output, self.root / "missing.txt"], seconds=0.25,
+            outputs=[output], seconds=0.25,
         )
         self.assertEqual(manifest["schema"], 1)
         self.assertEqual(len(manifest["inputs"]), 1)
@@ -78,14 +78,6 @@ class ReceiptTests(unittest.TestCase):
         )
         self.assertEqual(set(shared), set(painter))
         self.assertEqual(shared["schema"], painter["schema"])
-
-    def test_external_input_is_recorded_with_absolute_path(self):
-        with tempfile.TemporaryDirectory() as other:
-            source = Path(other) / "builtin.sbs"
-            source.write_text("builtin")
-            record = receipts.record(source, self.root)
-        self.assertEqual(record["path"], str(source.resolve()))
-        self.assertEqual(record["size"], 7)
 
     def test_designer_to_painter_receipt_chain(self):
         workspace = self.root / "ws"

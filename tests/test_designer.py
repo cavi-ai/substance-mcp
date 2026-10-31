@@ -183,7 +183,9 @@ class FakeCliTests(unittest.TestCase):
         self.folder.cleanup()
 
     def calls(self):
-        return [json.loads(line) for line in self.log.read_text().splitlines()]
+        # Receipts record each tool's version, so `--version` probes are not part of the work.
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return [call for call in calls if call[1:] != ["--version"]]
 
     def test_status(self):
         status = asyncio.run(operations.status())
