@@ -9,17 +9,26 @@
   `.pr-gates` (the commands CI runs), issue forms, a pull request template and a Dependabot
   configuration for `uv`, `npm` and GitHub Actions.
 - Trademark and non-affiliation notice in the README.
+- CI on Linux, macOS and Windows across Python 3.11-3.13 with pinned actions, a lowest-dependency
+  leg, CodeQL, a package smoke test (`npm run verify:package`), a tag-driven release workflow
+  with PyPI trusted publishing, and a nightly upgrade and vulnerability canary.
 
 ### Changed
 
+- Pillow requires 13.0 or later; the locked 12.3.0 had known vulnerabilities fixed in 13.0.0.
 - Package metadata: readme, MIT license expression and license file, authors, keywords,
   classifiers, project URLs and a description naming all three applications. The build
   requires `hatchling>=1.27`.
 - The source distribution contains only `src/`, `tests/`, `evals/`, `examples/`, the README,
   `LICENSE`, `CHANGELOG.md` and `pyproject.toml`.
-- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets.
+- Ruff checks the `E`, `F`, `I`, `B`, `UP` and `SIM` rule sets (line length is enforced after the
+  pre-release format pass).
 - `.gitignore` covers local plans, worktrees, editor state, logs, build output and Substance
   `.ssa` and `.spt` files.
+
+### Fixed
+
+- `serverInfo.version` reports the package version instead of the MCP SDK version.
 
 ## 0.6.0 - 2026-10-30
 

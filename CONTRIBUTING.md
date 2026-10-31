@@ -25,10 +25,12 @@ npm run eval:designer-protocol
 npm run eval:designer-core
 npm run eval:sampler-protocol
 npm run eval:sampler-core
+npm run verify:package
 ```
 
 Tests marked native skip unless the application is installed (`CAVI_SAMPLER_NATIVE=1` also
-launches Sampler). Evaluation reports are written under `.tmp/evals/`.
+launches Sampler). Evaluation reports are written under `.tmp/evals/`. `verify:package` builds the wheel and
+sdist, installs the wheel into a clean virtual environment and checks every console script.
 
 ## Where changes go
 

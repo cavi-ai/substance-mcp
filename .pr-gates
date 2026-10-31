@@ -9,3 +9,4 @@ npm run eval:designer-protocol
 npm run eval:designer-core
 npm run eval:sampler-protocol
 npm run eval:sampler-core
+npm run verify:package
