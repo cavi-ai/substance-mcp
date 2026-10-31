@@ -1,0 +1,35 @@
+name: Feature request
+description: A Painter, Designer or Sampler capability, tool, or workflow the servers do not cover yet
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The production task that is not expressible today
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Proposed tool, argument, or resource change
+    validations:
+      required: true
+
+  - type: textarea
+    id: adobe-api
+    attributes:
+      label: Adobe API evidence
+      description: The documented Painter, Designer or Sampler API, or command-line option, this needs, and the application version you checked
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes an existing tool, receipt or job contract
+        - label: This adds a mutation of an Adobe application or project
