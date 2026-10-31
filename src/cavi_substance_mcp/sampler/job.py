@@ -24,6 +24,7 @@ USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 PlainName = Annotated[str, Field(min_length=1, max_length=96)]
 ResourceName = Annotated[str, Field(min_length=1, max_length=128)]
 UsageName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")]
+UsageLabel = Annotated[str, Field(min_length=1, max_length=64)]
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_$][A-Za-z0-9_.$]{0,63}$")]
 TargetName = Literal["unreal", "unity", "blender", "generic"]
 OutputKind = Literal["sbsar", "textures"]
@@ -55,6 +56,13 @@ def relative_path(value: str) -> str:
     return value
 
 
+def usage_label(value: str) -> str:
+    value = value.strip()
+    if not value or len(value) > 64 or CONTROL.search(value):
+        raise ValueError("usage label must be a short printable string")
+    return value
+
+
 def resource_name(value: str) -> str:
     value = value.strip()
     if not RESOURCE.fullmatch(value) or value.startswith("-"):
@@ -76,10 +84,29 @@ class AssetSpec(StrictModel):
 
 
 class ProjectSpec(StrictModel):
-    name: PlainName
+    name: PlainName | None = None
+    source: str | None = None
+    assets: Annotated[list[PlainName], Field(min_length=1, max_length=64)] | None = None
     asset: AssetSpec | None = None
 
-    _name = field_validator("name")(plain_name)
+    _name = field_validator("name")(lambda value: None if value is None else plain_name(value))
+    _source = field_validator("source")(lambda value: None if value is None else relative_path(value))
+    _assets = field_validator("assets")(lambda values: None if values is None else [
+        plain_name(item) for item in values
+    ])
+
+    @model_validator(mode="after")
+    def project_rules(self):
+        if self.source is not None:
+            if self.asset is not None:
+                raise ValueError("source projects cannot declare project.asset")
+        elif self.name is None:
+            raise ValueError("name is required for a new project")
+        if self.assets is not None and self.source is None:
+            raise ValueError("assets is only valid with source")
+        if self.assets is not None and len(set(self.assets)) != len(self.assets):
+            raise ValueError("assets must be unique")
+        return self
 
 
 class ImportImages(StrictModel):
@@ -119,6 +146,79 @@ class CreateAsset(StrictModel):
 
     _name = field_validator("name")(plain_name)
     _preset = field_validator("preset")(lambda value: None if value is None else resource_name(value))
+
+
+class SetMetadata(StrictModel):
+    action: Literal["set_metadata"]
+    asset: PlainName
+    author: Annotated[str | None, Field(max_length=128)] = None
+    category: Annotated[str | None, Field(max_length=128)] = None
+    description: Annotated[str | None, Field(max_length=1024)] = None
+    tags: Annotated[list[Annotated[str, Field(max_length=64)]], Field(max_length=64)] | None = None
+    physical_size: tuple[float, float, float] | None = None
+    custom_metadata: Annotated[dict[str, bool | int | float | str | None], Field(max_length=64)] | None = None
+
+    _asset = field_validator("asset")(plain_name)
+
+    @model_validator(mode="after")
+    def has_values(self):
+        if all(value is None for value in (
+            self.author, self.category, self.description, self.tags,
+            self.physical_size, self.custom_metadata,
+        )):
+            raise ValueError("set_metadata needs at least one field")
+        return self
+
+
+class ActivateChannels(StrictModel):
+    action: Literal["activate_channels"]
+    asset: PlainName
+    channels: Annotated[list[UsageName], Field(min_length=1, max_length=64)]
+
+    _asset = field_validator("asset")(plain_name)
+
+
+class DeactivateChannels(StrictModel):
+    action: Literal["deactivate_channels"]
+    asset: PlainName
+    channels: Annotated[list[UsageName], Field(min_length=1, max_length=64)]
+
+    _asset = field_validator("asset")(plain_name)
+
+
+class SetChannels(StrictModel):
+    action: Literal["set_channels"]
+    asset: PlainName
+    layer: ResourceName
+    position: Annotated[int | None, Field(ge=0, le=100000)] = None
+    applies_to: Annotated[list[UsageLabel], Field(min_length=1, max_length=64)] | None = None
+    blend_applies_to: Annotated[list[UsageLabel], Field(min_length=1, max_length=64)] | None = None
+
+    _asset = field_validator("asset")(plain_name)
+    _layer = field_validator("layer")(resource_name)
+    _applies = field_validator("applies_to")(lambda values: None if values is None else [
+        usage_label(item) for item in values
+    ])
+    _blend = field_validator("blend_applies_to")(lambda values: None if values is None else [
+        usage_label(item) for item in values
+    ])
+
+    @model_validator(mode="after")
+    def has_channels(self):
+        if self.applies_to is None and self.blend_applies_to is None:
+            raise ValueError("set_channels needs applies_to or blend_applies_to")
+        return self
+
+
+class SetBlendParameters(StrictModel):
+    action: Literal["set_blend_parameters"]
+    asset: PlainName
+    layer: ResourceName
+    position: Annotated[int | None, Field(ge=0, le=100000)] = None
+    parameters: Annotated[dict[Identifier, ParameterValue], Field(min_length=1, max_length=64)]
+
+    _asset = field_validator("asset")(plain_name)
+    _layer = field_validator("layer")(resource_name)
 
 
 class InsertFilter(StrictModel):
@@ -229,7 +329,9 @@ class Export(StrictModel):
 
 
 Step = Annotated[
-    ImportImages | ImportTextures | CreateAsset | InsertFilter | InsertMaterial | SetParameters | ApplyPreset | RemoveLayer | ImportResource | Export,
+    ImportImages | ImportTextures | CreateAsset | SetMetadata | ActivateChannels
+    | DeactivateChannels | InsertFilter | InsertMaterial | SetParameters | ApplyPreset
+    | SetChannels | SetBlendParameters | RemoveLayer | ImportResource | Export,
     Field(discriminator="action"),
 ]
 
@@ -246,8 +348,14 @@ class Job(StrictModel):
 
     @model_validator(mode="after")
     def references(self):
+        strict_assets = True
         known = set()
-        if self.project.asset is not None:
+        if self.project.source is not None:
+            if self.project.assets is None:
+                strict_assets = False
+            else:
+                known = set(self.project.assets)
+        elif self.project.asset is not None:
             if self.project.asset.name == self.project.name:
                 raise ValueError("project asset name must differ from the project name")
             known.add(self.project.asset.name)
@@ -255,7 +363,7 @@ class Job(StrictModel):
         exports = 0
         for index, step in enumerate(self.steps):
             if isinstance(step, CreateAsset):
-                if step.name in known:
+                if strict_assets and step.name in known:
                     raise ValueError(f"asset {step.name!r} is created twice")
                 known.add(step.name)
                 continue
@@ -265,17 +373,22 @@ class Job(StrictModel):
                     raise ValueError(f"export directory {step.directory!r} is reused")
                 directories.add(step.directory)
                 names = ([step.asset] if step.asset else []) + (step.assets or [])
-                for name in names:
-                    if name not in known:
-                        raise ValueError(
-                            f"export references asset {name!r} before it is created"
-                        )
-                if step.all_assets and not known:
-                    raise ValueError("all_assets export needs at least one asset")
+                if strict_assets:
+                    for name in names:
+                        if name not in known:
+                            raise ValueError(
+                                f"export references asset {name!r} before it is created"
+                            )
+                    if step.all_assets and not known:
+                        raise ValueError("all_assets export needs at least one asset")
                 continue
             if (
-                isinstance(step, (ImportImages, ImportTextures, InsertFilter, InsertMaterial,
-                                  SetParameters, ApplyPreset, RemoveLayer))
+                isinstance(step, (
+                    ImportImages, ImportTextures, SetMetadata, ActivateChannels,
+                    DeactivateChannels, InsertFilter, InsertMaterial, SetParameters,
+                    ApplyPreset, SetChannels, SetBlendParameters, RemoveLayer,
+                ))
+                and strict_assets
                 and step.asset not in known
             ):
                 raise ValueError(
@@ -302,7 +415,7 @@ def job_schema() -> dict:
 
 
 def input_paths(job: Job) -> list[str]:
-    found = []
+    found = [job.project.source] if job.project.source is not None else []
     for step in job.steps:
         if isinstance(step, ImportImages):
             found.extend(step.images)
@@ -322,6 +435,16 @@ def validate_paths(job: Job, workspace) -> dict:
         raise JobValidationError("job directory already exists; choose a new directory")
     if not directory.parent.is_dir():
         raise JobValidationError("job directory parent must exist")
+    if job.project.source is not None:
+        source = (root / job.project.source).resolve()
+        if (
+            not source.is_relative_to(root)
+            or not source.is_file()
+            or source.suffix.lower() != ".ssa"
+        ):
+            raise JobValidationError(
+                "project source must be an existing .ssa inside the workspace"
+            )
     for name in input_paths(job):
         path = (root / name).resolve()
         if not path.is_relative_to(root) or not path.is_file():

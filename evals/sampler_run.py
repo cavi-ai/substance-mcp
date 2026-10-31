@@ -141,6 +141,7 @@ def fixtures(output: Path) -> Path:
         "generic": build("jobs/generic", "generic"),
         "existing": build("existing", "generic"),
         "fail": build("jobs/fail", "generic", asset="fail"),
+        "check": build("jobs/check", "unreal"),
         "b2m": {
             "schema": 1,
             "directory": "jobs/b2m",
@@ -164,6 +165,25 @@ def fixtures(output: Path) -> Path:
     bad_schema["steps"] = [step for step in bad_schema["steps"]
                            if step["action"] != "export"]
     (workspace / "jobs/bad-schema.json").write_text(json.dumps(bad_schema))
+    missing_filter = build("jobs/missing-filter", "generic")
+    missing_filter["steps"].insert(-1, {
+        "action": "insert_filter", "asset": "Rock", "filter": "Missing Filter",
+        "position": 2,
+    })
+    (workspace / "jobs/missing-filter.json").write_text(json.dumps(missing_filter))
+    source = {
+        "schema": 1,
+        "directory": "jobs/source",
+        "project": {"source": "projects/Rock.ssa", "name": "RockCopy",
+                    "assets": ["Rock"]},
+        "steps": [
+            {"action": "set_metadata", "asset": "Rock", "author": "Eval",
+             "category": "rock", "tags": ["game"]},
+            {"action": "export", "asset": "Rock", "target": "unity",
+             "directory": "unity"},
+        ],
+    }
+    (workspace / "jobs/source.json").write_text(json.dumps(source))
     install(output / "app")
     return workspace
 

@@ -70,6 +70,13 @@ class JobModelTests(unittest.TestCase):
         data["project"]["name"] = "Rock"
         data["project"]["asset"]["name"] = "Rock"
         cases.append(data)
+        data = job_data()
+        data["project"] = {"source": "projects/source.ssa",
+                           "asset": {"name": "Rock"}}
+        cases.append(data)
+        data = job_data()
+        data["project"] = {"name": "RockProject", "assets": ["Rock"]}
+        cases.append(data)
         for case in cases:
             with self.subTest(case=case), self.assertRaises(ValueError):
                 job.Job.model_validate(case)
@@ -175,6 +182,90 @@ class BatchTests(unittest.TestCase):
         actions = [step["action"] for step in manifest["steps"]]
         self.assertEqual(actions, ["create_asset", "import_images", "export"])
 
+    def test_source_project_export_only(self):
+        seed = job_data(directory="jobs/seed-export")
+        seed["steps"] = [
+            seed["steps"][0],
+            {"action": "export", "asset": "Rock", "target": "unreal", "resolution": 64},
+        ]
+        batch.run_job_file(self.write_job("seed-export.json", seed), self.workspace)
+        source = self.workspace / "jobs/seed-export/RockProject.ssa"
+        digest = source.read_bytes()
+        data = {
+            "schema": 1,
+            "directory": "jobs/source-export",
+            "project": {"source": "jobs/seed-export/RockProject.ssa", "name": "RockCopy"},
+            "steps": [
+                {"action": "export", "asset": "Rock", "target": "unity",
+                 "directory": "unity"},
+            ],
+        }
+        manifest = batch.run_job_file(self.write_job("source-export.json", data),
+                                      self.workspace)
+        self.assertEqual(manifest["status"], "success")
+        self.assertEqual(manifest["source"], "jobs/seed-export/RockProject.ssa")
+        self.assertEqual(manifest["project"], "jobs/source-export/RockCopy.ssa")
+        self.assertTrue((self.workspace / "jobs/source-export/RockCopy.ssa").is_file())
+        self.assertEqual(source.read_bytes(), digest)
+
+    def test_source_project_copy_and_authoring(self):
+        seed = job_data(directory="jobs/seed")
+        seed["steps"] = [
+            seed["steps"][0],
+            {"action": "export", "asset": "Rock", "target": "unreal", "resolution": 64},
+        ]
+        seed_path = self.write_job("seed.json", seed)
+        batch.run_job_file(seed_path, self.workspace)
+        source = self.workspace / "jobs/seed/RockProject.ssa"
+        digest = source.read_bytes()
+        data = {
+            "schema": 1,
+            "directory": "jobs/source-copy",
+            "project": {"source": "jobs/seed/RockProject.ssa", "name": "RockCopy",
+                        "assets": ["Rock"]},
+            "steps": [
+                {"action": "set_metadata", "asset": "Rock", "author": "Cavi",
+                 "category": "rock", "tags": ["game"], "physical_size": [1, 2, 3]},
+                {"action": "insert_filter", "asset": "Rock", "filter": "Tiling",
+                 "position": 1},
+                {"action": "set_channels", "asset": "Rock", "layer": "Tiling",
+                 "applies_to": ["baseColor"]},
+                {"action": "insert_material", "asset": "Rock", "material": "Brick",
+                 "position": 0},
+                {"action": "set_blend_parameters", "asset": "Rock", "layer": "Brick",
+                 "parameters": {"Opacity": 0.5}},
+                {"action": "export", "asset": "Rock", "target": "unity",
+                 "directory": "unity"},
+            ],
+        }
+        path = self.write_job("source.json", data)
+        manifest = batch.run_job_file(path, self.workspace)
+        self.assertEqual(manifest["status"], "success")
+        self.assertEqual(manifest["source"], "jobs/seed/RockProject.ssa")
+        self.assertEqual(manifest["project"], "jobs/source-copy/RockCopy.ssa")
+        self.assertEqual(source.read_bytes(), digest)
+        outputs = [row["path"] for row in manifest["outputs"]]
+        self.assertIn("jobs/source-copy/RockCopy.ssa", outputs)
+        metadata = next(step for step in manifest["steps"]
+                        if step["action"] == "set_metadata")
+        self.assertEqual(metadata["result"]["metadata"]["author"], "Cavi")
+
+    def test_validate_with_missing_filter(self):
+        data = job_data(directory="jobs/missing-filter")
+        data["steps"].insert(-1, {"action": "insert_filter", "asset": "Rock",
+                                  "filter": "Missing Filter", "position": 2})
+        path = self.write_job("missing-filter.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "filter .* not available"):
+            batch.validate_with_sampler(path, self.workspace)
+
+    def test_validate_with_missing_material(self):
+        data = job_data(directory="jobs/missing-material")
+        data["steps"].insert(-1, {"action": "insert_material", "asset": "Rock",
+                                  "material": "Missing Material", "position": 2})
+        path = self.write_job("missing-material.json", data)
+        with self.assertRaisesRegex(job.JobValidationError, "material .* not available"):
+            batch.validate_with_sampler(path, self.workspace)
+
     def test_validate_with_sampler(self):
         path = self.write_job("check.json", job_data(directory="jobs/check"))
         plan = batch.validate_with_sampler(path, self.workspace)
@@ -225,6 +316,8 @@ class BatchTests(unittest.TestCase):
             {"action": "export", "asset": "Rock", "target": "blender"},
         ]
         path = self.write_job("resources.json", data)
+        plan = batch.validate_with_sampler(path, self.workspace)
+        self.assertTrue(plan["imports_resources"])
         manifest = batch.run_job_file(path, self.workspace)
         actions = [step["action"] for step in manifest["steps"]]
         self.assertEqual(actions[:3], ["create_asset", "import_resource", "import_images"])

@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from pydantic import Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from . import batch, operations
 
@@ -40,6 +40,18 @@ MaterialType = Literal["standard", "decal", "atlas"]
 TargetName = Literal["unreal", "unity", "blender", "generic"]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
 JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
+ChannelName = Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class AssetMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    author: Annotated[str | None, Field(max_length=128)] = None
+    category: Annotated[str | None, Field(max_length=128)] = None
+    description: Annotated[str | None, Field(max_length=1024)] = None
+    tags: Annotated[list[str] | None, Field(max_length=64)] = None
+    physical_size: tuple[float, float, float] | None = None
+    custom_metadata: Annotated[dict[str, bool | int | float | str | None] | None,
+                               Field(max_length=64)] = None
 INSPECT_PARAMS = {
     "project": {"project"},
     "asset": {"project", "asset"},
@@ -49,6 +61,9 @@ ASSET_PARAMS = {
     "create": {"project", "name", "model", "preset", "empty"},
     "delete": {"project", "asset"},
     "import_resource": {"project", "path"},
+    "set_metadata": {"project", "asset", "metadata"},
+    "activate_channels": {"project", "asset", "channels"},
+    "deactivate_channels": {"project", "asset", "channels"},
     "import_images": {"project", "asset", "images", "position", "import_option", "insert_above"},
     "import_textures": {"project", "asset", "images", "position", "insert_above"},
     "insert_filter": {"project", "asset", "filter", "position", "insert_above"},
@@ -122,8 +137,9 @@ async def sampler_project(
 @mcp.tool(annotations=WRITES)
 async def sampler_asset(
     action: Literal[
-        "create", "delete", "import_resource", "import_images", "import_textures",
-        "insert_filter", "insert_material",
+        "create", "delete", "import_resource", "set_metadata", "activate_channels",
+        "deactivate_channels", "import_images", "import_textures", "insert_filter",
+        "insert_material",
     ],
     project: ProjectPath,
     asset: AssetName | None = None,
@@ -131,6 +147,8 @@ async def sampler_asset(
     model: Literal["asm", "openpbr"] = "asm",
     preset: Annotated[str | None, Field(max_length=128)] = None,
     empty: StrictBool = False,
+    metadata: AssetMetadata | None = None,
+    channels: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
     path: Annotated[str | None, Field(description="import_resource: workspace .sbsar or .sbs.")] = None,
     images: list[str] | dict[str, str] | None = None,
     position: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
@@ -141,15 +159,20 @@ async def sampler_asset(
     blend_mode: BlendMode = "blend_normal",
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """Create assets and resources or add, remove and extend asset layers."""
+    """Create assets/resources, set metadata or channels, or extend asset layers."""
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
-        "empty": empty, "path": path, "images": images, "position": position,
-        "import_option": import_option, "insert_above": insert_above, "filter": filter,
-        "material": material, "blend_mode": blend_mode,
+        "empty": empty, "metadata": metadata, "channels": channels, "path": path,
+        "images": images, "position": position, "import_option": import_option,
+        "insert_above": insert_above, "filter": filter, "material": material,
+        "blend_mode": blend_mode,
     }
     if action != "create":
         values["model"], values["preset"], values["empty"] = None, None, None
+    if action != "set_metadata":
+        values["metadata"] = None
+    if action not in ("activate_channels", "deactivate_channels"):
+        values["channels"] = None
     if action != "import_resource":
         values["path"] = None
     if action != "import_images":
@@ -165,9 +188,15 @@ async def sampler_asset(
         need(name, "name", action)
     if action == "import_resource":
         need(path, "path", action)
-    if action in ("delete", "import_images", "import_textures", "insert_filter",
-                  "insert_material"):
+    if action in ("delete", "set_metadata", "activate_channels", "deactivate_channels",
+                  "import_images", "import_textures", "insert_filter", "insert_material"):
         need(asset, "asset", action)
+    if action == "set_metadata":
+        need(metadata, "metadata", action)
+        if not metadata.model_dump(exclude_none=True):
+            raise ValueError("metadata must contain at least one field")
+    if action in ("activate_channels", "deactivate_channels"):
+        need(channels, "channels", action)
     if action == "import_images" and not isinstance(images, list):
         raise ValueError("images must be a list of workspace images")
     if action == "import_textures" and not isinstance(images, dict):
@@ -187,6 +216,10 @@ async def sampler_asset(
             arguments["preset"] = preset
     if action == "import_resource":
         arguments["path"] = path
+    if action == "set_metadata":
+        arguments.update(metadata.model_dump(exclude_none=True))
+    if action in ("activate_channels", "deactivate_channels"):
+        arguments["channels"] = channels
     if action in ("import_images", "import_textures"):
         arguments["images"] = images
     if action in ("import_images", "import_textures", "insert_filter", "insert_material"):
@@ -206,38 +239,71 @@ async def sampler_asset(
 
 @mcp.tool(annotations=WRITES)
 async def sampler_layer(
-    action: Literal["set_parameters", "apply_preset", "remove"],
+    action: Literal[
+        "set_parameters", "apply_preset", "set_channels", "set_blend_parameters", "remove",
+    ],
     project: ProjectPath,
     asset: AssetName,
     layer: Annotated[str, Field(min_length=1, max_length=128)],
     position: Annotated[StrictInt | None, Field(ge=0, le=100000)] = None,
     parameters: Annotated[dict[str, ParameterValue] | None, Field(max_length=64)] = None,
     preset: Annotated[str | None, Field(max_length=128)] = None,
+    applies_to: Annotated[list[ChannelName] | None, Field(min_length=1, max_length=64)] = None,
+    blend_applies_to: Annotated[list[ChannelName] | None,
+                               Field(min_length=1, max_length=64)] = None,
     confirm: StrictBool = False,
     timeout_seconds: Timeout = 600,
 ) -> dict[str, Any]:
-    """Set layer parameters, apply a layer preset, or remove a layer."""
+    """Edit layer parameters, presets, channels or blend parameters."""
     if action == "set_parameters":
         if not isinstance(parameters, dict) or not parameters:
             raise ValueError("parameters must be a non-empty object")
-        if preset is not None or confirm:
-            raise ValueError("preset and confirm are not valid for action=set_parameters")
+        if (
+            preset is not None or confirm or applies_to is not None
+            or blend_applies_to is not None
+        ):
+            raise ValueError("only parameters is valid for action=set_parameters")
         arguments = {"project": project, "asset": asset, "layer": layer,
                      "position": position, "parameters": parameters}
     elif action == "apply_preset":
         need(preset, "preset", action)
-        if parameters is not None or confirm:
-            raise ValueError("parameters and confirm are not valid for action=apply_preset")
+        if (
+            parameters is not None or confirm or applies_to is not None
+            or blend_applies_to is not None
+        ):
+            raise ValueError("only preset is valid for action=apply_preset")
         arguments = {"project": project, "asset": asset, "layer": layer,
                      "position": position, "preset": preset}
+    elif action == "set_channels":
+        if applies_to is None and blend_applies_to is None:
+            raise ValueError("set_channels needs applies_to or blend_applies_to")
+        if parameters is not None or preset is not None or confirm:
+            raise ValueError("only applies_to and blend_applies_to are valid here")
+        arguments = {"project": project, "asset": asset, "layer": layer,
+                     "position": position, "applies_to": applies_to,
+                     "blend_applies_to": blend_applies_to}
+    elif action == "set_blend_parameters":
+        if not isinstance(parameters, dict) or not parameters:
+            raise ValueError("parameters must be a non-empty object")
+        if (
+            preset is not None or confirm or applies_to is not None
+            or blend_applies_to is not None
+        ):
+            raise ValueError("only parameters is valid for set_blend_parameters")
+        arguments = {"project": project, "asset": asset, "layer": layer,
+                     "position": position, "parameters": parameters}
     else:
         if not confirm:
             raise ValueError("confirm must be true for action=remove")
-        if parameters is not None or preset is not None:
-            raise ValueError("parameters and preset are not valid for action=remove")
+        if (
+            parameters is not None or preset is not None or applies_to is not None
+            or blend_applies_to is not None
+        ):
+            raise ValueError("only confirm is valid for action=remove")
         arguments = {"project": project, "asset": asset, "layer": layer,
                      "position": position}
     operation = {"set_parameters": "set_parameters", "apply_preset": "apply_preset",
+                 "set_channels": "set_channels", "set_blend_parameters": "set_blend_parameters",
                  "remove": "remove_layer"}[action]
     return await operations.invoke(operation, {
         key: value for key, value in arguments.items() if value is not None
@@ -275,11 +341,16 @@ async def sampler_export(
 async def sampler_build(
     job: JobFile,
     dry_run: StrictBool = False,
+    check_sampler: StrictBool = False,
     timeout_seconds: Timeout = 1800,
 ) -> dict[str, Any]:
     """Validate or run a batch job file and return its manifest or plan."""
+    if check_sampler and not dry_run:
+        raise ValueError("check_sampler is only valid with dry_run=true")
     root = operations.workspace()
     if dry_run:
+        if check_sampler:
+            return {**await batch.validate_with_sampler_async(job, root), "dry_run": True}
         return {**batch.validate_job_file(job, root), "dry_run": True}
     return await batch.run_job_file_async(job, root, timeout_seconds=timeout_seconds)
 
