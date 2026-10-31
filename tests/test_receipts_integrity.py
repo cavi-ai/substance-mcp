@@ -329,14 +329,14 @@ class PainterManifestTests(Workspace):
         textures = self.write("painter/base.png", "png")
         project = self.write("proj/rock.spp", "spp")
         provenance = [{
-            "manifest": painter_operations._receipt_record(upstream_manifest, self.root),
-            "file": painter_operations._receipt_record(upstream, self.root),
+            "manifest": painter_operations.receipts.record(upstream_manifest, self.root),
+            "file": painter_operations.receipts.record(upstream, self.root),
         }]
-        manifest = painter_operations._receipt_build(
+        manifest = painter_operations.receipts.build(
             "painter", "export", self.root, inputs=[project], outputs=[textures],
             parameters={"preset": "x"}, seconds=1.5, version="9.1", provenance=provenance,
         )
-        path = painter_operations._receipt_write(textures.parent, manifest)
+        path = painter_operations.receipts.write(textures.parent, manifest)
         loaded = receipts.load(path)
         self.assertEqual(loaded["schema"], 1)
         receipts.verify(loaded, self.root)
@@ -400,3 +400,37 @@ class DesignerBuiltinTests(Workspace):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PainterSharedReceiptTests(unittest.TestCase):
+    """Painter reads and writes receipts with the shared receipts module."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.root = Path(self.folder.name).resolve()
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def test_painter_accepts_a_schema_2_source_manifest(self):
+        out = self.root / "cook"
+        out.mkdir()
+        sbsar = out / "material.sbsar"
+        sbsar.write_bytes(b"sbsar")
+        template = self.root / "template.sbs"
+        template.write_bytes(b"template")
+        manifest = receipts.build(
+            "designer", "cook", self.root, outputs=[sbsar],
+            external=[receipts.app_resource("templates/pbr", template, "16.0")],
+        )
+        self.assertEqual(manifest["schema"], 2)
+        receipts.write(out, manifest)
+        entry, path = painter_operations._receipt_source(
+            sbsar, self.root, "cook/manifest.json", None)
+        self.assertEqual(entry["sha256"], receipts.sha256_file(sbsar))
+        self.assertEqual(path, out / "manifest.json")
+
+    def test_painter_receipts_refuse_a_missing_output(self):
+        with self.assertRaises(ValueError):
+            painter_operations.receipts.build(
+                "painter", "export", self.root, outputs=[self.root / "missing.png"])

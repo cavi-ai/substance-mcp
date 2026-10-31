@@ -23,7 +23,6 @@ from sampler_fake_cli import install as install_sampler
 
 from cavi_substance_mcp import receipts, receipts_cli
 from cavi_substance_mcp.designer import operations as designer
-from cavi_substance_mcp.painter import operations as painter_operations
 from cavi_substance_mcp.sampler import launch as sampler
 
 
@@ -139,16 +138,6 @@ class ReceiptTests(unittest.TestCase):
             result = json.loads(stream.getvalue())
             self.assertFalse(result["ok"])
             self.assertIn("SHA-256", result["error"])
-
-    def test_shared_and_painter_receipt_schema_match(self):
-        output = self.root / "out.txt"
-        output.write_text("output")
-        shared = receipts.build("test", "write", self.root, outputs=[output])
-        painter = painter_operations._receipt_build(
-            "test", "write", self.root, outputs=[output]
-        )
-        self.assertEqual(set(shared), set(painter))
-        self.assertEqual(shared["schema"], painter["schema"])
 
     def test_designer_to_painter_receipt_chain(self):
         workspace = self.root / "ws"

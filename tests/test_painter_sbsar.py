@@ -104,10 +104,8 @@ class SizeCapTests(unittest.TestCase):
     def test_a_source_manifest_over_8_mib_is_refused(self):
         from cavi_substance_mcp import receipts
 
-        self.assertEqual(ops.MAX_JSON_BYTES, receipts.MAX_JSON_BYTES)
-        self.assertEqual(ops.MAX_JSON_BYTES, 8 * 1024 * 1024)
         (self.root / "m.json").write_text('{"schema": 1, "outputs": []}' + " " * 200)
-        with patch.object(ops, "MAX_JSON_BYTES", 100), self.assertRaisesRegex(
+        with patch.object(receipts, "MAX_JSON_BYTES", 100), self.assertRaisesRegex(
                 ValueError, r"source_manifest is unreadable: .*larger than"):
             ops._receipt_provenance("m.json", "big.sbsar", self.root)
 
@@ -116,7 +114,7 @@ class SizeCapTests(unittest.TestCase):
         text = json.dumps({"schema": 1, "outputs": [{
             "path": "big.sbsar", "size": 100, "sha256": digest}]})
         (self.root / "m.json").write_text(text)
-        with patch.object(ops, "MAX_JSON_BYTES", len(text)):
+        with patch.object(ops.receipts, "MAX_JSON_BYTES", len(text)):
             found = ops._receipt_provenance("m.json", "big.sbsar", self.root)
         self.assertEqual(found[0]["file"]["sha256"], digest)
 

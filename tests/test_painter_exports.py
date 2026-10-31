@@ -96,7 +96,7 @@ class FailedOutputTests(Fixture):
     def test_directory_with_a_manifest_is_kept_even_if_the_call_then_fails(self):
         folder = self.root / "done"
         with self.assertRaisesRegex(ZeroDivisionError, "late"), ops.new_output_directory(folder):
-            (folder / ops.RECEIPT_MANIFEST).write_text("{}")
+            (folder / ops.receipts.MANIFEST).write_text("{}")
             raise ZeroDivisionError("late")
         self.assertTrue(folder.is_dir())
 

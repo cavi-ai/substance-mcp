@@ -1,8 +1,6 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
-import datetime
 import hashlib
-import json
 import math
 import os
 import re
@@ -15,6 +13,11 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    receipts  # noqa: B018 -- the payload bundle defines it before this source runs
+except NameError:  # imported on the host (tests, simulator setup)
+    from .. import receipts
 
 # Bump when Lease state or methods change. The version is part of the attribute name, so a
 # payload never reuses an object built from other code; a lease held under an older version
@@ -47,8 +50,6 @@ SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
-# The most a JSON file read from the workspace may hold; receipts.MAX_JSON_BYTES is the twin.
-MAX_JSON_BYTES = 8 * 1024 * 1024
 MAX_NODES = 512
 # Painter export JSON: srcMapType documentMap/meshMap/virtualMap names; True = color source.
 DOCUMENT_MAPS = {
@@ -264,7 +265,7 @@ def new_output_directory(folder):
     try:
         yield folder
     except BaseException as exc:
-        if (folder / RECEIPT_MANIFEST).exists():
+        if (folder / receipts.MANIFEST).exists():
             raise
         left = remove_tree(folder)
         if not isinstance(exc, Exception):
@@ -583,12 +584,12 @@ def _execute(operation: str, params: dict, workspace: str) -> dict:
             project.save_as_copy(str(path), project.ProjectSaveMode.Full)
             if not path.is_file() or path.stat().st_size == 0:
                 raise RuntimeError("Painter did not produce a saved project copy")
-            manifest = _receipt_build(
+            manifest = receipts.build(
                 "painter", "save_copy", root(), outputs=[path],
                 parameters={"directory": required(params, "directory")},
                 seconds=time.monotonic() - started, version=_painter_version(),
             )
-            manifest_path = _receipt_write(folder, manifest)
+            manifest_path = receipts.write(folder, manifest)
         return {"path": str(path), "bytes": path.stat().st_size,
                 "manifest": str(manifest_path)}
     if operation == "export_textures":
@@ -697,72 +698,6 @@ def export_maps(specs, default_format, default_depth):
     return maps
 
 
-RECEIPT_MANIFEST = "manifest.json"
-
-
-def _receipt_hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _receipt_record(path: Path, root: Path) -> dict:
-    path = Path(path).resolve()
-    root = Path(root).resolve()
-    return {
-        "path": path.relative_to(root).as_posix(),
-        "size": path.stat().st_size,
-        "sha256": _receipt_hash(path),
-    }
-
-
-def _receipt_records(paths, root: Path) -> list[dict]:
-    seen, found = set(), []
-    root = Path(root).resolve()
-    for item in paths:
-        path = Path(item).resolve()
-        if path in seen or not path.is_file():
-            continue
-        seen.add(path)
-        found.append(_receipt_record(path, root))
-    return found
-
-
-def _receipt_build(app, operation, root: Path, inputs=(), outputs=(), parameters=None,
-                   started=None, seconds=None, version=None, warnings=None,
-                   provenance=None) -> dict:
-    return {
-        "schema": 1,
-        "app": app,
-        "operation": operation,
-        "version": version,
-        "started": started or datetime.datetime.now(datetime.UTC).isoformat(),
-        "seconds": round(seconds, 3) if seconds is not None else None,
-        "parameters": parameters or {},
-        "inputs": _receipt_records(inputs, root),
-        "outputs": _receipt_records(outputs, root),
-        "warnings": list(warnings or []),
-        "provenance": list(provenance or []),
-    }
-
-
-def _receipt_write(directory: Path, manifest: dict) -> Path:
-    path = Path(directory) / RECEIPT_MANIFEST
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as stream:
-            stream.write(json.dumps(manifest, indent=2) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink(missing_ok=True)
-    return path
-
-
 def snapshot_sbsar(path: Path, folder: Path | None = None):
     """Read an .sbsar exactly once: enforce the size cap, hash it, optionally copy it.
 
@@ -810,31 +745,13 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected,
         raise ValueError("sbsar sha256 does not match expected_sha256")
     if manifest_path is not None:
         try:
-            with manifest_path.open("rb") as stream:
-                data = stream.read(MAX_JSON_BYTES + 1)
-            if len(data) > MAX_JSON_BYTES:
-                raise ValueError(f"file is larger than {MAX_JSON_BYTES // 2**20} MiB")
-            manifest = json.loads(data.decode("utf-8"))
-        except (OSError, ValueError) as exc:
+            manifest = receipts.load(manifest_path)
+        except ValueError as exc:
             raise ValueError(f"source_manifest is unreadable: {exc}") from exc
-        if not isinstance(manifest, dict) or manifest.get("schema") != 1:
-            raise ValueError("source_manifest schema must be 1")
-        rows = manifest.get("outputs")
-        if not isinstance(rows, list):
-            raise ValueError("source_manifest outputs must be a list")
-        target = Path(path).resolve()
-        found = None
-        for row in rows:
-            if not isinstance(row, dict) or not isinstance(row.get("path"), str):
-                continue
-            candidate = Path(row["path"])
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            if candidate.resolve() == target:
-                found = row
-                break
-        if found is None:
-            raise ValueError(f"{path.name} is not an output of source_manifest")
+        try:
+            found = receipts.find(manifest, root, path)
+        except ValueError:
+            raise ValueError(f"{path.name} is not an output of source_manifest") from None
         if found.get("size") != entry["size"] or found.get("sha256") != entry["sha256"]:
             raise ValueError(f"{path.name} does not match source_manifest")
     return entry, manifest_path
@@ -847,7 +764,7 @@ def _receipt_provenance(manifest_name, file_name, root: Path) -> list[dict]:
         return []
     source = input_file(root, file_name, {".sbsar"})
     entry, manifest_path = _receipt_source(source, root, manifest_name, None)
-    return [{"manifest": _receipt_record(manifest_path, root), "file": entry}]
+    return [{"manifest": receipts.record(manifest_path, root), "file": entry}]
 
 
 def _painter_version():
@@ -943,7 +860,7 @@ def _export(params, root):
             file_path = None
         if file_path and Path(file_path).resolve().is_relative_to(root()):
             inputs.append(Path(file_path))
-        manifest = _receipt_build(
+        manifest = receipts.build(
             "painter", "export", root(), inputs=inputs, outputs=actual,
             parameters={"preset": preset, "maps": specs,
                         "texture_sets": [item.name() for item in sets],
@@ -953,7 +870,7 @@ def _export(params, root):
             seconds=time.monotonic() - started, version=_painter_version(),
             provenance=provenance,
         )
-        manifest_path = _receipt_write(folder, manifest)
+        manifest_path = receipts.write(folder, manifest)
     return {
         "dry_run": False,
         "status": result.status.name,
