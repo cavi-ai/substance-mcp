@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from .. import packing, receipts
-from ..core import workspace
+from ..core import proc, workspace
 from . import runner
 
 GRAPH = re.compile(r"^pkg://[A-Za-z0-9_./-]{1,128}$")
@@ -69,10 +69,10 @@ async def status() -> dict:
 
 async def graphs_of(sbsar: Path, timeout: float) -> list[dict]:
     tool = runner.installation().require("sbsrender")
-    result = await runner.run([tool, "info", sbsar], timeout)
+    result = await proc.run([tool, "info", sbsar], timeout)
     if result.returncode:
         raise RuntimeError(runner.failure(result, "sbsrender info"))
-    graphs = runner.parse_info(result.stdout)
+    graphs = runner.parse_info(runner.parsed_stdout(result, "sbsrender info"))
     if not graphs:
         raise RuntimeError("sbsrender info listed no graphs")
     return graphs
@@ -105,7 +105,7 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
     dest = new_directory(directory)
     started = time.monotonic()
     try:
-        result = await runner.run([
+        result = await proc.run([
             tool, "--inputs", sbs, "--output-path", dest,
             "--expose-output-size", "1" if expose_output_size else "0",
             "--expose-random-seed", "1" if expose_random_seed else "0",
@@ -216,10 +216,10 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
     dest = new_directory(directory)
     started = time.monotonic()
     try:
-        result = await runner.run([tool, *args, "--output-path", dest], timeout)
+        result = await proc.run([tool, *args, "--output-path", dest], timeout)
         if result.returncode:
             raise RuntimeError(runner.failure(result, "sbsrender render"))
-        report = runner.parse_report(result.stdout)
+        report = runner.parse_report(runner.parsed_stdout(result, "sbsrender render"))
         produced, maps = [], {}
         for entry in report:
             for output in entry.get("outputs", []) if isinstance(entry, dict) else []:
@@ -333,13 +333,13 @@ async def bake(low, high, cage, maps, directory, options, timeout):
         for name in maps:
             started = time.monotonic()
             args = bake_args(name, low_path, high_path, cage_path, dest, options)
-            result = await runner.run([tool, *args], timeout, cwd=dest)
+            result = await proc.run([tool, *args], timeout, cwd=dest)
             if result.returncode:
                 raise RuntimeError(runner.failure(result, f"{BAKERS[name]}"))
             target = dest / f"{name}.{options['format']}"
             if not target.is_file() or target.stat().st_size == 0:
                 raise RuntimeError(f"{BAKERS[name]} exited 0 but wrote no {target.name}: "
-                                   + runner.diagnostics(result))
+                                   + proc.diagnostics(result))
             files[name] = rel(target)
             timings[name] = round(time.monotonic() - started, 3)
         manifest = receipts.build(

@@ -1,13 +1,13 @@
 """Sampler executable discovery and bounded silent-script execution."""
 
-import asyncio
 import os
 import plistlib
-import signal
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from ..core import proc
 
 MAC_APP = Path("/Applications/Adobe Substance 3D Sampler/Adobe Substance 3D Sampler.app")
 MAC_EXE = MAC_APP / "Contents/MacOS/Adobe Substance 3D Sampler"
@@ -18,9 +18,8 @@ DEFAULT_EXECUTABLES = {
     ),
     "linux": Path("/opt/Adobe/Adobe_Substance_3D_Sampler/Adobe Substance 3D Sampler"),
 }
-STDOUT_LIMIT = 1024 * 1024
-STDERR_LIMIT = 1024 * 1024
-TERM_GRACE = 3.0
+# Sampler's output is only diagnostics (the response travels in a file).
+OUTPUT_LIMIT = 1024 * 1024
 
 
 def _platform() -> str:
@@ -139,66 +138,7 @@ def _normal_path(path):
         return Path(path)
 
 
-@dataclass
-class Result:
-    returncode: int
-    stdout: str
-    stderr: str
-    truncated: bool
-
-
-async def _drain(stream, limit: int):
-    kept, size, truncated = [], 0, False
-    while chunk := await stream.read(65536):
-        if size < limit:
-            kept.append(chunk[: limit - size])
-        truncated = truncated or size + len(chunk) > limit
-        size += len(chunk)
-    return b"".join(kept), truncated
-
-
-def _kill(process):
-    if process.returncode is not None:
-        return
-    try:
-        if sys.platform != "win32":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        pass
-
-
-def _terminate(process):
-    if process.returncode is not None:
-        return
-    try:
-        if sys.platform != "win32":
-            os.killpg(process.pid, signal.SIGTERM)
-        else:
-            process.terminate()
-    except ProcessLookupError:
-        pass
-
-
-async def _stop(process):
-    """Ask the process group to exit, then kill it if it outlives TERM_GRACE."""
-    _terminate(process)
-    try:
-        await asyncio.wait_for(process.wait(), TERM_GRACE)
-    except TimeoutError:
-        _kill(process)
-        await process.wait()
-
-
-async def _collect(process):
-    out, err, _ = await asyncio.gather(
-        _drain(process.stdout, STDOUT_LIMIT), _drain(process.stderr, STDERR_LIMIT), process.wait()
-    )
-    return out, err
-
-
-async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> Result:
+async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> proc.Result:
     executable = installation().require()
     env = dict(os.environ)
     env["SAMPLER_SCRIPT_PATH"] = str(job_dir)
@@ -206,34 +146,12 @@ async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> R
     env["PYTHONPATH"] = package_root + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
-    process = await asyncio.create_subprocess_exec(
-        str(executable), "--skip-version-check", "--run-script-silent", str(script), *extra,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-        cwd=job_dir,
-        start_new_session=sys.platform != "win32",
+    return await proc.run(
+        [executable, "--skip-version-check", "--run-script-silent", script, *extra],
+        timeout, cwd=job_dir, env=env, stdout_limit=OUTPUT_LIMIT, stderr_limit=OUTPUT_LIMIT,
+        label="Sampler",
     )
-    try:
-        (out, cut), (err, _) = await asyncio.wait_for(_collect(process), timeout)
-    except TimeoutError:
-        await _stop(process)
-        raise TimeoutError(f"Sampler exceeded {timeout:g} s and was killed") from None
-    except asyncio.CancelledError:
-        await _stop(process)
-        raise
-    finally:
-        _kill(process)
-    return Result(process.returncode, out.decode(errors="replace"),
-                  err.decode(errors="replace"), cut)
 
 
-def diagnostics(result: Result) -> str:
-    lines = [line for line in (result.stderr + "\n" + result.stdout).splitlines()
-             if line.strip() and "[info]" not in line.lower()]
-    return " | ".join(lines[-6:])[-1500:] or "no diagnostics"
-
-
-def failure(result: Result) -> str:
-    return f"Sampler exited {result.returncode}: {diagnostics(result)}"
+def failure(result: proc.Result) -> str:
+    return f"Sampler exited {result.returncode}: {proc.diagnostics(result)}"

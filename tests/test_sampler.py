@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 from sampler_fake_cli import install
 
 from cavi_substance_mcp import receipts
+from cavi_substance_mcp.core import proc
 from cavi_substance_mcp.sampler import launch, runner
 
 TIMEOUT = 30
@@ -400,7 +401,7 @@ class SamplerRunnerTests(unittest.TestCase):
             started = time.monotonic()
             with (
                 patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(executable)}),
-                patch.object(runner, "TERM_GRACE", 0.5),
+                patch.object(proc, "TERM_GRACE", 0.5),
                 self.assertRaisesRegex(TimeoutError, "killed"),
             ):
                 asyncio.run(runner.run_script(root / "run.py", 1.5, root))

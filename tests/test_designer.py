@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 from designer_fake_cli import install, sbsar
 
 from cavi_substance_mcp import packing
+from cavi_substance_mcp.core import proc
 from cavi_substance_mcp.designer import operations, runner
 
 HDRP = {"maps": [
@@ -194,6 +195,11 @@ class FakeCliTests(unittest.TestCase):
         self.assertEqual(status["templates"], ["01_02_pbr_metallic_roughness"])
         self.assertEqual(status["binaries"]["sbscooker"]["version"], "0.0.0-fake")
 
+    def test_a_truncated_info_listing_is_refused(self):
+        with patch.object(proc, "STDOUT_LIMIT", 20), \
+                self.assertRaisesRegex(RuntimeError, "truncated"):
+            asyncio.run(operations.info("m.sbsar", 30))
+
     def test_cook_flags(self):
         result = asyncio.run(operations.cook(
             None, "packages/brick_1", "c", True, False, 30))
@@ -264,17 +270,17 @@ class FakeCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / "h").exists())
 
 
-class RunnerTests(unittest.TestCase):
-    def test_stdout_bounded(self):
-        code = "import sys; sys.stdout.write('x' * 300000)"
-        with patch.object(runner, "STDOUT_LIMIT", 1000):
-            result = asyncio.run(runner.run([sys.executable, "-c", code], 30))
-        self.assertEqual((len(result.stdout), result.truncated), (1000, True))
+class TruncatedReportTests(unittest.TestCase):
+    def test_a_cut_report_is_an_error_not_a_short_list(self):
+        cut = proc.Result(0, "GRAPH-URL pkg://a\n", "", stdout_truncated=True)
+        with self.assertRaisesRegex(RuntimeError, "sbsrender info.*truncated"):
+            runner.parsed_stdout(cut, "sbsrender info")
+        whole = proc.Result(0, "GRAPH-URL pkg://a\n", "")
+        self.assertEqual(runner.parsed_stdout(whole, "sbsrender info"), whole.stdout)
 
-    def test_timeout_kills_child(self):
-        code = "import time; time.sleep(30)"
-        with self.assertRaisesRegex(TimeoutError, "killed"):
-            asyncio.run(runner.run([sys.executable, "-c", code], 0.5))
+    def test_failure_text_says_when_output_was_cut(self):
+        cut = proc.Result(2, "", "engine failed\n", stderr_truncated=True)
+        self.assertRegex(runner.failure(cut, "sbscooker"), "exit 2: engine failed.*truncated")
 
 
 class WorkspaceRootTests(unittest.TestCase):

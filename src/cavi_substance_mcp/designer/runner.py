@@ -1,17 +1,15 @@
-"""Designer binary discovery, bounded subprocess execution and output parsing."""
+"""Designer binary discovery and output parsing."""
 
-import asyncio
 import json
 import os
 import re
-import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core import proc
+
 TOOLS = ("sbscooker", "sbsrender", "substance3d_baker", "sbsupdater")
-STDOUT_LIMIT = 16 * 1024 * 1024
-STDERR_LIMIT = 1024 * 1024
 MAC_APP = Path("/Applications/Adobe Substance 3D Designer/Adobe Substance 3D Designer.app")
 DEFAULT_DIRS = {
     "darwin": MAC_APP / "Contents/MacOS",
@@ -58,79 +56,25 @@ def installation() -> Installation:
     return Installation(DEFAULT_DIRS.get(platform, DEFAULT_DIRS["linux"]), "default")
 
 
-@dataclass
-class Result:
-    returncode: int
-    stdout: str
-    stderr: str
-    truncated: bool
+def failure(result: proc.Result, name: str) -> str:
+    return f"{name} failed with exit {result.returncode}: {proc.diagnostics(result)}"
 
 
-async def _drain(stream, limit: int):
-    kept, size, truncated = [], 0, False
-    while chunk := await stream.read(65536):
-        if size < limit:
-            kept.append(chunk[: limit - size])
-        truncated = truncated or size + len(chunk) > limit
-        size += len(chunk)
-    return b"".join(kept), truncated
-
-
-def _kill(process):
-    if process.returncode is not None:
-        return
-    try:
-        if sys.platform != "win32":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        pass
-
-
-async def run(args: list[str], timeout: float, cwd: Path | None = None) -> Result:
-    process = await asyncio.create_subprocess_exec(
-        *[str(arg) for arg in args],
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        start_new_session=sys.platform != "win32",
-    )
-    try:
-        (out, cut), (err, _) = await asyncio.wait_for(_collect(process), timeout)
-    except TimeoutError:
-        _kill(process)
-        await process.wait()
-        raise TimeoutError(f"{Path(args[0]).name} exceeded {timeout:g} s and was killed") from None
-    finally:
-        _kill(process)
-    return Result(process.returncode, out.decode(errors="replace"),
-                  err.decode(errors="replace"), cut)
-
-
-async def _collect(process):
-    out, err, _ = await asyncio.gather(
-        _drain(process.stdout, STDOUT_LIMIT), _drain(process.stderr, STDERR_LIMIT), process.wait()
-    )
-    return out, err
-
-
-def diagnostics(result: Result) -> str:
-    lines = [line for line in (result.stderr + "\n" + result.stdout).splitlines()
-             if line.strip() and "[info]" not in line]
-    return " | ".join(lines[-6:])[-1500:] or "no diagnostics"
-
-
-def failure(result: Result, name: str) -> str:
-    return f"{name} failed with exit {result.returncode}: {diagnostics(result)}"
+def parsed_stdout(result: proc.Result, name: str) -> str:
+    """The stdout of a run whose report is parsed. A cut report is an error, not a short one."""
+    if result.stdout_truncated:
+        raise RuntimeError(
+            f"{name} printed more than {proc.STDOUT_LIMIT} bytes; its report was truncated "
+            "and cannot be read"
+        )
+    return result.stdout
 
 
 async def version(path: Path | None) -> str | None:
     if path is None:
         return None
     try:
-        result = await run([path, "--version"], 20)
+        result = await proc.run([path, "--version"], 20)
     except (OSError, TimeoutError):
         return None
     match = re.search(r"version\s+(\S+)", result.stdout + result.stderr)

@@ -15,7 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ..core import workspace
+from ..core import proc, workspace
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock
@@ -183,7 +183,7 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
                 raise RuntimeError(runner.failure(result))
             raise RuntimeError(
                 "Sampler exited without running the script. Quit any running Sampler window, "
-                "then retry. " + runner.diagnostics(result)
+                "then retry. " + proc.diagnostics(result)
             )
         if response.stat().st_size > RESPONSE_LIMIT:
             raise RuntimeError("Sampler response exceeds size limit")
