@@ -353,7 +353,10 @@ async def sampler_export(
     directory: NewDirectory,
     asset: AssetName | None = None,
     target: TargetName | None = None,
-    format: ExportFormat = "sbsar",
+    format: Annotated[
+        ExportFormat | None,
+        Field(description="Default sbsar, or png when target is set."),
+    ] = None,
     preset: Annotated[str | None, Field(max_length=128)] = None,
     channels: Annotated[list[str] | None, Field(max_length=64)] = None,
     resolution: Annotated[StrictInt | None, Field(ge=64, le=8192)] = None,
@@ -365,7 +368,9 @@ async def sampler_export(
 ) -> dict[str, Any]:
     """Preview or export an asset into a new workspace directory."""
     if target is not None and format in ("sbsar", "sbs"):
-        format = "png"
+        raise ValueError("target exports textures; use png, tga, tif or exr")
+    if format is None:
+        format = "png" if target is not None else "sbsar"
     return await operations.invoke("export", {
         "project": project, "directory": directory, "asset": asset, "target": target,
         "format": format, "preset": preset, "channels": channels, "resolution": resolution,

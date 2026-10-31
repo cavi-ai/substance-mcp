@@ -86,6 +86,21 @@ class ServerContractTests(unittest.TestCase):
         self.assertEqual(self.run_tool(server.sampler_inspect, action="catalog")["filters"][:1],
                          ["Brightness/Contrast"])
 
+    def test_export_target_rejects_a_resource_format(self):
+        project = self.project()
+        for fmt in ("sbsar", "sbs"):
+            with self.subTest(format=fmt), self.assertRaisesRegex(ValueError, "target exports"):
+                self.run_tool(server.sampler_export, project=project, directory="out",
+                              target="unreal", format=fmt)
+        plan = self.run_tool(server.sampler_export, project=project, directory="out",
+                             target="unreal")
+        self.assertEqual(plan["format"], "png")
+        plan = self.run_tool(server.sampler_export, project=project, directory="out",
+                             target="unreal", format="tga")
+        self.assertEqual(plan["format"], "tga")
+        plan = self.run_tool(server.sampler_export, project=project, directory="out")
+        self.assertEqual(plan["format"], "sbsar")
+
 
 if __name__ == "__main__":
     unittest.main()

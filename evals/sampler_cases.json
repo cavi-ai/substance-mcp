@@ -1016,6 +1016,26 @@
     ]
   },
   {
+    "id": "export-target-rejects-sbsar",
+    "tool": "sampler_export",
+    "kind": "invalid",
+    "modes": [
+      "protocol",
+      "simulated"
+    ],
+    "arguments": {
+      "project": "projects/Rock.ssa",
+      "directory": "out_bad_target",
+      "target": "unreal",
+      "format": "sbsar",
+      "dry_run": false
+    },
+    "error": "target exports textures",
+    "absent": [
+      "out_bad_target"
+    ]
+  },
+  {
     "id": "build-b2m",
     "tool": "sampler_build",
     "kind": "success",
