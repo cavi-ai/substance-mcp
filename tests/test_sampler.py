@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from home import isolate_home
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from sampler_fake_cli import install
@@ -447,6 +449,37 @@ class SamplerRunnerTests(unittest.TestCase):
                 found = runner.installation()
                 self.assertEqual(found.executable, executable)
                 self.assertEqual(found.source, "CAVI_SAMPLER_BIN")
+
+
+class SamplerWorkspaceRootTests(unittest.TestCase):
+    def setUp(self):
+        self.home = isolate_home(self)
+        self.default = self.home / "Documents/SubstanceMCP"
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        patcher = patch.dict(os.environ, {"CAVI_SAMPLER_APP": str(install(Path(scratch.name)))})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def call(self, operation, **arguments):
+        return asyncio.run(operations.invoke(operation, arguments, TIMEOUT))
+
+    def test_status_does_not_create_the_default_workspace(self):
+        status = operations.status()
+        self.assertEqual(status["workspace"], str(self.default))
+        self.assertFalse(status["workspace_exists"])
+        self.assertFalse(self.default.exists())
+
+    def test_a_launch_creates_the_default_workspace(self):
+        self.assertTrue(self.call("catalog"))
+        self.assertTrue(self.default.is_dir())
+
+    def test_a_missing_explicit_workspace_is_refused_and_not_created(self):
+        missing = self.home / "not-there"
+        with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}), \
+                self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
+            self.call("catalog")
+        self.assertFalse(missing.exists())
 
 
 class SamplerServerTests(unittest.TestCase):

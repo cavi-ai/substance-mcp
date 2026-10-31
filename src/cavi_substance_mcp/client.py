@@ -11,6 +11,8 @@ import threading
 import time
 from pathlib import Path
 
+from .core import workspace as workspaces
+
 OPERATIONS = frozenset(
     {
         "status",
@@ -169,14 +171,12 @@ class PainterClient:
         self.port = int(port if port is not None else os.environ.get("CAVI_PAINTER_PORT", "60041"))
         if not 1 <= self.port <= 65535:
             raise ValueError("Invalid Painter port")
-        self.workspace = Path(
-            workspace
-            or os.environ.get("CAVI_SUBSTANCE_WORKSPACE", Path.home() / "Documents/CaviGameArt")
-        ).expanduser().resolve()
+        self._chosen = workspace
+        self.workspace = workspaces.root(workspace)
 
     def ensure_workspace(self):
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.workspace = self.workspace.resolve()
+        """Make the default workspace; refuse one that was chosen but does not exist."""
+        self.workspace = workspaces.root(self._chosen, create=True)
 
     def call(
         self,

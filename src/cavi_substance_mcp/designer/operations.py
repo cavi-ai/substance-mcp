@@ -2,13 +2,12 @@
 
 import asyncio
 import math
-import os
 import re
 import time
 from pathlib import Path
 
 from .. import packing, receipts
-from ..painter_operations import export_destination, input_file, remove_tree
+from ..core import workspace
 from . import runner
 
 GRAPH = re.compile(r"^pkg://[A-Za-z0-9_./-]{1,128}$")
@@ -34,29 +33,16 @@ ORIENTED = {"normal", "bent_normal"}
 LOW_ONLY = {"world_normal"}
 
 
-def workspace(create=False) -> Path:
-    root = Path(os.environ.get("CAVI_SUBSTANCE_WORKSPACE", Path.home() / "Documents/CaviGameArt"))
-    root = root.expanduser()
-    if create:
-        root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
-
-
 def rel(path: Path) -> str:
-    return Path(path).resolve().relative_to(workspace()).as_posix()
+    return workspace.rel(workspace.root(), path)
 
 
 def new_directory(name: str) -> Path:
-    path = export_destination(workspace(create=True), name)
-    path.mkdir()
-    return path
+    return workspace.new_output_dir(workspace.root(create=True), name)
 
 
 def source(name: str, extensions: set[str]) -> Path:
-    try:
-        return input_file(workspace(), name, extensions)
-    except (OSError, RuntimeError) as exc:
-        raise ValueError("Input must be a supported file inside the workspace") from exc
+    return workspace.input_file(workspace.root(), name, extensions)
 
 
 async def status() -> dict:
@@ -66,7 +52,7 @@ async def status() -> dict:
     resources = install.resources
     packages = resources / "packages" if resources else None
     templates = resources / "templates" if resources else None
-    root = workspace()
+    root = workspace.root()
     return {
         "available": all(paths[name] for name in ("sbscooker", "sbsrender", "substance3d_baker")),
         "source": install.source,
@@ -134,7 +120,7 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
         # A built-in template lives in the Designer install, not the workspace: record
         # its name and hash instead of an absolute path that breaks on other machines.
         manifest = receipts.build(
-            "designer", "cook", workspace(),
+            "designer", "cook", workspace.root(),
             inputs=[] if builtin else [sbs], outputs=[sbsar],
             external=[receipts.app_resource(builtin, sbs, version)] if builtin else [],
             parameters={"source": builtin or rel(sbs),
@@ -144,7 +130,7 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
         )
         manifest_path = receipts.write(dest, manifest)
     except BaseException:
-        remove_tree(dest)
+        workspace.remove_tree(dest)
         raise
     return {"sbsar": rel(sbsar), "source": builtin or rel(sbs), "graphs": graphs,
             "manifest": rel(manifest_path)}
@@ -257,7 +243,7 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
             packed_paths = [item["path"] for item in packed["maps"]]
             reply["packed"] = _packed(packed)
         manifest = receipts.build(
-            "designer", "render", workspace(), inputs=[path],
+            "designer", "render", workspace.root(), inputs=[path],
             outputs=[*maps.values(), *packed_paths],
             parameters={"graph": selected["url"], "values": values,
                         "resolution": resolution, "seed": seed, "preset": preset,
@@ -267,7 +253,7 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
         manifest_path = receipts.write(dest, manifest)
         reply["manifest"] = rel(manifest_path)
     except BaseException:
-        remove_tree(dest)
+        workspace.remove_tree(dest)
         raise
     reply["seconds"] = round(time.monotonic() - started, 3)
     return reply
@@ -291,14 +277,14 @@ async def pack(sources: dict[str, str], spec, directory: str) -> dict:
     try:
         result = await asyncio.to_thread(packing.pack, spec, files, dest)
         manifest = receipts.build(
-            "designer", "pack", workspace(), inputs=list(files.values()),
+            "designer", "pack", workspace.root(), inputs=list(files.values()),
             outputs=[item["path"] for item in result["maps"]],
             parameters={"pack": spec.model_dump(mode="json")},
             seconds=time.monotonic() - started,
         )
         manifest_path = receipts.write(dest, manifest)
     except BaseException:
-        remove_tree(dest)
+        workspace.remove_tree(dest)
         raise
     return {"directory": rel(dest), "packed": _packed(result), "sources": result["sources"],
             "manifest": rel(manifest_path)}
@@ -357,7 +343,7 @@ async def bake(low, high, cage, maps, directory, options, timeout):
             files[name] = rel(target)
             timings[name] = round(time.monotonic() - started, 3)
         manifest = receipts.build(
-            "designer", "bake", workspace(),
+            "designer", "bake", workspace.root(),
             inputs=[path for path in (low_path, high_path, cage_path) if path is not None],
             outputs=[dest / f"{name}.{options['format']}" for name in maps],
             parameters=options, seconds=time.monotonic() - started_at,
@@ -365,7 +351,7 @@ async def bake(low, high, cage, maps, directory, options, timeout):
         )
         manifest_path = receipts.write(dest, manifest)
     except BaseException:
-        remove_tree(dest)
+        workspace.remove_tree(dest)
         raise
     return {"directory": rel(dest), "maps": files,
             "commands": {name: BAKERS[name] for name in maps}, "seconds": timings,

@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from home import isolate_home
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
@@ -274,6 +275,33 @@ class RunnerTests(unittest.TestCase):
         code = "import time; time.sleep(30)"
         with self.assertRaisesRegex(TimeoutError, "killed"):
             asyncio.run(runner.run([sys.executable, "-c", code], 0.5))
+
+
+class WorkspaceRootTests(unittest.TestCase):
+    def setUp(self):
+        self.home = isolate_home(self)
+        self.default = self.home / "Documents/SubstanceMCP"
+
+    def test_default_workspace_is_created_for_an_output_directory(self):
+        made = operations.new_directory("out")
+        self.assertEqual(made, self.default / "out")
+        self.assertTrue(made.is_dir())
+
+    def test_reading_never_creates_the_default_workspace(self):
+        status = asyncio.run(operations.status())
+        self.assertEqual(status["workspace"], str(self.default))
+        self.assertFalse(status["workspace_exists"])
+        with self.assertRaises(ValueError):
+            operations.source("in.sbsar", {".sbsar"})
+        self.assertFalse(self.default.exists())
+
+    def test_missing_explicit_workspace_is_refused_and_not_created(self):
+        missing = self.home / "not-there"
+        with patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": str(missing)}):
+            with self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
+                operations.new_directory("out")
+            self.assertFalse(asyncio.run(operations.status())["workspace_exists"])
+        self.assertFalse(missing.exists())
 
 
 class ServerTests(unittest.TestCase):

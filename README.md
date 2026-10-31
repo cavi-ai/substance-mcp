@@ -83,7 +83,7 @@ Seven tools. Mutations need `lease_id` from `session_control` claim.
 
 Timeouts: 60 s per call, 600 s for save, save_copy and export. A timeout means the outcome is unknown; check `painter_status` before retrying. A refused connection means Painter is not reachable.
 
-`CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/CaviGameArt`. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. Use the same workspace for your Blender exports to pass meshes between applications.
+`CAVI_SUBSTANCE_WORKSPACE` selects the asset workspace, defaulting to `~/Documents/SubstanceMCP`. The default is created the first time a tool writes to it. A workspace you set yourself must already exist; a missing one is refused instead of created. Read-only tools never create it; the one exception is that a Sampler call holds its lock file in the workspace, so it creates the default first. Inputs and outputs stay inside it, including through symbolic links. Export and copy operations require a new destination directory and refuse existing ones. All three servers share the one workspace, so the output of one application is an input to the next.
 
 `CAVI_PAINTER_PORT` selects Painter's local scripting port, defaulting to `60041`. Connections use `127.0.0.1` directly, without HTTP proxies or redirects. Painter's own scripting endpoint permits arbitrary scripts; keep it private to a trusted local workstation. This MCP exposes only the listed operations and never accepts caller-provided Python or JavaScript. The operation payload is sent once and cached in Painter by SHA-256; later calls send a small bootstrap.
 

@@ -14,6 +14,7 @@ from pydantic import (
     StringConstraints,
 )
 
+from ..core import workspace
 from ..packing import USAGE, PackSpec
 from . import batch, operations
 from . import pack as packer
@@ -393,7 +394,7 @@ async def sampler_build(
         raise ValueError(
             "check_sampler, check_project and check_build require dry_run=true"
         )
-    root = operations.workspace()
+    root = workspace.root()
     if dry_run:
         if check_build:
             return {

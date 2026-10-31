@@ -3,11 +3,9 @@
 import asyncio
 import re
 import time
-from pathlib import Path
 
 from .. import packing, receipts
-from ..painter_operations import export_destination, input_file, remove_tree
-from . import operations
+from ..core import workspace
 
 
 def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
@@ -16,27 +14,16 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
         raise ValueError("directory must be a non-empty workspace-relative path")
     if not isinstance(sources, dict) or not sources or len(sources) > 32:
         raise ValueError("sources must be a non-empty object with at most 32 usages")
-    root = Path(workspace_path).expanduser().resolve(strict=True) if workspace_path else (
-        operations.workspace()
-    )
+    # The sources are read from the workspace, so it has to exist; packing never creates it.
+    root = workspace.existing_root(workspace_path)
     files = {}
     for usage, name in sources.items():
         if not isinstance(usage, str) or not re.fullmatch(packing.USAGE, usage):
             raise ValueError(f"Invalid usage name: {usage}")
-        try:
-            files[usage] = input_file(root, name, packing.READABLE)
-        except (OSError, RuntimeError) as exc:
-            raise ValueError(
-                "Input must be a supported file inside the workspace"
-            ) from exc
+        files[usage] = workspace.input_file(root, name, packing.READABLE)
     packing.check_spec(spec)
     started = time.monotonic()
-    candidate = (root / directory).resolve()
-    if candidate == root or not candidate.is_relative_to(root):
-        raise ValueError("Output must remain inside the workspace")
-    candidate.parent.mkdir(parents=True, exist_ok=True)
-    destination = export_destination(root, directory)
-    destination.mkdir()
+    destination = workspace.new_output_dir(root, directory, parents=True)
     try:
         result = packing.pack(spec, files, destination)
         manifest = receipts.build(
@@ -47,7 +34,7 @@ def pack_sync(directory: str, sources: dict[str, str], spec: packing.PackSpec,
         )
         manifest_path = receipts.write(destination, manifest)
     except BaseException:
-        remove_tree(destination)
+        workspace.remove_tree(destination)
         raise
     return {
         "directory": destination.relative_to(root).as_posix(),

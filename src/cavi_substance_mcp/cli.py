@@ -2,12 +2,12 @@
 
 import argparse
 import json
-import os
 import plistlib
 import subprocess
 from pathlib import Path
 
 from . import receipts
+from .core import workspace
 from .runtime import runtime_status, start_painter
 
 
@@ -41,14 +41,8 @@ def main(argv=None):
         return 1
 
 
-def _root(value):
-    path = Path(value or os.environ.get("CAVI_SUBSTANCE_WORKSPACE")
-                or Path.home() / "Documents/CaviGameArt")
-    return path.expanduser().resolve()
-
-
 def _verify_receipt(args):
-    root = _root(args.workspace)
+    root = workspace.root(args.workspace)
     manifest_path = Path(args.manifest).expanduser()
     if not manifest_path.is_absolute():
         manifest_path = root / manifest_path
@@ -77,7 +71,7 @@ def _verify_receipt(args):
 
 
 def _chain_receipt(args):
-    root = _root(args.workspace)
+    root = workspace.root(args.workspace)
     manifest_path = Path(args.manifest).expanduser()
     if not manifest_path.is_absolute():
         manifest_path = root / manifest_path
