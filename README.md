@@ -1,7 +1,7 @@
 # Cavi Substance MCP
 
-Typed MCP tools for Adobe Substance 3D Painter, Designer and Sampler. Each application
-has its own stdio server.
+MCP servers for Adobe Substance 3D Painter, Adobe Substance 3D Designer and Adobe
+Substance 3D Sampler. Each application has its own stdio server.
 
 ## Application support
 
@@ -9,7 +9,7 @@ This version targets Painter's documented Python remote scripting API. It suppor
 
 Native project creation, texture-set and preset inspection, uniform fill creation, texture export, save-copy/reopen, and guarded closing have been checked with Painter 12.2.0 on macOS. Exported color, roughness, and metallic pixel values were checked against the fill inputs. Automated transport and path tests use an explicitly simulated API and do not establish compatibility with other Painter versions.
 
-Baking, layer actions beyond `fill`/`texture_fill`, shelf search, mesh reload and custom export maps were verified against the installed Painter 12.2 module source and a read-only attribute probe, then tested only against the simulator; they have not been run natively.
+Baking, layer actions beyond `fill`/`texture_fill`, shelf search, mesh reload and custom export maps were checked against Painter's documented Python API and a read-only attribute probe, then tested only against the simulator; they have not been run natively.
 
 ## Install
 
@@ -509,3 +509,24 @@ CAVI_SAMPLER_NATIVE=1 uv run --locked python -m unittest tests.test_designer_sam
 
 The evals use `evals/designer_sampler_fake.py`, which runs the real worker against a
 stub `substance_sampler` module.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the rules for changes.
+
+## Security
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+## Trademarks
+
+Adobe, Substance 3D, Substance 3D Painter, Substance 3D Designer and Substance 3D Sampler are
+either registered trademarks or trademarks of Adobe in the United States and/or other
+countries. This project is not affiliated with, endorsed by, or sponsored by Adobe. It does
+not include or redistribute Adobe software, templates, presets or Substance files; you supply
+your own licensed applications. Other product names (for example Unreal Engine, Unity and
+Blender) belong to their respective owners.
