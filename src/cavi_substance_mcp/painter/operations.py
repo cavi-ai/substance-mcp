@@ -16,16 +16,15 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-# Bump when Lease state or methods change. Version 3 added the injectable clock.
+# Bump when Lease state or methods change. The version is part of the attribute name, so a
+# payload never reuses an object built from other code; a lease held under an older version
+# is not carried over and has to be claimed again.
 LEASE_VERSION = 3
 LEASE_ATTR = f"_cavi_mcp_lease_v{LEASE_VERSION}"
-# Newest first: the first one present supplies the state a new Lease adopts.
-OLDER_LEASE_ATTRS = ("_cavi_mcp_lease_v2", "_cavi_mcp_lease")
 BREAK_IDLE_SECONDS = 300
 READ_ONLY = frozenset({"status", "texture_sets", "layer_stack", "export_presets", "shelf",
                        "bake_settings", "bake_status"})
 NORMAL_MAP_FORMATS = ("OpenGL", "DirectX")
-RLOCK_TYPE = type(threading.RLock())
 # v2 adds the stop handle and lost-end-event bookkeeping, which older callbacks never set.
 BAKE_ATTR = "_cavi_mcp_bake_v2"
 # Idle time after which a bake whose end event never arrived is considered finished.
@@ -79,8 +78,6 @@ CUSTOM_PRESET = "cavi_maps"
 
 
 class Lease:
-    VERSION = LEASE_VERSION
-
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.lock = threading.RLock()
@@ -89,20 +86,6 @@ class Lease:
         self.project = None
         self.expires = 0.0
         self.touched = 0.0
-
-    def adopt(self, old):
-        # State only; an older payload's methods are never called.
-        lock = getattr(old, "lock", None)
-        if isinstance(lock, RLOCK_TYPE):
-            self.lock = lock
-        with self.lock:
-            token = getattr(old, "token", None)
-            if isinstance(token, str):
-                self.token = token
-                self.owner = getattr(old, "owner", None)
-                self.project = getattr(old, "project", None)
-                self.expires = float(getattr(old, "expires", 0.0))
-                self.touched = float(getattr(old, "touched", self.clock()))
 
     def clear(self):
         self.token, self.owner, self.project, self.expires = None, None, None, 0.0
@@ -197,19 +180,12 @@ class Lease:
 
 
 def shared_lease(module):
+    """The one Lease of this Painter process, shared by every payload of this version."""
     registry = vars(module)
     with registry.setdefault("_cavi_mcp_lease_lock", threading.RLock()):
-        current = registry.get(LEASE_ATTR)
-        if getattr(current, "VERSION", 0) >= LEASE_VERSION:
-            return current
-        lease = Lease()
-        for name in (LEASE_ATTR, *OLDER_LEASE_ATTRS):
-            if registry.get(name) is not None:
-                lease.adopt(registry[name])
-                break
-        # Older clients keep resolving their attribute to the single current lease.
-        for name in (LEASE_ATTR, *OLDER_LEASE_ATTRS):
-            registry[name] = lease
+        lease = registry.get(LEASE_ATTR)
+        if lease is None:
+            lease = registry[LEASE_ATTR] = Lease()
         return lease
 
 
