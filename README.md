@@ -227,7 +227,7 @@ run startup scripts.
 | `sampler_asset` | `create` with `model`/`preset` or `empty`, `delete`, `import_resource` (optional declared `resources`), `set_metadata`, `activate_channels`, `deactivate_channels`, `import_images`, `import_textures`, `insert_filter`, `insert_material`; saves the project |
 | `sampler_layer` | `set_parameters`, `apply_preset`, `set_channels` (IDs or unambiguous labels), `set_blend_parameters`, `remove`; removal needs `confirm=true` |
 | `sampler_export` | `project`, new `directory`, optional engine `target`, `format`, `preset`, `channels`, `resolution`, `wait_seconds`; `dry_run` defaults to true |
-| `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe; `check_project` adds source-project layer/parameter checks |
+| `sampler_build` | workspace `.json` job file; `dry_run` validates without launching; `check_sampler` adds the installed-Sampler probe; `check_project` adds source-project checks; `check_build` executes non-export steps in a temporary project |
 | `sampler_pack` | new `directory`, `sources` usage→workspace image, `pack` channel spec; host-side packing |
 
 ### Engine targets
@@ -254,6 +254,7 @@ A job runs every step in one Sampler launch and writes one atomic directory:
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json
 cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-sampler
 cavi-substance-sampler-mcp validate jobs/source.json --check-project
+cavi-substance-sampler-mcp validate jobs/photo-to-pbr.json --check-build
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --json
 cavi-substance-sampler-mcp run jobs/a.json jobs/b.json --continue-on-error
 cavi-substance-sampler-mcp run jobs/photo-to-pbr.json --verbose
@@ -296,9 +297,13 @@ cavi-substance-sampler-mcp doctor --launch
   opens it read-only, and verifies assets, layers, parameters, presets, filters,
   materials, channels and blend parameters before launch. The source stays untouched
   and the temporary directory is removed.
-- `sampler_build(dry_run=true, check_sampler=true, check_project=true)` runs the same
-  preflight from MCP. `check_project` is only meaningful for source-project jobs;
-  new-project jobs report `project_check: not_applicable` and still get global checks.
+- `validate --check-build` executes every non-export step in a temporary project and
+  removes it afterwards. This validates new-project layers, parameters, presets,
+  channels and blend parameters before the real job directory exists. It can be as
+  expensive as the real non-export job, and jobs containing `import_resource` are
+  refused because importing custom resources can affect Sampler's resource library.
+- `sampler_build(dry_run=true, check_sampler=true, check_project=true, check_build=true)`
+  runs the same preflight from MCP. `check_build` supersedes the other checks.
 - `ImportResource` steps may declare `resources` so preflight can exempt those names
   from filter/material checks. Undeclared imports skip filter/material checks and
   report a preflight warning.
@@ -399,8 +404,9 @@ Limitations:
 - Sampler may rewrite the metadata author to the signed-in account when saving.
 - Engine presets are matched by display name. Localized Sampler installs may need an
   explicit `preset` override.
-- Project-aware preflight is limited to source-project jobs. New-project layers and
-  parameters are still validated only at runtime.
+- Project-aware preflight is limited to source-project jobs. Use `--check-build` to
+  validate new-project layers and parameters; it skips exports and refuses
+  `import_resource` jobs.
 - `sampler_status` reports `running: null` where process inspection is unavailable.
 - A timed-out call may have written partial files; inspect the destination before
   retrying. Mutations that were not saved are lost when the process exits.

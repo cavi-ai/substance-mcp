@@ -1257,5 +1257,43 @@
       }
     },
     "error": "already exists"
+  },
+  {
+    "id": "build-check-build",
+    "tool": "sampler_build",
+    "kind": "success",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/build-check.json",
+      "dry_run": true,
+      "check_build": true
+    },
+    "equals": {
+      "build_check/status": "ok",
+      "build_check/exports_skipped": 1
+    },
+    "required": [
+      "build_check/steps",
+      "sampler"
+    ],
+    "absent": [
+      "jobs/build-check"
+    ]
+  },
+  {
+    "id": "build-check-build-fail",
+    "tool": "sampler_build",
+    "kind": "invalid",
+    "modes": [
+      "simulated"
+    ],
+    "arguments": {
+      "job": "jobs/build-check-bad.json",
+      "dry_run": true,
+      "check_build": true
+    },
+    "error": "Missing"
   }
 ]

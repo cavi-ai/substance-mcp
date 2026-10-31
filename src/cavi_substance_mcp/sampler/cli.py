@@ -48,8 +48,11 @@ def _plan_lines(value) -> list[str]:
         "targets: " + ", ".join(item["target"] for item in value["targets"]),
         "sampler: " + ("ok" if "sampler" in value else "not checked"),
         "project check: " + value.get("project_check", "not checked"),
+        "build check: " + value.get("build_check", {}).get("status", "not checked"),
+        "exports skipped: " + str(value.get("build_check", {}).get("exports_skipped", 0)),
         "warnings: " + str(len(value.get("preflight_warnings", []))
-                           + len(value.get("project_warnings", []))),
+                           + len(value.get("project_warnings", []))
+                           + len(value.get("build_check", {}).get("warnings", []))),
     ]
 
 
@@ -105,7 +108,9 @@ def main(argv=None) -> int:
     validate.add_argument("--workspace")
     validate.add_argument("--check-sampler", action="store_true")
     validate.add_argument("--check-project", action="store_true")
+    validate.add_argument("--check-build", action="store_true")
     validate.add_argument("--timeout", type=float, default=300)
+    validate.add_argument("--build-timeout", type=float, default=1800)
     validate.add_argument("--json", action="store_true")
 
     commands.add_parser("schema", help="Print the batch job JSON Schema")
@@ -178,7 +183,11 @@ def main(argv=None) -> int:
             ])
             return status
         if args.command == "validate":
-            if args.check_project:
+            if args.check_build:
+                result = batch.check_build(
+                    args.job, args.workspace, args.build_timeout
+                )
+            elif args.check_project:
                 result = batch.validate_with_project(args.job, args.workspace, args.timeout)
             elif args.check_sampler:
                 result = batch.validate_with_sampler(args.job, args.workspace, args.timeout)

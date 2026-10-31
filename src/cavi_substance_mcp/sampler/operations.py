@@ -1670,6 +1670,7 @@ def execute_job(job: dict, workspace_path: str) -> dict:
         "activate_channels", "deactivate_channels", "set_channels",
         "set_blend_parameters", "remove_layer",
     }
+    probe = None
     _BATCH["active"] = True
     try:
         if source is not None:
@@ -1697,6 +1698,9 @@ def execute_job(job: dict, workspace_path: str) -> dict:
                 "project": project, "name": created.get("name"),
                 "model": created.get("model", "asm"), "preset": created.get("preset"),
             })
+        ssa.wait_for_computation()
+        if job.get("_probe"):
+            probe = _probe(ssa, root, {})
         results = []
         total = len(job["steps"])
         progress = job_dir / "progress.jsonl"
@@ -1744,13 +1748,16 @@ def execute_job(job: dict, workspace_path: str) -> dict:
     finally:
         _BATCH["active"] = False
         _CURRENT["path"] = None
-    return {
+    reply = {
         "directory": _rel(root, job_dir),
         "project": project,
         "source": source_rel,
         "assets": [_asset(item) for item in ssa.get_project_assets()],
         "steps": results,
     }
+    if probe is not None:
+        reply["probe"] = probe
+    return reply
 
 
 

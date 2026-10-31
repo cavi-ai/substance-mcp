@@ -228,6 +228,55 @@ class NativeSamplerTests(unittest.TestCase):
             }, 300))
             self.assertTrue(activated["activated"])
 
+    def test_build_check(self):
+        if not os.environ.get("CAVI_SAMPLER_NATIVE"):
+            self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
+        if runner.running():
+            self.skipTest("Sampler is already running; quit it before the native test")
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
+        ):
+            workspace = self._workspace(folder)
+            data = {
+                "schema": 1,
+                "directory": "jobs/build",
+                "project": {"name": "BuildProject",
+                            "asset": {"name": "Cavi", "model": "openpbr",
+                                      "preset": "base_material"}},
+                "steps": [
+                    {"action": "import_images", "asset": "Cavi",
+                     "images": ["maps/basecolor.png"], "position": 0,
+                     "import_option": "use_as_bitmap"},
+                    {"action": "insert_filter", "asset": "Cavi", "filter": "Tiling",
+                     "position": 1},
+                    {"action": "set_parameters", "asset": "Cavi", "layer": "Tiling",
+                     "parameters": {"Threshold": 0.1}},
+                    {"action": "export", "asset": "Cavi", "target": "unreal",
+                     "resolution": 256},
+                ],
+            }
+            (workspace / "jobs/build.json").write_text(json.dumps(data))
+            plan = batch.check_build("jobs/build.json", workspace, timeout_seconds=600)
+            self.assertEqual(plan["build_check"]["status"], "ok")
+            self.assertEqual(plan["build_check"]["exports_skipped"], 1)
+            self.assertFalse((workspace / "jobs/build").exists())
+            self.assertFalse(list(workspace.glob(".cavi-build-*")))
+            bad = json.loads(json.dumps(data))
+            bad["directory"] = "jobs/build-bad"
+            bad["steps"] = [
+                {"action": "set_parameters", "asset": "Cavi", "layer": "Missing",
+                 "parameters": {"Threshold": 0.1}},
+                {"action": "export", "asset": "Cavi", "target": "unreal",
+                 "resolution": 256},
+            ]
+            (workspace / "jobs/build-bad.json").write_text(json.dumps(bad))
+            with self.assertRaises(job.JobValidationError):
+                batch.check_build("jobs/build-bad.json", workspace,
+                                  timeout_seconds=600)
+            self.assertFalse((workspace / "jobs/build-bad").exists())
+            self.assertFalse(list(workspace.glob(".cavi-build-*")))
+
     def test_project_preflight(self):
         if not os.environ.get("CAVI_SAMPLER_NATIVE"):
             self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
