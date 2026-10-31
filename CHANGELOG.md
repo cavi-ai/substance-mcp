@@ -43,8 +43,8 @@
 
 ### Changed (breaking)
 
-- The default workspace is `~/Documents/SubstanceMCP` (it was `~/Documents/CaviGameArt`); set
-  `CAVI_SUBSTANCE_WORKSPACE` to keep using the old folder. Only the default is created on
+- The default workspace is `~/Documents/SubstanceMCP`; set `CAVI_SUBSTANCE_WORKSPACE` to keep
+  using a previous folder. Only the default is created on
   demand. A workspace named by `CAVI_SUBSTANCE_WORKSPACE` must already exist, and a missing one
   is refused with a message instead of being created. Read-only calls never create it; a Sampler
   call does, because it holds its lock file there.
