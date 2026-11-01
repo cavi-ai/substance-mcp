@@ -125,6 +125,9 @@
   second, before hashing; a pause in Sampler's flush no longer records a partial file.
 - Job validation applies the runtime's naming rules before Sampler launches.
 - A job whose input changes while it runs fails.
+- A batch job saves its project before an export when it has unsaved changes, so each export
+  receipt records the project it was exported from and a new project's first export no longer
+  fails on a missing `.ssa`.
 
 ## 0.6.0 - 2026-10-30
 

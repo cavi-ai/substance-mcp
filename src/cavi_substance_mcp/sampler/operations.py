@@ -486,6 +486,15 @@ def _save(ssa) -> None:
             _wait_changed(target, before)
 
 
+def _save_job_project(ssa, path: Path) -> None:
+    before = path.stat().st_mtime_ns if path.is_file() else None
+    ssa.save_project_as(str(path))
+    if before is None:
+        _wait_file(path)
+    else:
+        _wait_changed(path, before)
+
+
 def _resource(kind: str, name: str, getter):
     found = [item for item in getter(name) if _resource_name(item) == name]
     if not found:
@@ -1575,12 +1584,13 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
                 raise RuntimeError("Sampler could not open the copied project")
             ssa.wait_for_computation()
             source_rel = rel(root, source_path)
-            mutated = False
+            unsaved = False
         else:
             project_name = _name(project_spec.get("name"), "project name")
             project_path = job_dir / f"{project_name}.ssa"
+            # Sampler writes nothing until the project is saved.
             ssa.create_project(project_name, str(project_path))
-            mutated = project_spec.get("asset") is not None
+            unsaved = True
         project = rel(root, project_path)
         _CURRENT["path"] = project_path.resolve()
         created = project_spec.get("asset")
@@ -1589,6 +1599,7 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
                 "project": project, "name": created.get("name"),
                 "model": created.get("model", "asm"), "preset": created.get("preset"),
             })
+            unsaved = True
         ssa.wait_for_computation()
         if job.get("_probe"):
             probe = _probe(ssa, root, {})
@@ -1608,6 +1619,11 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
             report({"step": index, "total": total, "action": action,
                     "status": "start"})
             try:
+                if action == "export" and unsaved:
+                    # Export receipts record the project, so it is saved as exported.
+                    ssa.wait_for_computation()
+                    _save_job_project(ssa, project_path)
+                    unsaved = False
                 action, result = _dispatch_step(
                     ssa, root, job_dir, project, step
                 )
@@ -1622,20 +1638,14 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
             report({"step": index, "total": total, "action": action, "status": "ok",
                     "seconds": seconds})
             if action in mutating:
-                mutated = True
+                unsaved = True
             results.append({
                 "index": index, "action": action, "seconds": seconds,
                 "result": _summary(result),
             })
         ssa.wait_for_computation()
-        if source is not None:
-            if mutated:
-                before = project_path.stat().st_mtime_ns
-                ssa.save_project_as(str(project_path))
-                _wait_changed(project_path, before)
-        else:
-            ssa.save_project_as(str(project_path))
-            _wait_file(project_path)
+        if unsaved:
+            _save_job_project(ssa, project_path)
     finally:
         _BATCH["active"] = False
         _CURRENT["path"] = None

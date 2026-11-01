@@ -56,6 +56,61 @@ class JobManifestTests(unittest.TestCase):
         with self.assertRaises(receipts.ReceiptError):
             receipts.verify(manifest, self.workspace)
 
+    def export_receipts(self, manifest, directory):
+        prefix = f"{manifest['job'].rsplit('/', 1)[0]}/{directory}/"
+        return [self.workspace / row["path"] for row in manifest["outputs"]
+                if row["path"].startswith(prefix) and row["path"].endswith("/manifest.json")]
+
+    def project_row(self, receipt):
+        rows = [row for row in receipts.load(receipt)["inputs"] if row["path"].endswith(".ssa")]
+        self.assertEqual(len(rows), 1, receipt)
+        return rows[0]
+
+    def test_export_receipts_of_a_new_project_record_the_saved_project(self):
+        manifest = self.run_job()
+        project = receipts.record(self.workspace / manifest["project"], self.workspace)
+        exported = self.export_receipts(manifest, "exports")
+        self.assertEqual(len(exported), 2)
+        for receipt in exported:
+            receipts.chain(receipt, self.workspace)
+            self.assertEqual(self.project_row(receipt), project)
+
+    def test_a_change_between_exports_is_saved_before_the_next_export(self):
+        data = job_data()
+        data["steps"] += [
+            {"action": "set_parameters", "asset": "Rock", "layer": "Tiling",
+             "parameters": {"Tiling": 5}},
+            {"action": "export", "asset": "Rock", "target": "blender", "directory": "blender"},
+        ]
+        (self.workspace / "jobs/rock.json").write_text(json.dumps(data))
+        manifest = self.run_job()
+        project = receipts.record(self.workspace / manifest["project"], self.workspace)
+        for receipt in self.export_receipts(manifest, "blender"):
+            receipts.chain(receipt, self.workspace)
+            self.assertEqual(self.project_row(receipt), project)
+        for receipt in self.export_receipts(manifest, "exports"):
+            self.assertNotEqual(self.project_row(receipt)["sha256"], project["sha256"])
+
+    def test_export_receipts_of_a_changed_source_project_record_the_change(self):
+        self.run_job()
+        data = {
+            "schema": 1,
+            "directory": "jobs/copy",
+            "project": {"source": "jobs/rock/RockProject.ssa", "name": "RockCopy"},
+            "steps": [
+                {"action": "set_metadata", "asset": "Rock", "author": "Cavi"},
+                {"action": "export", "asset": "Rock", "target": "unity"},
+            ],
+        }
+        (self.workspace / "jobs/copy.json").write_text(json.dumps(data))
+        manifest = run_job_file("jobs/copy.json", self.workspace)
+        project = receipts.record(self.workspace / manifest["project"], self.workspace)
+        exported = self.export_receipts(manifest, "exports")
+        self.assertEqual(len(exported), 2)
+        for receipt in exported:
+            receipts.chain(receipt, self.workspace)
+            self.assertEqual(self.project_row(receipt), project)
+
     def test_top_level_bookkeeping_files_are_not_outputs(self):
         manifest = self.run_job()
         outputs = {row["path"] for row in manifest["outputs"]}
