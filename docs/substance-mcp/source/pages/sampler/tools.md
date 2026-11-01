@@ -48,7 +48,8 @@ verified before Sampler imports it, and the result includes `verified` and `sour
 `preset` overrides a target default. When `target` is set on `sampler_export`, a
 sbsar format falls back to `png`. `sampler_inspect catalog` and the probe report
 whether each target preset is installed. Exports wait up to 600 s for map files by
-default; raise or lower `wait_seconds` when needed.
+default; raise or lower `wait_seconds` when needed. An export counts as finished once
+every expected map exists and no file has changed size for one second.
 
 [Batch jobs](batch-jobs.md) run several steps in one launch, and
 [Source projects and authoring](source-projects.md) covers existing `.ssa` projects.

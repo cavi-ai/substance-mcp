@@ -64,15 +64,16 @@ def _missing_maps(files: list[Path], expected) -> list[str]:
 
 
 def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float = 0.2,
-                grace: float = 3.0) -> list[Path]:
+                grace: float = 3.0, settle: float = 1.0) -> list[Path]:
     """Wait for a finished export: every expected map present and no file still growing.
 
-    A file counts as finished once its size is unchanged between two polls. Files that
-    are stable but still lack an expected map fail after ``grace`` seconds instead of
-    waiting out the full timeout, because the export controller has already returned.
+    Files count as finished once no size has changed for ``settle`` seconds, so a pause
+    in Sampler's flush longer than one poll does not end the wait. Files that are settled
+    but still lack an expected map fail after ``grace`` seconds instead of waiting out the
+    full timeout, because the export controller has already returned.
     """
     deadline = time.monotonic() + timeout
-    previous, settled_since = None, None
+    previous, changed_at, settled_since = None, time.monotonic(), None
     while True:
         files = sorted(
             item for item in directory.rglob("*")
@@ -81,14 +82,14 @@ def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float 
         sizes = {item: item.stat().st_size for item in files}
         now = time.monotonic()
         missing = _missing_maps(files, expected)
-        if files and sizes == previous:
+        if sizes != previous:
+            changed_at, settled_since = now, None
+        elif files and now - changed_at >= min(settle, timeout):
             if not missing:
                 return files
             settled_since = settled_since or now
             if now - settled_since >= min(grace, timeout):
                 break
-        else:
-            settled_since = None
         previous = sizes
         if now >= deadline:
             break

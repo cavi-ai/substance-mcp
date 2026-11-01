@@ -121,7 +121,8 @@
 - Every Sampler launch takes the workspace lock.
 - Single Sampler operations edit a copy of the project and replace it only on success.
 - A non-zero Sampler exit fails the call.
-- Target exports wait for every expected map to be complete before hashing.
+- Target exports wait for every expected map to be complete, with no file changing size for one
+  second, before hashing; a pause in Sampler's flush no longer records a partial file.
 - Job validation applies the runtime's naming rules before Sampler launches.
 - A job whose input changes while it runs fails.
 
