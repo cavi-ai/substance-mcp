@@ -2,6 +2,8 @@
 uv sync --locked --dev
 uv run --locked python -m unittest discover -s tests
 uv run --locked ruff check .
+uv run --locked python -m scripts.docs.build
+uv run --locked python -m scripts.docs.verify
 npm ci
 npm run eval:protocol
 npm run eval:core

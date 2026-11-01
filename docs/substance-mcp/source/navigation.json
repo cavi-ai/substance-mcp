@@ -1,0 +1,61 @@
+{
+  "title": "Substance MCP",
+  "version": "{{PRODUCT_VERSION}}",
+  "sections": [
+    {
+      "title": "Introduction",
+      "pages": [
+        { "title": "Overview", "path": "introduction/overview.md" },
+        { "title": "Installation", "path": "introduction/installation.md" },
+        { "title": "Quickstart", "path": "introduction/quickstart.md" }
+      ]
+    },
+    {
+      "title": "Painter",
+      "pages": [
+        { "title": "Painter tools", "path": "painter/tools.md" },
+        { "title": "Shared application ownership", "path": "painter/session-ownership.md" }
+      ]
+    },
+    {
+      "title": "Designer",
+      "pages": [
+        { "title": "Designer tools", "path": "designer/tools.md" }
+      ]
+    },
+    {
+      "title": "Sampler",
+      "pages": [
+        { "title": "Sampler tools", "path": "sampler/tools.md" },
+        { "title": "Batch jobs", "path": "sampler/batch-jobs.md" },
+        { "title": "Source projects and authoring", "path": "sampler/source-projects.md" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "pages": [
+        { "title": "Receipts", "path": "guides/receipts.md" },
+        { "title": "Channel packing", "path": "guides/packing.md" }
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        { "title": "Configuration", "path": "reference/configuration.md" },
+        { "title": "Testing and evaluation", "path": "reference/testing.md" }
+      ]
+    },
+    {
+      "title": "Security",
+      "pages": [
+        { "title": "Security model", "path": "security/model.md" }
+      ]
+    },
+    {
+      "title": "Release",
+      "pages": [
+        { "title": "Version and support", "path": "release/version-and-support.md" }
+      ]
+    }
+  ]
+}

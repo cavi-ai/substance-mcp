@@ -9,6 +9,9 @@
   `.pr-gates` (the commands CI runs), issue forms, a pull request template and a Dependabot
   configuration for `uv`, `npm` and GitHub Actions.
 - Trademark and non-affiliation notice in the README.
+- Versioned documentation for cavi-ai.xyz in `docs/substance-mcp/source`; the release workflow
+  builds, verifies and attaches it to each GitHub release, and the README links to it instead of
+  repeating it.
 - CI on Linux, macOS and Windows across Python 3.11-3.13 with pinned actions, a lowest-dependency
   leg, CodeQL, a package smoke test (`npm run verify:package`), a tag-driven release workflow
   with PyPI trusted publishing, and a nightly upgrade and vulnerability canary.
@@ -118,7 +121,8 @@
 - Every Sampler launch takes the workspace lock.
 - Single Sampler operations edit a copy of the project and replace it only on success.
 - A non-zero Sampler exit fails the call.
-- Target exports wait for every expected map to be complete before hashing.
+- Target exports wait for every expected map to be complete, with no file changing size for one
+  second, before hashing; a pause in Sampler's flush no longer records a partial file.
 - Job validation applies the runtime's naming rules before Sampler launches.
 - A job whose input changes while it runs fails.
 
