@@ -239,11 +239,12 @@ def _ere(text: str) -> str:
 
 
 def pattern_for(path: Path) -> str:
-    """A ``pgrep -f`` pattern that matches the program only as a whole argument.
+    """A ``pgrep -f`` pattern that matches a process running the program.
 
-    Adobe's licensing client is started with ``--appPath=<executable>``; matching on
-    whitespace boundaries keeps it from counting as the application itself. Both the path
-    as given and its symlink-resolved form are accepted.
+    A binary must be the first argument; a ``#!`` script runs as an argument of its
+    interpreter, so it may be any whole argument. Adobe helpers that only name the
+    application (``--appPath=<executable>``, ``-launchedbyvulcan <executable>``) do not
+    count. Both the path as given and its symlink-resolved form are accepted.
     """
     forms = {str(path)}
     with contextlib.suppress(OSError):
@@ -254,7 +255,16 @@ def pattern_for(path: Path) -> str:
             # can differ from the path the process was started with.
             forms.add(str(path.parent / os.readlink(path)))
     alternatives = "|".join(_ere(form) for form in sorted(forms))
-    return f"(^|[[:space:]])({alternatives})([[:space:]]|$)"
+    start = "(^|[[:space:]])" if _script(path) else "^"
+    return f"{start}({alternatives})([[:space:]]|$)"
+
+
+def _script(path: Path) -> bool:
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(2) == b"#!"
+    except OSError:
+        return False
 
 
 def _running_posix(path: Path) -> bool | None:

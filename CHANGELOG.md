@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A process that only names an application's binary as an argument, such as Adobe's IPC
+  broker (`-launchedbyvulcan <executable>`), no longer counts as that application running;
+  a binary must be the process's first argument.
+
 ## 0.7.0 - 2026-10-31
 
 ### Added
