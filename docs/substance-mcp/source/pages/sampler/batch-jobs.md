@@ -41,6 +41,8 @@ cavi-substance-sampler-mcp doctor --launch
   `manifest.json`; on failure it is removed unless `--keep-on-failure`.
 - The manifest records the app version, job and input hashes, step results, output
   sizes and SHA-256 hashes.
+- Each export writes its own receipt, which records the project as exported: unsaved
+  changes are saved before an export step runs.
 - `validate --check-sampler` launches one read-only probe and refuses a job whose
   target preset, import option, filter, material or material model is not installed.
   For source-project jobs it adds a warning that filters and materials need

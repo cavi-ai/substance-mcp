@@ -127,16 +127,12 @@ class Layer:
         self.data["applied_channels"] = [
             getattr(item, "id", str(item)) for item in channel_names
         ]
-        if self.state is not None:
-            self.state.save()
         return True
 
     def blend_applies_to(self, channel_names):
         self.data["blend_applied_channels"] = [
             getattr(item, "id", str(item)) for item in channel_names
         ]
-        if self.state is not None:
-            self.state.save()
         return True
 
     def apply_preset(self, preset_name):
@@ -262,7 +258,6 @@ class Asset:
         layers.insert(index, layer)
         for number, item in enumerate(layers):
             item["position"] = number
-        self.state.save()
         return Layer(layer, self.state)
 
     def import_images(self, images, position, import_option, insert_above=False, **_):
@@ -319,7 +314,6 @@ class Asset:
 
     def remove_layer(self, index):
         del self.data["layers"][index]
-        self.state.save()
 
     def export_material(self, path, name="", format="sbsar", channels=(), controller=None,
                         w_resolution=0, h_resolution=0, **options):
@@ -432,9 +426,9 @@ def module():
     module = types.ModuleType("substance_sampler")
 
     def create_project(name, path):
+        # Like Sampler, nothing is written until the project is saved.
         state.path = Path(path)
         state.data = {"assets": [], "selected": None}
-        state.save()
 
     def open_project(path):
         if not Path(path).is_file():
@@ -459,8 +453,15 @@ def module():
         return True
 
     def save_project_as(path):
-        state.path = Path(path)
+        target = Path(path)
+        before = target.stat().st_mtime_ns if target.is_file() else None
+        state.path = target
         state.save()
+        if before is not None:
+            # Two saves can share a Windows clock tick; a real save comes seconds later.
+            stat = target.stat()
+            later = max(stat.st_mtime_ns, before + 1_000_000)
+            os.utime(target, ns=(stat.st_atime_ns, later))
         return str(state.path)
 
     def get_project_assets():
@@ -478,13 +479,11 @@ def module():
         state.data["assets"].append(item)
         if select_asset:
             state.data["selected"] = name
-        state.save()
         return Asset(state, item)
 
     def delete_asset(asset):
         before = len(state.data["assets"])
         state.data["assets"] = [item for item in state.data["assets"] if item["name"] != asset.name]
-        state.save()
         return len(state.data["assets"]) < before
 
     def get_preset(model=None, preset_name=""):
