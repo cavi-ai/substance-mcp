@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -96,6 +97,22 @@ class TransportTests(unittest.TestCase):
             client.call("session_control", {"action": "inspect"})
             self.assertEqual(len(simulator.requests), 4)
             self.assertTrue(all(size < 2000 for size in simulator.requests[2:]))
+
+    def test_simulator_runs_only_the_client_expressions(self):
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            marker = Path(folder) / "ran.txt"
+            expression = f"__import__('pathlib').Path({str(marker)!r}).write_text('ran')"
+            body = json.dumps({"python": base64.b64encode(expression.encode()).decode()})
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{simulator.port}/run.json", body.encode(),
+                {"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                reply = json.loads(response.read())
+            self.assertFalse(marker.exists())
+            self.assertIn("not an expression the client sends", reply["error"]["description"])
+            client = PainterClient(port=simulator.port, workspace=folder)
+            self.assertTrue(client.call("status")["connected"])
 
     def test_read_only_status_does_not_create_workspace(self):
         with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
