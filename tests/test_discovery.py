@@ -1,5 +1,6 @@
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -349,7 +350,7 @@ class VersionTests(Scratch):
 
 
 class PatternTests(unittest.TestCase):
-    def test_the_pattern_matches_the_program_as_a_whole_argument_only(self):
+    def test_the_pattern_matches_a_binary_only_as_the_first_argument(self):
         import re
 
         path = Path("/Applications/Adobe Substance 3D Sampler/Adobe Substance 3D Sampler.app/"
@@ -358,10 +359,22 @@ class PatternTests(unittest.TestCase):
         # once the POSIX class is spelled out.
         pattern = discovery.pattern_for(path).replace("[[:space:]]", r"\s")
         self.assertTrue(re.search(pattern, f"{path} --skip-version-check"))
-        self.assertTrue(re.search(pattern, f"/usr/bin/python {path}"))
         self.assertTrue(re.search(pattern, str(path)))
+        self.assertFalse(re.search(pattern, f"/usr/bin/python {path}"))
+        self.assertFalse(re.search(pattern, f"AdobeIPCBroker -launchedbyvulcan {path}"))
         self.assertFalse(re.search(pattern, f"licensing --appPath={path}"))
         self.assertFalse(re.search(pattern, f"{path}-helper"))
+
+    def test_the_pattern_matches_a_script_as_a_whole_argument(self):
+        import re
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = write_launcher(Path(folder), "Adobe Substance 3D Sampler", "print(1)\n",
+                                  windows=False)
+            pattern = discovery.pattern_for(path).replace("[[:space:]]", r"\s")
+            self.assertTrue(re.search(pattern, f"/usr/bin/python {path} --idle"))
+            self.assertTrue(re.search(pattern, f"{path} --idle"))
+            self.assertFalse(re.search(pattern, f"licensing --appPath={path}"))
 
     def test_regex_metacharacters_in_a_path_are_literal(self):
         import re
@@ -429,6 +442,20 @@ class RunningPosixTests(Scratch):
         self.addCleanup(holder.kill)
         time.sleep(0.5)
         self.assertFalse(discovery.running(program))
+
+    def test_a_process_naming_a_binary_as_an_option_value_does_not_count(self):
+        # A link, not a copy: macOS kills copies of its own signed binaries.
+        program = self.root / "app" / "Adobe Substance 3D Sampler"
+        program.parent.mkdir()
+        program.symlink_to(shutil.which("sleep"))
+        broker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                                   "-launchedbyvulcan", str(program)])
+        self.addCleanup(broker.wait)
+        self.addCleanup(broker.kill)
+        time.sleep(0.5)
+        self.assertFalse(discovery.running(program))
+        self.hold(program, "60")
+        self.assertTrue(self.wait_for(program, True))
 
     def test_a_symlinked_executable_is_seen_when_the_process_uses_the_real_path(self):
         program = self.idle()
