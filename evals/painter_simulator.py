@@ -2,8 +2,10 @@
 
 Executes the production operation source. This fixture establishes operation and
 transport behavior against the stated API assumptions, never native compatibility.
+Requests are never evaluated: only the two expressions the client builds are accepted.
 """
 
+import ast
 import base64
 import dataclasses
 import json
@@ -17,6 +19,8 @@ from enum import Enum
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+
+from cavi_substance_mcp.painter import client
 
 # Painter 12.2 legacy names are aliases of OpenPBR members (probed read-only).
 ChannelType = Enum("ChannelType", [
@@ -199,6 +203,54 @@ class Position:
     kind: str
     node: object = None
     where: object = None
+
+
+def _client_call(expression: str) -> tuple[str, str, str, bool]:
+    """The operation, JSON parameters and workspace of a client expression, and whether it
+    carries the payload. The expression is rebuilt with the client and must match exactly."""
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        tree = None
+    for node in ast.walk(tree) if tree is not None else ():
+        if not (isinstance(node, ast.Call) and len(node.args) == 3 and not node.keywords):
+            continue
+        operation, loads, workspace = node.args
+        if not (isinstance(loads, ast.Call) and len(loads.args) == 1):
+            continue
+        values = [item.value if isinstance(item, ast.Constant) else None
+                  for item in (operation, loads.args[0], workspace)]
+        if not all(isinstance(value, str) for value in values):
+            continue
+        operation, params, workspace = values
+        try:
+            parsed = json.loads(params)
+            built = [build(operation, parsed, Path(workspace)) for build in
+                     (client.bootstrap_expression, client.full_expression)]
+        except ValueError:
+            break
+        if expression in built:
+            return operation, params, workspace, expression == built[1]
+        break
+    raise ValueError("not an expression the client sends")
+
+
+def _run_client_call(operation: str, params: str, workspace: str, full: bool):
+    """What Painter returns for a client expression: the cached payload's result, a cache
+    miss, or the result after installing the package's own operation source."""
+    found = vars(sys.modules["substance_painter"])
+    if not full:
+        cache = found.get(client.CACHE_ATTR, {})
+        if client.SOURCE_KEY not in cache:
+            return {"cavi_cache_miss": client.SOURCE_KEY}
+        return json.dumps(cache[client.SOURCE_KEY](operation, json.loads(params), workspace))
+    cache = found.setdefault(client.CACHE_ATTR, {})
+    namespace = {}
+    exec(compile(client.SOURCE, "cavi_painter_operations", "exec"), namespace)
+    if len(cache) >= client.CACHE_LIMIT:
+        cache.clear()
+    cache[client.SOURCE_KEY] = namespace["execute"]
+    return json.dumps(namespace["execute"](operation, json.loads(params), workspace))
 
 
 class PainterSimulator:
@@ -1066,7 +1118,7 @@ class PainterSimulator:
                 if self.server.owner.delay:
                     time.sleep(self.server.owner.delay)
                 try:
-                    result = eval(expression)
+                    result = _run_client_call(*_client_call(expression))
                 except Exception as exc:  # noqa: BLE001 -- mirror the remote scripting error boundary
                     result = {"error": {"description": f"{type(exc).__name__}: {exc}"}}
                 body = json.dumps(result).encode()

@@ -128,6 +128,8 @@
 - A batch job saves its project before an export when it has unsaved changes, so each export
   receipt records the project it was exported from and a new project's first export no longer
   fails on a missing `.ssa`.
+- The Painter simulator in `evals/` accepts only the two expressions the client sends and no
+  longer evaluates request text.
 
 ## 0.6.0 - 2026-10-30
 
