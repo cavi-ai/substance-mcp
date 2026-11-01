@@ -24,7 +24,7 @@ Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Pain
 [Receipts](docs/substance-mcp/source/pages/guides/receipts.md)).
 
 ```sh
-uv tool install git+https://github.com/cavi-ai/substance-mcp
+uv tool install cavi-substance-mcp
 ```
 
 Upgrade with `uv tool upgrade cavi-substance-mcp`. To work from a checkout instead, see

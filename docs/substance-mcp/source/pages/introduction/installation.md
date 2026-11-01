@@ -11,7 +11,7 @@ Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Pain
 `cavi-substance-receipts`, which verifies the manifests they write.
 
 ```sh
-uv tool install git+https://github.com/cavi-ai/substance-mcp
+uv tool install cavi-substance-mcp
 ```
 
 Upgrade with `uv tool upgrade cavi-substance-mcp`.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-10-31
 
 ### Added
 
@@ -14,7 +14,8 @@
   repeating it.
 - CI on Linux, macOS and Windows across Python 3.11-3.13 with pinned actions, a lowest-dependency
   leg, CodeQL, a package smoke test (`npm run verify:package`), a tag-driven release workflow
-  with PyPI trusted publishing, and a nightly upgrade and vulnerability canary.
+  with PyPI trusted publishing, and a nightly upgrade and vulnerability canary. Install with
+  `uv tool install cavi-substance-mcp`.
 - Windows support for Designer and Sampler: default install paths under `Program Files`
   (`%ProgramFiles%` is honoured), `tasklist` to see whether an application is running,
   `taskkill /T /F` to end a timed-out tool and everything it started, and read-only files are
