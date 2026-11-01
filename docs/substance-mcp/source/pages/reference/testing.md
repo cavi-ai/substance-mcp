@@ -14,9 +14,11 @@ the produced textures in the destination game.
 Native Designer and Sampler tests skip without the application:
 
 ```sh
-uv run --locked python -m unittest tests.test_designer_native
-uv run --locked python -m unittest tests.test_sampler_native  # launch test needs CAVI_SAMPLER_NATIVE=1
+uv run --locked python -m unittest discover -s tests -p test_designer_native.py
+CAVI_SAMPLER_NATIVE=1 uv run --locked python -m unittest discover -s tests -p test_sampler_native.py
 ```
+
+Without `CAVI_SAMPLER_NATIVE=1` the Sampler tests that launch Sampler are skipped.
 
 ## MCP evaluation
 
