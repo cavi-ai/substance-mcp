@@ -16,18 +16,25 @@ class Result(BaseModel):
         return {key: value for key, value in handler(self).items() if key in self.model_fields_set}
 
 
+class UnknownToolError(ToolError):
+    """The requested name was absent before any tool execution."""
+
+
 def failure(name, error):
     cause = error
     while isinstance(cause, ToolError) and cause.__cause__ is not None:
         cause = cause.__cause__
-    rejected = isinstance(cause, (ValueError, ValidationError, FileNotFoundError))
-    code = ("INVALID_ARGUMENT" if isinstance(cause, (ValueError, ValidationError))
+    missing_tool = isinstance(cause, UnknownToolError)
+    rejected = missing_tool or isinstance(cause, (ValueError, ValidationError, FileNotFoundError))
+    code = ("TOOL_NOT_FOUND" if missing_tool
+            else "INVALID_ARGUMENT" if isinstance(cause, (ValueError, ValidationError))
             else "INPUT_NOT_FOUND" if isinstance(cause, FileNotFoundError)
             else "OUTCOME_UNKNOWN")
     return CallToolResult(isError=True, content=[TextContent(type="text", text=str(error))],
         structuredContent={"error": {"version": 1, "code": code, "operation": name,
             "outcome": "rejected" if rejected else "unknown", "retry_safe": False,
-            "next_action": "inspect_inputs" if rejected else "inspect_application_and_outputs"}})
+            "next_action": "list_tools" if missing_tool else
+                "inspect_inputs" if rejected else "inspect_application_and_outputs"}})
 
 
 class PainterStatus(Result):
