@@ -7,7 +7,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.types import ToolAnnotations
 
-from .contracts import compact_schema, failure
+from .contracts import UnknownToolError, compact_schema, failure
 
 # Failures a caller can act on: invalid arguments, refused paths, an application that is
 # missing, busy or timed out. The SDK hides the text of any other exception, so these are
@@ -69,6 +69,10 @@ class Server(MCPServer):
 
     async def call_tool(self, name, arguments, context=None):
         try:
+            # The SDK uses generic ToolError for missing names. Classify at its
+            # dispatch lookup, without interpreting tool/transport error text.
+            if self._tool_manager.get_tool(name) is None:
+                raise UnknownToolError(f"Unknown tool: {name}")
             return await super().call_tool(name, arguments, context)
         except UnexpectedToolError:
             raise

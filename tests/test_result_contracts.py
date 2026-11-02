@@ -56,6 +56,25 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
                 failed = await client.call_tool("not_a_tool", {})
                 self.assertTrue(failed.is_error)
                 self.assertFalse(failed.structured_content["error"]["retry_safe"])
+                self.assertEqual(failed.structured_content["error"]["code"], "TOOL_NOT_FOUND")
+                self.assertEqual(failed.structured_content["error"]["outcome"], "rejected")
+                self.assertEqual(failed.structured_content["error"]["next_action"], "list_tools")
+
+    async def test_known_tool_error_text_does_not_imply_missing_dispatch(self):
+        from mcp.server.mcpserver import Context
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        from cavi_substance_mcp.core.mcp import Server
+
+        server = Server("dispatch-test")
+
+        @server.tool()
+        async def existing() -> dict:
+            raise ToolError("Unknown tool: inside native application")
+
+        result = await server.call_tool("existing", {}, Context(mcp_server=server))
+        self.assertEqual(result.structured_content["error"]["code"], "OUTCOME_UNKNOWN")
+        self.assertEqual(result.structured_content["error"]["outcome"], "unknown")
 
     def test_status_contracts_preserve_unavailable_reason(self):
         from cavi_substance_mcp.core.contracts import PainterStatus, SamplerStatus

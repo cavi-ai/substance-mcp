@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 - 2026-11-02
+
+### Fixed
+
+- Report unknown tool names as rejected requests with a tool-discovery recovery hint.
+
 ## 0.8.0 - 2026-11-02
 
 ### Added
