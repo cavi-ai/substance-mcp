@@ -76,3 +76,12 @@ every expected map exists and no file has changed size for one second.
   layer removal, B2M image import, Unreal/Unity/Blender target exports and manifest
   generation were checked with Sampler 6.0.4 on macOS.
 - Native use requires a licensed Sampler installation and a closed application.
+
+## Response contracts and recovery
+
+Status tools publish declared fields; additional existing details are retained.
+Anticipated failures preserve readable text and add versioned error details with
+code, operation, outcome, retry_safe and next_action. Transport/protocol failures
+retain an unknown outcome even when caused by JSON decoding. Inspect the
+application and outputs before deciding whether another mutation is appropriate.
+Unexpected defects remain opaque.

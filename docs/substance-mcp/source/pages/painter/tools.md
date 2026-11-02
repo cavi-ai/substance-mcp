@@ -53,3 +53,12 @@ is unknown; check `painter_status` before retrying. A refused connection means P
 not reachable. A timed-out export may have written partial files; inspect its destination
 before proceeding. Export cancellation and warnings are reported as incomplete rather than
 success.
+
+## Response contracts and recovery
+
+Status tools publish declared fields; additional existing details are retained.
+Anticipated failures preserve readable text and add versioned error details with
+code, operation, outcome, retry_safe and next_action. Transport/protocol failures
+retain an unknown outcome even when caused by JSON decoding. Inspect the
+application and outputs before deciding whether another mutation is appropriate.
+Unexpected defects remain opaque.

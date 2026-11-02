@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, ValidationError, model_serializer
 
@@ -17,7 +18,7 @@ class Result(BaseModel):
 
 def failure(name, error):
     cause = error
-    while cause.__cause__ is not None:
+    while isinstance(cause, ToolError) and cause.__cause__ is not None:
         cause = cause.__cause__
     rejected = isinstance(cause, (ValueError, ValidationError, FileNotFoundError))
     code = ("INVALID_ARGUMENT" if isinstance(cause, (ValueError, ValidationError))
