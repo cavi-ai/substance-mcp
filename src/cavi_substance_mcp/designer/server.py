@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
+from ..core.contracts import BakeResult, DesignerStatus
 from ..core.mcp import READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import operations
@@ -34,7 +35,7 @@ DEFAULTS = {"format": "png", "bit_depth": "8", "expose_output_size": True,
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def designer_status() -> dict[str, Any]:
+async def designer_status() -> DesignerStatus:
     """Resolved Designer CLIs, versions, built-in packages and workspace."""
     return await operations.status()
 
@@ -99,7 +100,7 @@ async def bake(
     suffix_high: Suffix = "_high",
     format: Literal["png", "tga", "tif", "exr"] = "png",
     timeout_seconds: Annotated[Timeout, Field(description="Per map.")] = 600,
-) -> dict[str, Any]:
+) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""
     options = {"resolution": resolution, "normal_format": normal_format, "use_cage": use_cage,
                "max_frontal": max_frontal, "max_rear": max_rear, "udim": udim,

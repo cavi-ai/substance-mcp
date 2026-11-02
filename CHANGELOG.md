@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0 — 2026-11-02
+
+### Added
+
+- Declared status responses for Painter, Designer and Sampler, plus ownership, texture export and bake results.
+- Structured failure codes, outcome and recovery hints alongside readable MCP errors.
+
+### Changed
+
+- Omit redundant discovery schema titles without changing validation constraints.
+
 ## 0.7.1 - 2026-10-31
 
 ### Fixed

@@ -106,3 +106,14 @@ countries. This project is not affiliated with, endorsed by, or sponsored by Ado
 not include or redistribute Adobe software, templates, presets or Substance files; you supply
 your own licensed applications. Other product names (for example Unreal Engine, Unity and
 Blender) belong to their respective owners.
+
+## Response contracts and recovery
+
+The catalog declares fields for key status, ownership and export results. Existing
+additional details remain available. Discovery omits redundant schema titles while
+retaining validation constraints and field names.
+
+Anticipated MCP failures retain readable text and include code, operation, outcome,
+retry_safe and next_action. Unknown outcomes require application and output
+inspection; these hints never automatically retry a mutation. Unexpected defects
+remain opaque to callers.

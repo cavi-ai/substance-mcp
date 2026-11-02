@@ -36,3 +36,12 @@ Opacity.Raytraced. One baker run per map; each output file is verified.
 - 16-bit RGB/RGBA sources are read at 8-bit precision; 16-bit grayscale is exact.
 - The evals run against fake CLIs (`evals/designer_fake_cli.py`); native tests need
   Designer and, for baking, Blender. See [Testing and evaluation](../reference/testing.md).
+
+## Response contracts and recovery
+
+Status tools publish declared fields; additional existing details are retained.
+Anticipated failures preserve readable text and add versioned error details with
+code, operation, outcome, retry_safe and next_action. Transport/protocol failures
+retain an unknown outcome even when caused by JSON decoding. Inspect the
+application and outputs before deciding whether another mutation is appropriate.
+Unexpected defects remain opaque.
