@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from ..core import workspace
+from ..core.contracts import SamplerStatus
 from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import batch, launch
@@ -78,7 +79,7 @@ ASSET_PARAMS = {
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def sampler_status() -> dict[str, Any]:
+async def sampler_status() -> SamplerStatus:
     """Sampler executable, version, scripts folder, workspace and running state."""
     return await asyncio.to_thread(launch.status)
 

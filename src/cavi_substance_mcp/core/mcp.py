@@ -4,8 +4,10 @@ import functools
 from importlib.metadata import version
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.types import ToolAnnotations
+
+from .contracts import compact_schema, failure
 
 # Failures a caller can act on: invalid arguments, refused paths, an application that is
 # missing, busy or timed out. The SDK hides the text of any other exception, so these are
@@ -59,6 +61,21 @@ class Server(MCPServer):
 
     def __init__(self, name: str, **kwargs):
         super().__init__(name, version=version("cavi-substance-mcp"), **kwargs)
+
+    async def list_tools(self):
+        return [tool.model_copy(update={"input_schema": compact_schema(tool.input_schema),
+                                       "output_schema": compact_schema(tool.output_schema)})
+                for tool in await super().list_tools()]
+
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except UnexpectedToolError:
+            raise
+        except ToolError as exc:
+            if context is None:
+                raise
+            return failure(name, exc)
 
     def tool(self, *args, **kwargs):
         register = super().tool(*args, **kwargs)

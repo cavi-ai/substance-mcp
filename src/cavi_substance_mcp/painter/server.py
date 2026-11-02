@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 import anyio.to_thread
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from ..core.contracts import Ownership, PainterStatus, TextureExport
 from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from .client import PainterClient
 
@@ -62,7 +63,7 @@ async def wait_until_ready(timeout_seconds, interval=0.5):
 
 
 @mcp.tool(annotations=READ_ONLY)
-async def painter_status() -> dict[str, Any]:
+async def painter_status() -> PainterStatus:
     """Connectivity, project, busy and edition state; never changes anything."""
     try:
         return await painter("status")
@@ -77,7 +78,7 @@ async def session_control(
     expected_project: Annotated[str | None, Field(description="project_id from inspect.")] = None,
     lease_id: LeaseId = None,
     ttl_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 600,
-) -> dict[str, Any]:
+) -> Ownership:
     """Edit lease. claim needs owner+expected_project; renew/release need lease_id.
     break needs expected_project and a lease idle >= 300 s. Nothing is saved or closed."""
     return await painter("session_control", {
@@ -272,7 +273,7 @@ async def export_textures(
     dilation_distance: Annotated[StrictInt | None, Field(ge=0, le=256)] = None,
     dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
     lease_id: LeaseId = None,
-) -> dict[str, Any]:
+) -> TextureExport:
     """Preview or export texture sets into a new workspace directory."""
     if (source_manifest is None) != (source_file is None):
         raise ValueError("source_manifest and source_file must be provided together")
