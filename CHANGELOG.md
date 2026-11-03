@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Preserve 16-bit RGB and RGBA PNG samples during channel packing, including interlaced sources.
 - Accept Sampler color parameters with placeholder zero bounds while enforcing numeric limits.
 - Validate Sampler enum parameters against their declared choices and toggles against zero or one.
 

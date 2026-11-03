@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import numpy as np
+import png
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -55,6 +56,18 @@ def check_spec(spec: PackSpec):
 
 
 def load(path: Path) -> np.ndarray:
+    with path.open('rb') as stream:
+        header = stream.read(26)
+        if header[:8] == b'\x89PNG\r\n\x1a\n' and len(header) == 26 and header[24] == 16:
+            stream.seek(0)
+            width, height, rows, info = png.Reader(file=stream).read()
+            if width > MAX_EDGE or height > MAX_EDGE:
+                raise ValueError(f"{path.name} exceeds {MAX_EDGE} px")
+            pixels = np.empty((height, width * info['planes']), dtype=np.float32)
+            for index, row in enumerate(rows):
+                pixels[index] = row
+            # Pillow decodes multichannel PNG16 as 8-bit. Keep every source sample.
+            return pixels.reshape(height, width, info['planes']) / 65535.0
     with Image.open(path) as image:
         width, height = image.size
         if width > MAX_EDGE or height > MAX_EDGE:
