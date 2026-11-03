@@ -11,7 +11,7 @@ EXPECTED = {
     painter_server.mcp: {
         "painter_status": READ_ONLY, "inspect": READ_ONLY,
         "session_control": WRITES, "export_textures": WRITES, "bake": WRITES,
-        "project": DESTRUCTIVE, "layer_edit": DESTRUCTIVE,
+        "project": DESTRUCTIVE, "layer_edit": DESTRUCTIVE, "brush": DESTRUCTIVE,
     },
     designer_server.mcp: {
         "designer_status": READ_ONLY, "material": WRITES, "bake": WRITES,

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from ..core.contracts import (
     Ownership,
     PainterBakeResult,
+    PainterBrushResult,
     PainterInspection,
     PainterLayerResult,
     PainterProject,
@@ -179,8 +180,8 @@ LAYER_ACTIONS = {"fill": "create_fill_layer", "texture_fill": "create_texture_fi
 
 @mcp.tool(annotations=DESTRUCTIVE)
 async def layer_edit(
-    action: Literal["fill", "texture_fill", "group", "fill_mask", "smart_material", "smart_mask",
-                    "generator", "sbsar_fill", "set_properties", "delete"],
+    action: Literal["fill", "texture_fill", "paint", "group", "fill_mask", "smart_material",
+                    "smart_mask", "generator", "sbsar_fill", "set_properties", "delete"],
     texture_set: TextureSetName,
     name: Annotated[str | None, Field(min_length=1, max_length=63,
                                       description="Layer name.")] = None,
@@ -230,7 +231,7 @@ async def layer_edit(
             "roughness": roughness, "metallic": metallic, "values": values,
             "parent_uid": parent_uid, "above_uid": above_uid, **extra,
         }, lease_id=lease_id)
-    if action in {"group", "smart_material", "sbsar_fill"}:
+    if action in {"paint", "group", "smart_material", "sbsar_fill"}:
         need(name, "name", action)
     if action in {"fill_mask", "smart_mask", "generator", "set_properties", "delete"}:
         need(uid, "uid", action)
@@ -248,6 +249,38 @@ async def layer_edit(
         "parameters": parameters, "blend_mode": blend_mode, "opacity": opacity,
         "channel": channel, "visible": visible, "confirm_name": confirm_name,
     }, lease_id=lease_id)
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def brush(
+    action: Literal["prepare", "stroke"],
+    texture_set: TextureSetName | None = None,
+    uid: Uid = None,
+    directory: str | None = None,
+    context_token: Annotated[str | None, Field(max_length=128)] = None,
+    points: Annotated[list[tuple[UnitValue, UnitValue, UnitValue]] | None,
+                      Field(min_length=2, max_length=128)] = None,
+    lease_id: LeaseId = None,
+) -> PainterBrushResult:
+    """macOS native 2D painting. prepare selects a Paint layer, activates Painter,
+    and captures the viewport + current brush settings into a new directory.
+    Inspect the preview, then stroke with one-use context_token and [x,y,pressure]
+    points in viewport coordinates (top-left origin, x/y strictly inside 0..1).
+    Uses the current brush and enabled material channels. No save or retry.
+    Context expires after 60 seconds or intervening input/edits. A dispatched
+    gesture needs exported-pixel or visual inspection before acceptance."""
+    if action == "prepare":
+        if context_token is not None or points is not None:
+            raise ValueError("prepare does not accept context_token or points")
+        params = {"action": action, "texture_set": need(texture_set, "texture_set", action),
+                  "uid": need(uid, "uid", action),
+                  "directory": need(directory, "directory", action)}
+    else:
+        if texture_set is not None or uid is not None or directory is not None:
+            raise ValueError("stroke targets its context; omit texture_set, uid, directory")
+        params = {"action": action, "context_token": need(context_token, "context_token", action),
+                  "points": need(points, "points", action)}
+    return await painter("brush", params, lease_id=lease_id)
 
 
 class OutputMap(BaseModel):

@@ -38,7 +38,7 @@ The evaluator is `@cavi-ai/mcp-eval`. All commands run in CI and retain JSON rep
 pagination, surface listing, and protocol negotiation. The core manifests add schema,
 structured output, repeated reads, and contention checks.
 
-The corpus exercises all seven Painter tools through real stdio MCP calls and the real
+The corpus exercises the portable Painter tools through real stdio MCP calls and the real
 loopback transport. The core adapter explicitly simulates Painter's Python API while
 executing the production operation source. Cases check returned fields, project
 replacement refusal, busy/closed state, input and output containment, symlink escapes,
@@ -57,3 +57,5 @@ licensing, or application compatibility. Protocol checks use an isolated unavail
 endpoint and never contact a user's Painter session. Native export checks establish file
 generation, not painted-asset quality or destination-game material compatibility. MCP Eval
 is deterministic and does not invoke a model; no model-based quality claim is made.
+
+Native brush pixel changes and saved-project persistence require an installed macOS Painter; simulator gesture and contract checks do not establish painted output.

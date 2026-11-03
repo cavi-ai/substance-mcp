@@ -5,7 +5,11 @@ Substance 3D Sampler. Each application has its own stdio server.
 
 ## Application support
 
-This version targets Painter's documented Python remote scripting API. It supports project operations (UDIM, templates, mesh reload), layer-tree inspection, fill, group, mask, generator, smart-material, smart-mask and `.sbsar` layers, mesh-map baking, shelf search, and channel-packed texture export. It does not provide brush strokes; Designer's CLIs are served separately (see Designer).
+The Painter server supports project operations (UDIM, templates, mesh reload),
+layer-tree inspection, paint, fill, group, mask, generator, smart-material,
+smart-mask and `.sbsar` layers, mesh-map baking, shelf search and channel-packed
+texture export. Native macOS brush input adds real 2D strokes with viewport
+previews and pressure; see [Painter tools](docs/substance-mcp/source/pages/painter/tools.md#native-brush-painting).
 
 The Designer server drives Designer's headless CLIs for cooking, rendering, baking and
 packing. The Sampler server launches Sampler for one script per call or one batch job.

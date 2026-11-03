@@ -3232,5 +3232,149 @@
    "protocol"
   ],
   "error": "not reachable"
+ },
+ {
+  "id": "paint-layer-success",
+  "tool": "layer_edit",
+  "arguments": {
+   "action": "paint",
+   "texture_set": "Body",
+   "name": "Brush details"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/name": "Brush details",
+   "/type": "PaintLayer"
+  }
+ },
+ {
+  "id": "brush-missing-action",
+  "tool": "brush",
+  "arguments": {},
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "brush-invalid-pressure",
+  "tool": "brush",
+  "arguments": {
+   "action": "stroke",
+   "context_token": "ctx",
+   "points": [
+    [
+     0.4,
+     0.5,
+     2.0
+    ],
+    [
+     0.6,
+     0.5,
+     1.0
+    ]
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "brush-short-stroke",
+  "tool": "brush",
+  "arguments": {
+   "action": "stroke",
+   "context_token": "ctx",
+   "points": [
+    [
+     0.4,
+     0.5,
+     1.0
+    ]
+   ]
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "brush-prepare-simulated",
+  "tool": "brush",
+  "arguments": {
+   "action": "prepare",
+   "texture_set": "Body",
+   "uid": 100,
+   "directory": "brush-preview"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/prepared": true,
+   "/simulated": true
+  }
+ },
+ {
+  "id": "brush-stroke-simulated",
+  "tool": "brush",
+  "arguments": {
+   "action": "stroke",
+   "context_token": "simulated-context",
+   "points": [
+    [
+     0.4,
+     0.5,
+     0.5
+    ],
+    [
+     0.6,
+     0.5,
+     1.0
+    ]
+   ]
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "keep_lease": true,
+  "equals": {
+   "/simulated": true,
+   "/events": [
+    2,
+    1,
+    6,
+    2
+   ]
+  }
+ },
+ {
+  "id": "brush-requires-lease",
+  "tool": "brush",
+  "arguments": {
+   "action": "prepare",
+   "texture_set": "Body",
+   "uid": 100,
+   "directory": "brush-no-lease"
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "without_lease": true,
+  "error": "lease_id"
  }
 ]

@@ -247,10 +247,38 @@ def _run_client_call(operation: str, params: str, workspace: str, full: bool):
     cache = found.setdefault(client.CACHE_ATTR, {})
     namespace = {}
     exec(compile(client.SOURCE, "cavi_painter_operations", "exec"), namespace)
+    namespace["native_brush"].run = _simulated_brush
     if len(cache) >= client.CACHE_LIMIT:
         cache.clear()
     cache[client.SOURCE_KEY] = namespace["execute"]
     return json.dumps(namespace["execute"](operation, json.loads(params), workspace))
+
+
+def _simulated_brush(params, directory, module, layerstack, textureset, project, ui, require):
+    """Contract-only event sink. Does not run AppKit or produce painted pixels."""
+    from cavi_substance_mcp.painter import native_brush as brush
+
+    if params["action"] == "prepare":
+        node = layerstack.get_node_by_uid(params["uid"])
+        if (not isinstance(node, layerstack.PaintLayerNode)
+                or node.get_texture_set().name() != params["texture_set"]):
+            raise ValueError("Brush target must be a paint layer")
+        context = {"token": "simulated-context", "lease_id": params.get("lease_id"),
+                   "expires": time.monotonic() + 60, "input_serial": 0,
+                   "texture_set": params["texture_set"], "uid": params["uid"]}
+        setattr(module, brush.STATE_ATTR, {"context": context, "input_serial": 0})
+        # The preview is explicitly a simulator artifact, not an application capture.
+        preview = directory / "simulated-preview.txt"
+        preview.write_text("Simulated brush viewport; no GPU or AppKit\n")
+        return {"prepared": True, "context_token": context["token"], "preview": str(preview),
+                "viewport": {"simulated": True}, "simulated": True}
+    path = brush.points(params.get("points"))
+    context = brush.take_context(getattr(module, brush.STATE_ATTR), params)
+    events = []
+    brush.gesture(path, lambda kind, point: events.append(kind), require)
+    return {"dispatched": True, "points": len(path), "uid": context["uid"],
+            "texture_set": context["texture_set"], "simulated": True,
+            "events": events, "next": "Native Painter proof required for pixel changes"}
 
 
 class PainterSimulator:
@@ -348,6 +376,7 @@ class PainterSimulator:
 
     def __enter__(self):
         module = ModuleType("substance_painter")
+        module.ui = SimpleNamespace()
         module.__version__ = "simulated"
         self.module = module
         self.previous = sys.modules.get("substance_painter")
@@ -671,6 +700,10 @@ class PainterSimulator:
                 super().__init__("Fill layer")
                 self.init_fill()
 
+        class PaintLayer(LayerNode):
+            def __init__(self):
+                super().__init__("Paint layer")
+
         class GroupLayer(LayerNode):
             def __init__(self, name="Folder 1"):
                 super().__init__(name)
@@ -737,6 +770,9 @@ class PainterSimulator:
 
         def insert_fill(position):
             return place(position, lambda layer: FillLayer() if layer else FillEffect())
+
+        def insert_paint(position):
+            return place(position, lambda layer: PaintLayer())
 
         def insert_group(position):
             def make(layer):
@@ -818,6 +854,7 @@ class PainterSimulator:
         module.layerstack = SimpleNamespace(
             Node=Node, LayerNode=LayerNode, FillLayerNode=FillLayer, GroupLayerNode=GroupLayer,
             FillEffectNode=FillEffect, GeneratorEffectNode=GeneratorEffect,
+            PaintLayerNode=PaintLayer,
             BlendingMode=BlendingMode, MaskBackground=MaskBackground, NodeStack=NodeStack,
             get_root_layer_nodes=lambda requested: list(self.layers),
             get_node_by_uid=get_node_by_uid,
@@ -825,7 +862,7 @@ class PainterSimulator:
                 from_textureset_stack=lambda requested: Position("stack"),
                 above_node=lambda node: Position("above", node),
                 inside_node=lambda node, where: Position("inside", node, where)),
-            insert_fill=insert_fill, insert_group=insert_group,
+            insert_fill=insert_fill, insert_group=insert_group, insert_paint=insert_paint,
             insert_smart_material=insert_smart_material, insert_smart_mask=insert_smart_mask,
             insert_generator_effect=insert_generator_effect,
             delete_node=delete_node,
