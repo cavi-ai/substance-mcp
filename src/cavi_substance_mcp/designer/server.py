@@ -1,10 +1,10 @@
 """Typed stdio MCP surface for Substance 3D Designer's headless CLIs."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
-from ..core.contracts import BakeResult, DesignerStatus
+from ..core.contracts import BakeResult, DesignerMaterial, DesignerStatus
 from ..core.mcp import READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import operations
@@ -62,7 +62,7 @@ async def material(
     expose_output_size: StrictBool = True,
     expose_random_seed: StrictBool = True,
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> DesignerMaterial:
     """info lists graphs; cook .sbs -> .sbsar; render outputs (+optional pack); pack maps."""
     reject_foreign(action, {
         key: value for key, value in locals().items()

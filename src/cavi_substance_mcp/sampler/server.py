@@ -1,7 +1,7 @@
 """Typed stdio MCP surface for Substance 3D Sampler startup scripts."""
 
 import asyncio
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -13,7 +13,16 @@ from pydantic import (
 )
 
 from ..core import workspace
-from ..core.contracts import SamplerStatus
+from ..core.contracts import (
+    SamplerAssetResult,
+    SamplerBuildResult,
+    SamplerExportResult,
+    SamplerInspection,
+    SamplerLayerResult,
+    SamplerPackResult,
+    SamplerProjectResult,
+    SamplerStatus,
+)
 from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import batch, launch
@@ -91,7 +100,7 @@ async def sampler_inspect(
     asset: AssetName | None = None,
     query: Query = "",
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> SamplerInspection:
     """project lists assets; asset lists layers; catalog lists resources and targets."""
     given = {"project": project, "asset": asset, "query": query or None}
     reject_foreign(action, given, INSPECT_PARAMS[action])
@@ -112,7 +121,7 @@ async def sampler_project(
     name: PlainName | None = None,
     project: ProjectPath | None = None,
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> SamplerProjectResult:
     """create a new .ssa in a new directory; save_as copies an existing project."""
     if action == "create":
         if project is not None:
@@ -158,7 +167,7 @@ async def sampler_asset(
     blend_mode: BlendMode = "blend_normal",
     confirm: Annotated[StrictBool, Field(description="Required true for action=delete.")] = False,
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> SamplerAssetResult:
     """Create assets/resources, set metadata or channels, or extend asset layers.
 
     Edits run on a copy that replaces the project only after Sampler saved it.
@@ -266,7 +275,7 @@ async def sampler_layer(
                                Field(min_length=1, max_length=64)] = None,
     confirm: StrictBool = False,
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> SamplerLayerResult:
     """Edit layer parameters, presets, channels or blend parameters."""
     if action == "set_parameters":
         if not isinstance(parameters, dict) or not parameters:
@@ -341,7 +350,7 @@ async def sampler_export(
     wait_seconds: Annotated[StrictInt, Field(ge=1, le=3600)] = 600,
     dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
     timeout_seconds: Timeout = 600,
-) -> dict[str, Any]:
+) -> SamplerExportResult:
     """Preview or export an asset into a new workspace directory."""
     if target is not None and format in ("sbsar", "sbs"):
         raise ValueError("target exports textures; use png, tga, tif or exr")
@@ -363,7 +372,7 @@ async def sampler_build(
     check_project: StrictBool = False,
     check_build: StrictBool = False,
     timeout_seconds: Timeout = 1800,
-) -> dict[str, Any]:
+) -> SamplerBuildResult:
     """Validate a batch job file (default) or, with dry_run=false, run it."""
     if (check_sampler or check_project or check_build) and not dry_run:
         raise ValueError(
@@ -389,8 +398,8 @@ async def sampler_pack(
     directory: NewDirectory,
     sources: Annotated[dict[PackUsage, str], Field(min_length=1, max_length=32)],
     pack: Annotated[PackSpec, Field(description="Channel packing spec.")],
-) -> dict[str, Any]:
-    """Pack workspace maps into a new directory using a channel spec."""
+) -> SamplerPackResult:
+    """Pack maps into a new workspace directory."""
     return await packer.pack(directory, sources, pack)
 
 

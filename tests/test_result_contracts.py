@@ -47,6 +47,8 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
             async with stdio_client(params) as (r, w), ClientSession(r, w) as client:
                 await client.initialize()
                 tools = {t.name: t for t in (await client.list_tools()).tools}
+                for name, tool in tools.items():
+                    self.assertTrue(tool.output_schema.get("properties"), name)
                 self.assertTrue(tools[status].output_schema.get("properties"))
                 if module == "painter":
                     for tool in ("session_control", "export_textures"):
@@ -103,3 +105,54 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
         result = failure("export_textures", error)
         self.assertEqual(result.structured_content["error"]["outcome"], "unknown")
         self.assertFalse(result.structured_content["error"]["retry_safe"])
+
+
+class OutputFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_output_validation_keeps_mutation_outcome_unknown(self):
+        from mcp.server.mcpserver import Context
+
+        from cavi_substance_mcp.core.contracts import Result
+        from cavi_substance_mcp.core.mcp import Server
+
+        class Receipt(Result):
+            path: str
+
+        calls = []
+        app = Server("output-test")
+
+        @app.tool()
+        async def mutate() -> Receipt:
+            calls.append(1)
+            return {"path": 1, "private_detail": "hidden"}
+
+        with self.assertLogs(level="ERROR"):
+            reply = await app.call_tool("mutate", {}, Context(mcp_server=app))
+        self.assertEqual(calls, [1])
+        self.assertTrue(reply.is_error)
+        self.assertEqual(reply.structured_content["error"]["code"], "OUTCOME_UNKNOWN")
+        self.assertFalse(reply.structured_content["error"]["retry_safe"])
+        self.assertNotIn("private_detail", str(reply.content))
+
+    def test_compact_unions_preserve_schema_acceptance_and_input_defaults(self):
+        from jsonschema import Draft202012Validator
+
+        from cavi_substance_mcp.core.contracts import compact_schema
+
+        schemas = [
+            {"anyOf": [{"type": "integer"}, {"type": "number"}, {"type": "null"}],
+             "default": None},
+            {"anyOf": [{"type": "string", "minLength": 2}, {"type": "null"}]},
+            {"anyOf": [{"type": "string", "enum": ["a", "b"]}, {"type": "null"}]},
+            {"anyOf": [{"type": "boolean", "const": True}, {"type": "null"}]},
+            {"type": "object", "additionalProperties": True,
+             "properties": {"title": {"type": "string", "default": "title"}}},
+        ]
+        for schema in schemas:
+            for output in [False, True]:
+                compact = compact_schema(schema, output=output)
+                if not output and "default" in schema:
+                    self.assertEqual(compact["default"], schema["default"])
+                for value in [None, True, False, 1, 1.5, "a", "ab", "b", [], {},
+                              {"title": "x", "extra": 1}, {"title": 1}]:
+                    self.assertEqual(Draft202012Validator(schema).is_valid(value),
+                                     Draft202012Validator(compact).is_valid(value))
