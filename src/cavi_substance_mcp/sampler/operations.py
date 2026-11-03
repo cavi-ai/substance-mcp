@@ -369,12 +369,17 @@ def _parameter(layer, identifier: str):
 
 def _bounds(parameter, value) -> None:
     low, high = _get(parameter, "min_value"), _get(parameter, "max_value")
+    color = _enum(_get(parameter, "widget_type")) == "color"
     values = value if isinstance(value, list) else [value]
     for index, item in enumerate(values):
         if not isinstance(item, (int, float)) or isinstance(item, bool):
             continue
         floor = low[index] if isinstance(low, (list, tuple)) and index < len(low) else low
         ceiling = high[index] if isinstance(high, (list, tuple)) and index < len(high) else high
+        # Sampler reports zero placeholders for color-picker bounds, including
+        # components whose current/default values are nonzero.
+        if color and floor == 0 and ceiling == 0:
+            continue
         if isinstance(floor, (int, float)) and item < floor:
             raise ValueError(f"{_get(parameter, 'identifier')} is below {floor}")
         if isinstance(ceiling, (int, float)) and item > ceiling:
@@ -421,7 +426,17 @@ def _parameter_value(parameter, value):
                 raise ValueError(f"{identifier} expects finite numbers")
             item = float(item)
         converted.append(item)
-    _bounds(parameter, converted)
+    choices = _call(parameter, "enum_values") or []
+    allowed = [entry[1] for entry in choices
+               if isinstance(entry, (list, tuple)) and len(entry) >= 2]
+    if size == 1 and match.group(1) == "integer" and allowed:
+        if converted[0] not in allowed:
+            raise ValueError(f"{identifier} expects a declared choice")
+    elif size == 1 and _enum(_get(parameter, "widget_type")) == "toggle_button":
+        if converted[0] not in (0, 1):
+            raise ValueError(f"{identifier} expects zero or one")
+    else:
+        _bounds(parameter, converted)
     return converted[0] if size == 1 else converted
 
 

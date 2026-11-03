@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Accept Sampler color parameters with placeholder zero bounds while enforcing numeric limits.
+- Validate Sampler enum parameters against their declared choices and toggles against zero or one.
+
 ## 0.9.0 - 2026-11-02
 
 ### Added
