@@ -1,6 +1,6 @@
 # Painter tools
 
-`cavi-substance-mcp` publishes seven tools. Mutations need `lease_id` from a
+`cavi-substance-mcp` publishes eight tools. Mutations need `lease_id` from a
 `session_control` claim; see [Shared application ownership](session-ownership.md).
 
 | Tool | Actions | Parameters |
@@ -9,7 +9,8 @@
 | `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
 | `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
-| `layer_edit` | `fill`, `texture_fill`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
+| `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
+| `brush` | `prepare`, `stroke` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
 
@@ -62,3 +63,30 @@ code, operation, outcome, retry_safe and next_action. Transport/protocol failure
 retain an unknown outcome even when caused by JSON decoding. Inspect the
 application and outputs before deciding whether another mutation is appropriate.
 Unexpected defects remain opaque.
+
+## Native brush painting
+
+On macOS, `layer_edit(action="paint")` creates a real Painter paint layer.
+`brush(action="prepare", texture_set=..., uid=..., directory=..., lease_id=...)`
+activates Painter, selects that layer's content and the 2D Base Color view, and
+writes `viewport.png` and `painter.png` into a new workspace directory. Inspect
+both images: the stroke uses the current brush, size, flow, material and enabled
+channels shown in Painter. Channel formats are reported without changing them.
+
+Pass the returned `context_token` to `brush(action="stroke", points=...,
+lease_id=...)`. Each point is `[x,y,pressure]`: x/y are strictly between 0 and 1,
+relative to the captured viewport with its origin at the top left; pressure is
+0 through 1. A gesture has 2–128 points. These are viewport coordinates, not UVs.
+Choose points over the visible UV islands. Native AppKit mouse events drive the
+actual paint tool; fills or imported bitmaps are not substituted for strokes.
+
+A preparation lasts 60 seconds and permits one stroke. Intervening UI input,
+MCP edits, target, viewport, selection or focus changes require preparation again.
+The bridge sends a mouse release after partial failures, consumes the context
+before input and never retries an uncertain mutation. `dispatched=true` reports
+input delivery; inspect the resulting channels or compare exported pixels to
+confirm the mark. Save and reopen an owned project copy to verify persistence.
+
+The native path was exercised with Painter 12.2 and PySide6/Qt 6.8 on macOS.
+It requires an English Base Color selector. Other platforms or UI versions may
+need another native adapter; normal Painter API operations remain portable.

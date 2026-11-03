@@ -224,6 +224,20 @@ class PainterLayerResult(VariantResult):
     mask: str | None = None
 
 
+class PainterBrushResult(VariantResult):
+    shapes = (("prepared", "context_token", "preview", "viewport"),
+              ("dispatched", "points", "uid", "texture_set", "next"))
+    prepared: Literal[True] | None = None
+    context_token: str | None = None
+    preview: str | None = None
+    viewport: Record | None = None
+    dispatched: Literal[True] | None = None
+    points: int | None = None
+    uid: int | None = None
+    texture_set: str | None = None
+    next: str | None = None
+
+
 class PainterBakeResult(VariantResult):
     shapes = (
         ("started", "texture_sets", "maps", "disabled_texture_sets", "next"),

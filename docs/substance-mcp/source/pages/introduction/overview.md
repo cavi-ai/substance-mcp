@@ -17,9 +17,11 @@ servers write. See [Receipts](../guides/receipts.md).
 ## Application support
 
 The Painter server supports project operations (UDIM, templates, mesh reload), layer-tree
-inspection, fill, group, mask, generator, smart-material, smart-mask and `.sbsar` layers,
-mesh-map baking, shelf search, and channel-packed texture export. It does not provide brush
-strokes; Designer's CLIs are served separately.
+inspection, paint, fill, group, mask, generator, smart-material, smart-mask and `.sbsar`
+layers, mesh-map baking, shelf search and channel-packed texture export. A native macOS
+adapter adds [2D brush strokes](../painter/tools.md#native-brush-painting) with pressure
+and viewport previews. Changed 16-bit texture samples and save/reopen persistence were
+checked with Painter 12.2.0 and PySide6/Qt 6.8.7.
 
 Native project creation, texture-set and preset inspection, uniform fill creation, texture
 export, save-copy/reopen, and guarded closing have been checked with Painter 12.2.0 on

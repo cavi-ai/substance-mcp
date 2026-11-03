@@ -29,6 +29,7 @@ OPERATIONS = frozenset(
         "export_textures",
         "session_control",
         "layer_edit",
+        "brush",
         "bake",
         "bake_cancel",
         "bake_status",
@@ -51,9 +52,12 @@ RESPONSE_LIMIT = 8 * 1024 * 1024
 # The payload is one exec'd string: the shared receipts module first, then the Painter
 # operations, which find it under the name ``receipts``.
 _RECEIPTS = Path(__file__).parents[1].joinpath("receipts.py").read_text(encoding="utf-8")
+_BRUSH = Path(__file__).with_name("native_brush.py").read_text(encoding="utf-8")
 SOURCE = (
     "receipts = __import__('types').ModuleType('cavi_receipts')\n"
     f"exec(compile({_RECEIPTS!r}, 'cavi_receipts', 'exec'), receipts.__dict__)\n"
+    "native_brush = __import__('types').ModuleType('cavi_native_brush')\n"
+    f"exec(compile({_BRUSH!r}, 'cavi_native_brush', 'exec'), native_brush.__dict__)\n"
     + Path(__file__).with_name("operations.py").read_text(encoding="utf-8")
 )
 SOURCE_KEY = hashlib.sha256(SOURCE.encode()).hexdigest()

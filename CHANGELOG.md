@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Native macOS Painter brush strokes with pressure, viewport previews and stale-target checks.
+- Real paint-layer creation through `layer_edit`.
+
 ### Fixed
 
 - Preserve 16-bit RGB and RGBA PNG samples during channel packing, including interlaced sources.

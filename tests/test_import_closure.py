@@ -23,6 +23,10 @@ MINIMUM = (3, 11)
 
 # Entry module -> the package modules its import may load.
 IN_APP = {
+    "cavi_substance_mcp.painter.native_brush": {
+        "cavi_substance_mcp", "cavi_substance_mcp.painter",
+        "cavi_substance_mcp.painter.native_brush",
+    },
     "cavi_substance_mcp.receipts": {
         "cavi_substance_mcp", "cavi_substance_mcp.receipts",
     },
@@ -45,6 +49,7 @@ IN_APP = {
 # Source files whose every import statement, even one inside a function, is checked.
 # Value: top-level names the host application provides to code running inside it.
 APPLICATION_MODULES = {
+    "painter/native_brush.py": {"PySide6", "shiboken6"},
     "painter/operations.py": {"substance_painter", "PySide6"},
     "receipts.py": set(),
     "core/workspace.py": set(),
@@ -163,18 +168,18 @@ class StaticImportTests(unittest.TestCase):
                     )
 
     def test_the_painter_payload_imports_nothing_from_the_package(self):
-        # The one exception is the host-side fallback for the receipts module, which the
-        # payload bundle defines before the operations run.
+        # Host fallbacks for the two modules bundled before the operations run.
         for top, level, module in imported_names(PACKAGE / "painter/operations.py"):
             with self.subTest(module=module):
                 if level:
-                    self.assertEqual((level, module or "receipts"), (2, "receipts"))
+                    self.assertIn((level, module or "receipts"),
+                                  {(2, "receipts"), (1, "native_brush")})
                 else:
                     self.assertNotEqual(top, "cavi_substance_mcp")
 
     def test_relative_imports_stay_inside_the_in_app_set(self):
         in_app = {"receipts", "core", "core.workspace", "sampler.names", "sampler.targets",
-                  "sampler"}
+                  "sampler", "painter.native_brush"}
         for relative in APPLICATION_MODULES:
             package = Path(relative).parent.as_posix().replace(".", "")
             for _top, level, module in imported_names(PACKAGE / relative):

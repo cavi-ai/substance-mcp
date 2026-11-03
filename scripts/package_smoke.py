@@ -39,7 +39,7 @@ TIMEOUT = 90  # seconds per MCP request or subprocess; first start-up imports nu
 
 # console script -> tool count
 SERVERS = {
-    "cavi-substance-mcp": 7,
+    "cavi-substance-mcp": 8,
     "cavi-substance-designer-mcp": 3,
     "cavi-substance-sampler-mcp": 8,
 }
@@ -48,6 +48,7 @@ RECEIPTS_SCRIPT = "cavi-substance-receipts"
 # receipts_cli.py is the entry point of RECEIPTS_SCRIPT.
 REQUIRED_IN_WHEEL = (
     "cavi_substance_mcp/painter/operations.py",
+    "cavi_substance_mcp/painter/native_brush.py",
     "cavi_substance_mcp/core/workspace.py",
     "cavi_substance_mcp/sampler/operations.py",
     "cavi_substance_mcp/receipts_cli.py",

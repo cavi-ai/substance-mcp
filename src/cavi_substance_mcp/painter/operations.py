@@ -19,6 +19,11 @@ try:
 except NameError:  # imported on the host (tests, simulator setup)
     from .. import receipts
 
+try:
+    native_brush  # noqa: B018 -- bundled before operations in Painter
+except NameError:
+    from . import native_brush
+
 # Bump when Lease state or methods change. The version is part of the attribute name, so a
 # payload never reuses an object built from other code; a lease held under an older version
 # is not carried over and has to be claimed again.
@@ -440,6 +445,8 @@ def dispatch(operation: str, params: dict, workspace: str) -> dict:
     ):
         return _execute(operation, params, workspace)
     with session.edit(params.get("lease_id"), identity):
+        if operation != "brush":
+            native_brush.invalidate(substance_painter)
         return _execute(operation, params, workspace)
 
 
@@ -620,6 +627,7 @@ _ANY_STATE = {
     "close_project": _close,
 }
 _OPEN_AND_IDLE = {
+    "brush": lambda op, params, ws, root: _brush(params, root),
     "layer_stack": lambda op, params, ws, root: _layers(op, params, root),
     "create_fill_layer": lambda op, params, ws, root: _layers(op, params, root),
     "create_texture_fill": lambda op, params, ws, root: _layers(op, params, root),
@@ -1298,6 +1306,25 @@ def _layers(operation, params, root):
     return result
 
 
+def _brush(params, root):
+    import substance_painter
+    from substance_painter import layerstack, project, textureset, ui
+
+    def require_lease():
+        identity = hashlib.sha256(repr((os.getpid(), str(project.get_uuid()),
+                                        project.file_path())).encode()).hexdigest()
+        shared_lease(substance_painter).require(params.get("lease_id"), identity)
+
+    args = (substance_painter, layerstack, textureset, project, ui, require_lease)
+    if params.get("action") == "prepare":
+        required(params, "texture_set")
+        required(params, "uid", int)
+        folder = export_destination(root(), required(params, "directory"))
+        with new_output_directory(folder):
+            return native_brush.run(params, folder, *args)
+    return native_brush.run(params, None, *args)
+
+
 def _layer_edit(params, root):
     import substance_painter
     from substance_painter import layerstack, resource, textureset
@@ -1305,7 +1332,7 @@ def _layer_edit(params, root):
     action = required(params, "action")
     texture_set = required(params, "texture_set")
     stack = textureset.Stack.from_name(texture_set)
-    if action in {"group", "smart_material", "sbsar_fill"}:
+    if action in {"paint", "group", "smart_material", "sbsar_fill"}:
         position, siblings = insert_position(layerstack, stack, params)
         name = new_name(params, siblings)
         values = check_parameters(params.get("parameters"))
@@ -1313,7 +1340,7 @@ def _layer_edit(params, root):
             raise ValueError("parameters apply to sbsar_fill and generator only")
         graphs = []
         source = None
-        if action == "group":
+        if action in {"paint", "group"}:
             item = None
         elif action == "smart_material":
             item = find_resource(resource, params.get("resource"), "smart_material")
@@ -1352,6 +1379,8 @@ def _layer_edit(params, root):
             with layerstack.ScopedModification(f"Create {action} {name}"):
                 if action == "group":
                     node = layerstack.insert_group(position)
+                elif action == "paint":
+                    node = layerstack.insert_paint(position)
                 elif action == "smart_material":
                     node = layerstack.insert_smart_material(position, item.identifier())
                 else:
