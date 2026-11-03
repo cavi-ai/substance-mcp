@@ -16,6 +16,7 @@
 - Default Designer mesh-map bakes to EXR and material renders/packing to 16-bit output.
 - Preserve native brush input tracking without application-wide Python Qt event filters.
 - Reject signed, HDR and nonfinite samples before integer channel packing.
+- Require OpenEXR 3.5.3 or newer for compatible header-only image inspection.
 
 
 ### Added

@@ -66,7 +66,7 @@ dev = [
 requires-dist = [
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "numpy", specifier = ">=2.0,<3" },
-    { name = "openexr", specifier = ">=3.3,<4" },
+    { name = "openexr", specifier = ">=3.5.3,<4" },
     { name = "pillow", specifier = ">=13.0,<14" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pypng", specifier = ">=0.20220715.0,<1" },
