@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 - 2026-11-02
+
+### Added
+
+- Declared response fields for all Painter, Designer and Sampler tools.
+- Action-specific response validation that preserves existing wire shapes and extra details.
+- Report output conversion failures as uncertain outcomes without suggesting a retry.
+
 ## 0.8.1 - 2026-11-02
 
 ### Fixed

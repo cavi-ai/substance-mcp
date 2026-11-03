@@ -1,6 +1,7 @@
 """The MCP server type shared by the Painter, Designer and Sampler servers."""
 
 import functools
+import logging
 from importlib.metadata import version
 
 from mcp.server.mcpserver import MCPServer
@@ -63,9 +64,15 @@ class Server(MCPServer):
         super().__init__(name, version=version("cavi-substance-mcp"), **kwargs)
 
     async def list_tools(self):
-        return [tool.model_copy(update={"input_schema": compact_schema(tool.input_schema),
-                                       "output_schema": compact_schema(tool.output_schema)})
-                for tool in await super().list_tools()]
+        return [
+            tool.model_copy(
+                update={
+                    "input_schema": compact_schema(tool.input_schema),
+                    "output_schema": compact_schema(tool.output_schema, output=True),
+                }
+            )
+            for tool in await super().list_tools()
+        ]
 
     async def call_tool(self, name, arguments, context=None):
         try:
@@ -74,8 +81,11 @@ class Server(MCPServer):
             if self._tool_manager.get_tool(name) is None:
                 raise UnknownToolError(f"Unknown tool: {name}")
             return await super().call_tool(name, arguments, context)
-        except UnexpectedToolError:
-            raise
+        except UnexpectedToolError as exc:
+            if context is None:
+                raise
+            logging.getLogger(__name__).exception("Tool execution or output conversion failed")
+            return failure(name, exc)
         except ToolError as exc:
             if context is None:
                 raise

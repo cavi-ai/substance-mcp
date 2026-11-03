@@ -2,12 +2,20 @@
 
 import threading
 import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import anyio.to_thread
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
-from ..core.contracts import Ownership, PainterStatus, TextureExport
+from ..core.contracts import (
+    Ownership,
+    PainterBakeResult,
+    PainterInspection,
+    PainterLayerResult,
+    PainterProject,
+    PainterStatus,
+    TextureExport,
+)
 from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from .client import PainterClient
 
@@ -107,7 +115,7 @@ async def project(
     ] = None,
     timeout_seconds: Annotated[StrictInt, Field(ge=1, le=300)] = 60,
     lease_id: LeaseId = None,
-) -> dict[str, Any]:
+) -> PainterProject:
     """open/create only with no project open; close refuses unsaved edits unless
     discard_unsaved; save overwrites the workspace file; wait_ready polls until editable.
     reload_mesh is async: wait_ready, then painter_status mesh_reload."""
@@ -150,7 +158,7 @@ async def inspect(
         "smart_material", "smart_mask", "material", "generator", "texture", "environment"
     ] | None = None,
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50,
-) -> dict[str, Any]:
+) -> PainterInspection:
     """Texture sets, layer tree (groups, masks, effects, blending), export presets,
     shelf resources, or baking parameters."""
     if action == "layer_stack":
@@ -204,7 +212,7 @@ async def layer_edit(
     visible: StrictBool | None = None,
     confirm_name: Annotated[str | None, Field(max_length=63)] = None,
     lease_id: LeaseId = None,
-) -> dict[str, Any]:
+) -> PainterLayerResult:
     """Edit a layer stack; failures roll back. delete needs confirm_name."""
     if action in LAYER_ACTIONS:
         if source_manifest is not None or expected_sha256 is not None:
@@ -306,7 +314,7 @@ async def bake(
     low_poly_suffix: Annotated[str | None, Field(max_length=32)] = None,
     high_poly_suffix: Annotated[str | None, Field(max_length=32)] = None,
     lease_id: LeaseId = None,
-) -> dict[str, Any]:
+) -> PainterBakeResult:
     """Bake mesh maps; start returns at once, poll status until busy is false; cancel stops
     a running bake. Unset options keep current settings; unselected sets are disabled."""
     if action == "status":
