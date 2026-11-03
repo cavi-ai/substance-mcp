@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import png
 from home import isolate_home
 from PIL import Image
 
@@ -165,6 +166,32 @@ class PackingTests(unittest.TestCase):
         row = zlib.decompress(idat)[: 1 + 8 * 8]
         pixel = np.frombuffer(row[1:9], ">u2").tolist()
         self.assertEqual(pixel, [40000, 65535 - 40000, 65535, 0])
+
+    def test_png16_color_preserves_low_bits_and_interlacing(self):
+        for channels in (3, 4):
+            for interlace in (False, True):
+                with self.subTest(channels=channels, interlace=interlace):
+                    values = np.array([12345, 32769, 65001, 45678][:channels], dtype=np.uint16)
+                    pixels = np.broadcast_to(values, (4, 8, channels)).copy()
+                    path = self.root / 'color16.png'
+                    with path.open('wb') as stream:
+                        writer = png.Writer(8, 4, greyscale=False, alpha=channels == 4,
+                                            bitdepth=16, interlace=interlace)
+                        writer.write(stream, pixels.reshape(4, -1))
+                    mapping = {'RGB': 'normal'}
+                    if channels == 4:
+                        mapping['A'] = 'normal'
+                    self.run_pack({'maps': [{'name': 'Color16', 'bit_depth': 16,
+                                            'channels': mapping}]}, {'normal': path})
+                    with (self.root / 'out/Color16.png').open('rb') as stream:
+                        width, height, rows, info = png.Reader(file=stream).read()
+                        actual = np.vstack([np.asarray(row) for row in rows])
+                        actual = actual.reshape(height, width, channels)
+                    expected = pixels.copy()
+                    if channels == 4:
+                        expected[:, :, 3] = pixels[:, :, 0]  # Scalar usages explicitly select red.
+                    self.assertEqual(info['bitdepth'], 16)
+                    np.testing.assert_array_equal(actual, expected)
 
     def test_errors(self):
         cases = [

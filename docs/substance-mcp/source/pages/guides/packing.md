@@ -15,6 +15,9 @@ share one channel packing spec:
 - Sources: usage, `1-<usage>`, or a constant `0..1`. Missing usages need `defaults`.
 - No `A` key writes RGB. All sources share one resolution. Gray from RGB uses R.
 - Formats `png`, `tga`, `tif`; `bit_depth` 16 is PNG only.
+- Choose output bit depth to preserve the contributing sources. A 16-bit PNG pack
+  retains 16-bit RGB/RGBA source samples, including interlaced sources; writing
+  16-bit output from an 8-bit source does not restore missing precision.
 
 Painter maps its own sources onto this spec; see
 [Painter tools](../painter/tools.md#export) for the document and mesh map names it accepts.
