@@ -51,7 +51,7 @@ BAKE_MAPS = {"normal": "Normal", "world_space_normal": "WorldSpaceNormal", "id":
              "bent_normals": "BentNormals"}
 SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
                 "material": "BASE_MATERIAL", "generator": "GENERATOR", "texture": "TEXTURE",
-                "environment": "ENVIRONMENT"}
+                "environment": "ENVIRONMENT", "brush": "BRUSH"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
@@ -571,6 +571,47 @@ def _texture_sets(operation, params, workspace, root):
     return {"texture_sets": sets}
 
 
+def _texture_set_settings(operation, params, workspace, root):
+    from substance_painter import textureset
+
+    stack = textureset.Stack.from_name(required(params, 'texture_set'))
+    channels = stack.all_channels()
+    formats = params.get('channel_formats') or {}
+    if not isinstance(formats, dict) or len(formats) > 64:
+        raise ValueError('channel_formats must be a channel-name to format map')
+    resolved = []
+    for name, value in formats.items():
+        channel_type = getattr(textureset.ChannelType, name, None)
+        channel_format = getattr(textureset.ChannelFormat, value, None)
+        if channel_type not in channels or channel_format is None:
+            raise ValueError(f'Unknown channel or format: {name}={value}')
+        if channels[channel_type].is_color() != (value.startswith('RGB') or value == 'sRGB8'):
+            raise ValueError(f'Format does not match channel components: {name}={value}')
+        resolved.append((channels[channel_type], channel_format))
+    resolution = texture_resolution(params.get('resolution'))
+    before = _texture_sets(operation, params, workspace, root)
+    try:
+        for channel, channel_format in resolved:
+            channel.edit(channel_format)
+        if resolution is not None:
+            stack.material().set_resolution(textureset.Resolution(resolution, resolution))
+    except Exception as exc:
+        raise RuntimeError(f'Texture settings may be partially applied: {exc}; '
+                           'inspect before retry') from exc
+    return {**_texture_sets(operation, params, workspace, root), 'before': before['texture_sets']}
+
+
+def _initialize_channels(operation, params, workspace, root):
+    from substance_painter import textureset
+
+    for stack in (s for material in textureset.all_texture_sets() for s in material.all_stacks()):
+        for channel in stack.all_channels().values():
+            if channel.bit_depth() < 16:
+                fmt = ('RGB' if channel.is_color() else 'L') + '16'
+                channel.edit(getattr(textureset.ChannelFormat, fmt))
+    return _texture_sets(operation, params, workspace, root)
+
+
 def _export_presets(operation, params, workspace, root):
     from substance_painter import export
 
@@ -636,6 +677,8 @@ _OPEN_AND_IDLE = {
     "bake_settings": lambda op, params, ws, root: _bake_settings(params),
     "reload_mesh": _reload_mesh,
     "texture_sets": _texture_sets,
+    "texture_set_settings": _texture_set_settings,
+    "initialize_channels": _initialize_channels,
     "export_presets": _export_presets,
     "save": _save,
     "save_copy": _save_copy,
@@ -734,7 +777,11 @@ def export_maps(specs, default_format, default_depth):
         names.add(name)
         depth = bit_depth(spec.get("bit_depth")) or default_depth
         fmt = spec.get("format") or default_format or "png"
-        depth = depth or EXPORT_FORMATS.get(fmt, ("8",))[0]
+        if depth is None:
+            depth = "16f" if fmt == "exr" else "16"
+            if fmt in EXPORT_FORMATS and depth not in EXPORT_FORMATS[fmt]:
+                raise ValueError(f"{fmt} requires an explicit bit_depth; use PNG/TIFF/EXR "
+                                 "to retain high precision")
         file_format(fmt, depth)
         channels = spec.get("channels")
         if not isinstance(channels, dict) or not channels:

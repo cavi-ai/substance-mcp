@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import numpy as np
+import OpenEXR
 import png
+import tifffile
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -17,7 +19,7 @@ NAME = r"^[A-Za-z0-9_-]{1,96}$"
 MAX_EDGE = 8192
 # Decoded sources are float32 RGBA at most; refuse a pack that would need more than this.
 MAX_DECODED_BYTES = 2 * 1024**3
-READABLE = {".png", ".tga", ".tif", ".tiff", ".jpg", ".jpeg"}
+READABLE = {".png", ".tga", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
 
 Source = Annotated[str, StringConstraints(pattern=SOURCE)]
 UsageName = Annotated[str, StringConstraints(pattern=f"^{USAGE}$")]
@@ -27,7 +29,7 @@ class PackMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Annotated[str, StringConstraints(pattern=NAME)]
     format: Literal["png", "tga", "tif"] = "png"
-    bit_depth: Annotated[Literal[8, 16], Field(description="16: png only.")] = 8
+    bit_depth: Annotated[Literal[8, 16], Field(description="16: png or tif.")] = 16
     channels: Annotated[
         dict[Literal["R", "G", "B", "A", "RGB"], Source],
         Field(description="Source: usage, 1-usage, or constant 0..1."),
@@ -48,26 +50,88 @@ def check_spec(spec: PackSpec):
             raise ValueError(f"{item.name}: RGB cannot be combined with R, G or B")
         if "RGB" not in keys and not {"R", "G", "B"} <= keys:
             raise ValueError(f"{item.name}: channels need RGB or all of R, G, B")
-        if item.bit_depth == 16 and item.format != "png":
-            raise ValueError(f"{item.name}: bit_depth 16 requires png")
+        if item.bit_depth == 16 and item.format not in ("png", "tif"):
+            raise ValueError(f"{item.name}: bit_depth 16 requires png or tif")
         if item.name.lower() in names:
             raise ValueError(f"Duplicate map name: {item.name}")
         names.add(item.name.lower())
 
 
+def dimensions(path: Path) -> tuple[int, int]:
+    if path.suffix.lower() == ".exr":
+        with OpenEXR.File(str(path), header_only=True) as image:
+            if len(image.parts) != 1:
+                raise ValueError("Channel packing requires a single-part EXR")
+            header = image.header()
+            if (header["type"] not in (OpenEXR.scanlineimage, OpenEXR.tiledimage)
+                    or not 1 <= len(header["channels"]) <= 4):
+                raise ValueError("EXR packing requires a flat image with 1..4 channels")
+            low, high = header["dataWindow"]
+            width, height = (high - low + 1).tolist()
+    elif path.suffix.lower() in (".tif", ".tiff"):
+        with tifffile.TiffFile(path) as image:
+            if len(image.pages) != 1:
+                raise ValueError("Channel packing requires a single-page TIFF")
+            page = image.pages[0]
+            if not 1 <= page.samplesperpixel <= 4:
+                raise ValueError("TIFF packing requires 1..4 samples per pixel")
+            width, height = page.imagewidth, page.imagelength
+    else:
+        with Image.open(path) as image:
+            width, height = image.size
+    if not 1 <= width <= MAX_EDGE or not 1 <= height <= MAX_EDGE:
+        raise ValueError(f"{path.name} exceeds {MAX_EDGE} px or has invalid dimensions")
+    return width, height
+
+
+def precise_load(path: Path):
+    dimensions(path)
+    if path.suffix.lower() == ".exr":
+        with OpenEXR.File(str(path), separate_channels=True) as image:
+            channels = image.channels()
+            names = [n for n in ("R", "G", "B", "A") if n in channels]
+            if not names and len(channels) == 1:
+                names = list(channels)
+            if not names or (len(names) > 1 and names[:3] != ["R", "G", "B"]):
+                raise ValueError("EXR requires RGB[A] or one scalar channel")
+            data = np.stack([channels[n].pixels for n in names], axis=-1)
+            if data.dtype.kind != "f":
+                raise ValueError("EXR source channels must use half or full float")
+    else:
+        with tifffile.TiffFile(path) as image:
+            page = image.pages[0]
+            # Only grayscale and RGB[A], with no palette/CMYK interpretation.
+            if int(page.photometric) not in (1, 2):
+                raise ValueError("TIFF source must be grayscale or RGB[A]")
+            data = page.asarray()
+            if int(page.planarconfig) == 2:
+                data = np.moveaxis(data, 0, -1)
+    if data.ndim == 2:
+        data = data[:, :, None]
+    if data.ndim != 3 or data.shape[2] not in (1, 2, 3, 4):
+        raise ValueError("Source must have 1..4 interleaved channels")
+    if data.dtype.kind == "u" and data.dtype.itemsize in (1, 2):
+        return data.astype(np.float32) / np.iinfo(data.dtype).max
+    if data.dtype.kind == "f":
+        return data.astype(np.float32)
+    raise ValueError("Source requires unsigned 8/16-bit or floating samples")
+
+
 def load(path: Path) -> np.ndarray:
-    with path.open('rb') as stream:
+    if path.suffix.lower() in (".exr", ".tif", ".tiff"):
+        return precise_load(path)
+    with path.open("rb") as stream:
         header = stream.read(26)
-        if header[:8] == b'\x89PNG\r\n\x1a\n' and len(header) == 26 and header[24] == 16:
+        if header[:8] == b"\x89PNG\r\n\x1a\n" and len(header) == 26 and header[24] == 16:
             stream.seek(0)
             width, height, rows, info = png.Reader(file=stream).read()
             if width > MAX_EDGE or height > MAX_EDGE:
                 raise ValueError(f"{path.name} exceeds {MAX_EDGE} px")
-            pixels = np.empty((height, width * info['planes']), dtype=np.float32)
+            pixels = np.empty((height, width * info["planes"]), dtype=np.float32)
             for index, row in enumerate(rows):
                 pixels[index] = row
             # Pillow decodes multichannel PNG16 as 8-bit. Keep every source sample.
-            return pixels.reshape(height, width, info['planes']) / 65535.0
+            return pixels.reshape(height, width, info["planes"]) / 65535.0
     with Image.open(path) as image:
         width, height = image.size
         if width > MAX_EDGE or height > MAX_EDGE:
@@ -98,12 +162,20 @@ def _write_png16(path: Path, pixels: np.ndarray):
     raw = b"".join(b"\0" + row.tobytes() for row in rows)
 
     def chunk(kind, body):
-        return (struct.pack(">I", len(body)) + kind + body
-                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
 
     header = struct.pack(">IIBBBBB", width, height, 16, color, 0, 0, 0)
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
-                     + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IEND", b"")
+    )
 
 
 def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
@@ -116,19 +188,21 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
             if re.fullmatch(USAGE, usage):
                 if usage not in sources and usage not in spec.defaults:
                     raise ValueError(
-                        f"{item.name}: source usage '{usage}' is missing and has no default")
+                        f"{item.name}: source usage '{usage}' is missing and has no default"
+                    )
                 if usage in sources:
                     needed.add(usage)
     if not needed:
         raise ValueError("Packing needs at least one image source")
     decoded = 0
     for usage in sorted(needed):
-        with Image.open(sources[usage]) as image:
-            decoded += image.size[0] * image.size[1] * 4 * 4
+        width, height = dimensions(sources[usage])
+        decoded += width * height * 4 * 4
     if decoded > MAX_DECODED_BYTES:
         raise ValueError(
             f"Sources need {decoded / 1024**3:.1f} GiB decoded; the limit is "
-            f"{MAX_DECODED_BYTES / 1024**3:.0f} GiB. Pack fewer or smaller maps per call.")
+            f"{MAX_DECODED_BYTES / 1024**3:.0f} GiB. Pack fewer or smaller maps per call."
+        )
     last_use = {}
     for index, item in enumerate(spec.maps):
         for source in item.channels.values():
@@ -136,13 +210,23 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
     size = None
     for usage in sorted(needed):
         cache[usage] = load(sources[usage])
+        if (
+            not np.isfinite(cache[usage]).all()
+            or np.any(cache[usage] < 0)
+            or np.any(cache[usage] > 1)
+        ):
+            raise ValueError(
+                f"{usage}: integer channel packing requires finite normalized 0..1 samples; "
+                "remap HDR/signed values explicitly"
+            )
         shape = cache[usage].shape[:2]
         if size is None:
             size = shape
         elif shape != size:
             raise ValueError(
                 f"Source resolutions differ: {usage} is {shape[1]}x{shape[0]}, "
-                f"expected {size[1]}x{size[0]}")
+                f"expected {size[1]}x{size[0]}"
+            )
     height, width = size
 
     def resolve(source: str, rgb: bool) -> np.ndarray:
@@ -160,8 +244,11 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
     written = []
     for index, item in enumerate(spec.maps):
         channels = item.channels
-        planes = ([(channels["RGB"], True)] if "RGB" in channels
-                  else [(channels[key], False) for key in "RGB"])
+        planes = (
+            [(channels["RGB"], True)]
+            if "RGB" in channels
+            else [(channels[key], False) for key in "RGB"]
+        )
         if "A" in channels:
             planes.append((channels["A"], False))
         scale, dtype = (65535.0, np.uint16) if item.bit_depth == 16 else (255.0, np.uint8)
@@ -171,16 +258,25 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
         offset = 0
         for source, rgb in planes:
             depth = 3 if rgb else 1
-            pixels[:, :, offset:offset + depth] = np.rint(resolve(source, rgb) * scale)
+            pixels[:, :, offset : offset + depth] = np.rint(resolve(source, rgb) * scale)
             offset += depth
         for usage in [key for key, last in last_use.items() if last == index]:
             cache.pop(usage, None)
         target = directory / f"{item.name}.{item.format}"
-        if item.bit_depth == 16:
+        if item.bit_depth == 16 and item.format == "tif":
+            tifffile.imwrite(target, pixels, photometric="rgb", metadata=None)
+        elif item.bit_depth == 16:
             _write_png16(target, pixels)
         else:
             Image.fromarray(pixels).save(target)
-        written.append({"name": item.name, "path": target, "width": width, "height": height,
-                        "channels": "RGBA" if "A" in channels else "RGB",
-                        "bit_depth": item.bit_depth})
+        written.append(
+            {
+                "name": item.name,
+                "path": target,
+                "width": width,
+                "height": height,
+                "channels": "RGBA" if "A" in channels else "RGB",
+                "bit_depth": item.bit_depth,
+            }
+        )
     return {"maps": written, "sources": sorted(needed)}

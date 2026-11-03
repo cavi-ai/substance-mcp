@@ -1,7 +1,7 @@
 # Designer tools
 
 `cavi-substance-designer-mcp` is a stdio server for Substance 3D Designer's headless
-CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or lease.
+CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`) and native SDK graph authoring.
 
 ```json
 {"mcpServers": {"substance-designer": {"command": "cavi-substance-designer-mcp"}}}
@@ -17,6 +17,7 @@ CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`). No Designer UI or lease.
 | --- | --- |
 | `designer_status` | binaries, versions, packages dir, templates, workspace |
 | `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
+| `graph` | `create`, `edit`, `inspect`, `catalog`; new output `directory`, optional source `path`, structured `recipe` |
 | `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
 
 ## Bake maps
@@ -33,7 +34,7 @@ Opacity.Raytraced. One baker run per map; each output file is verified.
 
 - Presets are not listed (`sbsrender info` does not expose them) and an unknown preset
   name is ignored by `sbsrender`.
-- 16-bit RGB/RGBA sources are read at 8-bit precision; 16-bit grayscale is exact.
+- PNG16 color and grayscale samples retain their precision during packing.
 - The evals run against fake CLIs (`evals/designer_fake_cli.py`); native tests need
   Designer and, for baking, Blender. See [Testing and evaluation](../reference/testing.md).
 
@@ -45,3 +46,47 @@ code, operation, outcome, retry_safe and next_action. Transport/protocol failure
 retain an unknown outcome even when caused by JSON decoding. Inspect the
 application and outputs before deciding whether another mutation is appropriate.
 Unexpected defects remain opaque.
+
+## Editable graph authoring
+
+`graph` runs Designer with its supported startup-script interface. Each request
+uses an owned batch instance and writes into a new workspace directory. It
+preserves an already-running editor by refusing to launch over it. Mutations
+save a new `.sbs` package; the input package is checked for changes afterward.
+
+`create` accepts a graph `identifier`, `resolution`, `precision`, `seed` and
+`operations`. New graphs default to 16-bit float. `edit` preserves source
+precision, size and seed unless the recipe explicitly changes them. Operations
+include `add_node`, `instance`, `set`, `connect`, `disconnect`, `remove_node`,
+`expose`, `set_input` and `output`. Property values use their native SDK types;
+texture inputs are connected through their ports.
+
+Use `catalog` to discover native definition IDs. An exact definition query also
+returns input/output property types, defaults and connectability. `path` may name
+an installed library such as `builtin:packages/noise_clouds_3_v2`; the response
+includes resource URLs suitable for `instance`. `inspect` reopens a saved package
+and reports nodes, connections, graph inputs and actual precision. Creation
+returns `node_ids` so later edits can address the saved native identifiers.
+
+For example, pass this recipe to `graph(action="create", directory=...)`:
+
+```json
+{
+  "identifier": "PaintedMetal",
+  "precision": "16f",
+  "operations": [
+    {"action": "add_node", "key": "paint", "definition": "sbs::compositing::uniform",
+     "values": {"outputcolor": [0.1, 0.3, 0.6, 1.0]}},
+    {"action": "expose", "node": "paint", "property": "outputcolor", "identifier": "paintColor"},
+    {"action": "output", "key": "base", "source": "paint",
+     "source_port": "unique_filter_output", "identifier": "BaseColor",
+     "usage": "baseColor", "color_space": "sRGB"}
+  ]
+}
+```
+
+Feed the returned `package` to `material(action="cook")`, then render the
+archive. Rendering defaults to 16-bit output; EXR supports explicit `16f` or
+`32f`. Graph authoring records source/output hashes and built-in dependencies.
+Native tests verify changed parameter outputs, saved wiring, library instances
+and preservation of 32-bit float graph precision through editing.

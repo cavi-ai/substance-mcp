@@ -175,8 +175,8 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
         raise ValueError(f"bit_depth {bit_depth} unsupported for {fmt}")
     if spec is not None:
         packing.check_spec(spec)
-        if fmt not in ("png", "tga", "tif") or bit_depth not in ("8", "16"):
-            raise ValueError("pack needs png, tga or tif renders at bit_depth 8 or 16")
+        if fmt not in ("png", "tga", "tif", "exr"):
+            raise ValueError("pack needs png, tga, tif or exr renders")
     if preset is not None and not PRESET.fullmatch(preset):
         raise ValueError("preset must be printable, without '@' or a leading '-'")
     selected = pick_graph(await graphs_of(path, timeout), graph)

@@ -237,7 +237,8 @@
       "format": "tga",
       "channels": {
        "RGB": "baseColor"
-      }
+      },
+      "bit_depth": 8
      }
     ]
    }
@@ -1147,15 +1148,15 @@
    "simulated"
   ],
   "equals": {
-   "/maps/normal": "baked/normal.png",
+   "/maps/normal": "baked/normal.exr",
    "/commands/ambient_occlusion": "AmbientOcclusion.Raytraced",
    "/commands/world_normal": "Normal.TangentToWorld",
    "/high_used/world_normal": false
   },
   "files": [
-   "baked/normal.png",
-   "baked/ambient_occlusion.png",
-   "baked/world_normal.png"
+   "baked/normal.exr",
+   "baked/ambient_occlusion.exr",
+   "baked/world_normal.exr"
   ]
  },
  {
@@ -1180,7 +1181,7 @@
    "/high_used/curvature": false
   },
   "files": [
-   "baked_low/id.png"
+   "baked_low/id.exr"
   ]
  },
  {
@@ -1364,7 +1365,7 @@
   "modes": [
    "simulated"
   ],
-  "error": "wrote no normal.png",
+  "error": "wrote no normal.exr",
   "absent": [
    "x"
   ]
@@ -1388,5 +1389,102 @@
   "absent": [
    "x"
   ]
+ },
+ {
+  "id": "graph-create-simulated",
+  "tool": "graph",
+  "arguments": {
+   "action": "create",
+   "directory": "graph-created",
+   "recipe": {
+    "identifier": "PaintedMetal",
+    "operations": [
+     {
+      "action": "add_node",
+      "key": "color",
+      "definition": "sbs::compositing::uniform"
+     }
+    ]
+   }
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/graphs/0/identifier": "PaintedMetal",
+   "/simulated": true
+  },
+  "required": [
+   "/package",
+   "/manifest",
+   "/report"
+  ]
+ },
+ {
+  "id": "graph-catalog-simulated",
+  "tool": "graph",
+  "arguments": {
+   "action": "catalog",
+   "directory": "graph-catalog"
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "equals": {
+   "/total": 1,
+   "/simulated": true
+  }
+ },
+ {
+  "id": "graph-reject-code",
+  "tool": "graph",
+  "arguments": {
+   "action": "create",
+   "directory": "graph-code",
+   "recipe": {
+    "operations": [
+     {
+      "action": "execute",
+      "python": "anything"
+     }
+    ]
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "graph-missing-action",
+  "tool": "graph",
+  "arguments": {
+   "directory": "graph-no-action"
+  },
+  "kind": "invalid",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "validation"
+ },
+ {
+  "id": "graph-refuses-outside-source",
+  "tool": "graph",
+  "arguments": {
+   "action": "edit",
+   "path": "../outside/foreign.sbs",
+   "directory": "graph-outside"
+  },
+  "kind": "safety",
+  "modes": [
+   "protocol",
+   "simulated"
+  ],
+  "error": "Input must"
  }
 ]

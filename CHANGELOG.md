@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-11-03
+
+### Added
+
+- Editable native Designer graphs with node discovery, connections, exposed inputs and semantic outputs.
+- Painter brush presets, uniform channel values, enable toggles, erase and paint-mask targeting.
+- Working texture-set resolution and source-format controls with 16-bit project defaults.
+- TIFF16/float and EXR source readers and 16-bit TIFF channel packing.
+
+### Fixed
+
+- Default Designer mesh-map bakes to EXR and material renders/packing to 16-bit output.
+- Preserve native brush input tracking without application-wide Python Qt event filters.
+- Reject signed, HDR and nonfinite samples before integer channel packing.
+- Require OpenEXR 3.5.3 or newer for compatible header-only image inspection.
+
+
 ### Added
 
 - Native macOS Painter brush strokes with pressure, viewport previews and stale-target checks.

@@ -226,8 +226,10 @@ class PainterLayerResult(VariantResult):
 
 class PainterBrushResult(VariantResult):
     shapes = (("prepared", "context_token", "preview", "viewport"),
+              ("settings",),
               ("dispatched", "points", "uid", "texture_set", "next"))
     prepared: Literal[True] | None = None
+    settings: Record | None = None
     context_token: str | None = None
     preview: str | None = None
     viewport: Record | None = None
@@ -293,6 +295,21 @@ class DesignerMaterial(VariantResult):
     maps: dict[str, str] | None = None
     outputs: list[Record] | None = None
     packed: list[PackedOutput] | None = None
+
+
+class DesignerGraphResult(Result):
+    action: Literal['create', 'edit', 'inspect', 'catalog']
+    directory: str
+    manifest: str
+    report: str
+    package: str | None = None
+    graphs: list[Record] | None = None
+    node_ids: dict[str, str] | None = None
+    definitions: list[str] | None = None
+    total: int | None = None
+    offset: int | None = None
+    node_schema: Record | None = None
+    resources: list[Record] | None = None
 
 
 class SamplerInspection(VariantResult):

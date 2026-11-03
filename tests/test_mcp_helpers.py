@@ -12,9 +12,10 @@ EXPECTED = {
         "painter_status": READ_ONLY, "inspect": READ_ONLY,
         "session_control": WRITES, "export_textures": WRITES, "bake": WRITES,
         "project": DESTRUCTIVE, "layer_edit": DESTRUCTIVE, "brush": DESTRUCTIVE,
+        "texture_set_settings": DESTRUCTIVE,
     },
     designer_server.mcp: {
-        "designer_status": READ_ONLY, "material": WRITES, "bake": WRITES,
+        "designer_status": READ_ONLY, "material": WRITES, "bake": WRITES, "graph": WRITES,
     },
     sampler_server.mcp: {
         "sampler_status": READ_ONLY, "sampler_inspect": READ_ONLY,

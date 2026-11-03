@@ -2462,7 +2462,7 @@
   "tool": "inspect",
   "arguments": {
    "action": "shelf",
-   "usage": "brush"
+   "usage": "not-a-resource-usage"
   },
   "kind": "invalid",
   "modes": [
@@ -3376,5 +3376,75 @@
   ],
   "without_lease": true,
   "error": "lease_id"
+ },
+ {
+  "id": "source-formats-and-resolution",
+  "tool": "texture_set_settings",
+  "arguments": {
+   "texture_set": "Body",
+   "channel_formats": {
+    "BaseColor": "RGB32F",
+    "Height": "L32F"
+   },
+   "resolution": 1024
+  },
+  "kind": "success",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "equals": {
+   "/texture_sets/0/channels/BaseColor": "RGB32F",
+   "/texture_sets/0/channels/Height": "L32F",
+   "/texture_sets/0/resolution/width": 1024
+  }
+ },
+ {
+  "id": "source-formats-component-mismatch",
+  "tool": "texture_set_settings",
+  "arguments": {
+   "texture_set": "Body",
+   "channel_formats": {
+    "BaseColor": "L16"
+   }
+  },
+  "kind": "safety",
+  "modes": [
+   "simulated"
+  ],
+  "setup": "open",
+  "error": "components"
+ },
+ {
+  "id": "brush-controls-invalid-size",
+  "tool": "brush",
+  "arguments": {
+   "action": "settings",
+   "settings": {
+    "size": 0
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated",
+   "protocol"
+  ],
+  "error": "size"
+ },
+ {
+  "id": "source-formats-invalid-format",
+  "tool": "texture_set_settings",
+  "arguments": {
+   "texture_set": "Body",
+   "channel_formats": {
+    "BaseColor": "RGB64F"
+   }
+  },
+  "kind": "invalid",
+  "modes": [
+   "simulated",
+   "protocol"
+  ],
+  "error": "channel_formats"
  }
 ]

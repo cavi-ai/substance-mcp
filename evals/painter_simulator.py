@@ -54,6 +54,8 @@ SourceMode = SimpleNamespace(Split=SimpleNamespace(name="Split"),
 STACK_CHANNELS = {ChannelType.BaseColor: "sRGB8", ChannelType.Roughness: "L8",
                   ChannelType.Metallic: "L8", ChannelType.Normal: "RGB16F",
                   ChannelType.Height: "L16F"}
+ChannelFormat = Enum('ChannelFormat', ['sRGB8', 'L8', 'RGB8', 'L16', 'RGB16',
+                                      'L16F', 'RGB16F', 'L32F', 'RGB32F'])
 MATERIAL_CHANNELS = {ChannelType.BaseColor, ChannelType.Metallic, ChannelType.Roughness,
                      ChannelType.Normal, ChannelType.Height}
 # Painter export JSON contract from the bundled python-doc json_config.
@@ -493,14 +495,27 @@ class PainterSimulator:
             def is_color(self):
                 return self.fmt.startswith(("sRGB", "RGB"))
 
+            def bit_depth(self):
+                return int(re.search(r'\d+', self.fmt).group())
+
+            def edit(self, channel_format):
+                self.fmt = channel_format.name
+
         class TextureSet:
             material_id = 1
+            resolution = (2048, 2048)
 
             def name(self):
                 return "Body"
 
             def get_resolution(self):
-                return SimpleNamespace(width=2048, height=2048)
+                return SimpleNamespace(width=self.resolution[0], height=self.resolution[1])
+
+            def set_resolution(self, resolution):
+                self.resolution = (resolution.width, resolution.height)
+
+            def all_stacks(self):
+                return [stack]
 
             def has_uv_tiles(self):
                 return sim.state == "udim"
@@ -514,8 +529,9 @@ class PainterSimulator:
                 return sim.mesh_maps.get(usage)
 
         texture_set = TextureSet()
-        stack = SimpleNamespace(stack_id=7, all_channels=lambda: {
-            channel: Channel(fmt) for channel, fmt in STACK_CHANNELS.items()})
+        channels = {channel: Channel(fmt) for channel, fmt in STACK_CHANNELS.items()}
+        stack = SimpleNamespace(stack_id=7, all_channels=lambda: channels,
+                                material=lambda: texture_set)
 
         def from_name(name):
             if name != "Body":
@@ -531,6 +547,8 @@ class PainterSimulator:
             Stack=SimpleNamespace(from_name=from_name),
             TextureSet=SimpleNamespace(from_name=texture_set_named),
             ChannelType=ChannelType, MeshMapUsage=MeshMapUsage,
+            ChannelFormat=ChannelFormat,
+            Resolution=lambda width, height: SimpleNamespace(width=width, height=height),
         )
 
         class Node:

@@ -1,13 +1,15 @@
-"""Typed stdio MCP surface for Substance 3D Designer's headless CLIs."""
+"""Typed stdio MCP surface for native Designer graphs and headless material tools."""
 
 from typing import Annotated, Literal
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
-from ..core.contracts import BakeResult, DesignerMaterial, DesignerStatus
+from ..core.contracts import BakeResult, DesignerGraphResult, DesignerMaterial, DesignerStatus
 from ..core.mcp import READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import operations
+from .graph import invoke as graph_invoke
+from .graph_models import GraphRecipe
 
 mcp = Server(
     "cavi-substance-designer-mcp",
@@ -30,7 +32,7 @@ ACTION_PARAMS = {
                "outputs", "format", "bit_depth", "pack"},
     "pack": {"directory", "pack", "sources"},
 }
-DEFAULTS = {"format": "png", "bit_depth": "8", "expose_output_size": True,
+DEFAULTS = {"format": "png", "bit_depth": "16", "expose_output_size": True,
             "expose_random_seed": True}
 
 
@@ -55,7 +57,7 @@ async def material(
     preset: Annotated[str | None, Field(max_length=128)] = None,
     outputs: Annotated[list[Identifier] | None, Field(max_length=64)] = None,
     format: Literal["png", "exr", "tga", "tif", "jpg"] = "png",
-    bit_depth: Literal["8", "16", "16f", "32f"] = "8",
+    bit_depth: Literal["8", "16", "16f", "32f"] = "16",
     pack: Annotated[PackSpec | None, Field(description="render/pack channel packing.")] = None,
     sources: Annotated[dict[Annotated[str, StringConstraints(pattern=f"^{USAGE}$")], str] | None,
                        Field(max_length=32, description="pack: usage -> image.")] = None,
@@ -98,7 +100,7 @@ async def bake(
     match_by_name: StrictBool = False,
     suffix_low: Suffix = "_low",
     suffix_high: Suffix = "_high",
-    format: Literal["png", "tga", "tif", "exr"] = "png",
+    format: Literal["png", "tga", "tif", "exr"] = "exr",
     timeout_seconds: Annotated[Timeout, Field(description="Per map.")] = 600,
 ) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""
@@ -107,6 +109,27 @@ async def bake(
                "match_by_name": match_by_name, "suffix_low": suffix_low,
                "suffix_high": suffix_high, "format": format}
     return await operations.bake(low, high, cage, maps, directory, options, timeout_seconds)
+
+
+@mcp.tool(annotations=WRITES)
+async def graph(
+    action: Literal['create', 'edit', 'inspect', 'catalog'],
+    directory: Annotated[str, Field(description='New workspace output directory.')],
+    path: Annotated[str | None, Field(description='Workspace .sbs for edit/inspect.')] = None,
+    recipe: GraphRecipe | None = None,
+    query: Annotated[str, Field(max_length=128)] = '',
+    offset: Annotated[StrictInt, Field(ge=0)] = 0,
+    limit: Annotated[StrictInt, Field(ge=1, le=500)] = 100,
+    timeout_seconds: Annotated[StrictInt, Field(ge=1, le=600)] = 300,
+) -> DesignerGraphResult:
+    """Author editable SBS graphs with Designer's native SDK: nodes, library instances,
+    wiring, values, exposed inputs and outputs. create defaults to 16f graph precision;
+    edit writes a new package and preserves undeclared source settings. inspect reopens
+    saved graphs; catalog pages native node definition IDs. Each call starts its own
+    Designer batch and quits it; an already-running instance is preserved and refused.
+    Feed the returned package to material cook/render. No arbitrary Python is accepted."""
+    return await graph_invoke(action, directory, path, recipe, query, offset, limit,
+                              timeout_seconds)
 
 
 def main():

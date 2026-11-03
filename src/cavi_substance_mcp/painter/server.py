@@ -37,6 +37,7 @@ LeaseId = Annotated[
 WorkspaceFile = Annotated[str | None, Field(description="Workspace file.")]
 NewDirectory = Annotated[str, Field(description="New workspace directory.")]
 UnitValue = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+PaintValue = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
@@ -103,6 +104,7 @@ async def project(
     mesh_path: Annotated[WorkspaceFile, Field(description="create/reload_mesh: mesh.")] = None,
     normal_map_format: Literal["OpenGL", "DirectX"] = "OpenGL",
     default_texture_resolution: Literal[256, 512, 1024, 2048, 4096, 8192] | None = None,
+    source_precision: Literal['16', 'template'] = '16',
     udim: Annotated[StrictBool, Field(description="create: UV tile workflow.")] = False,
     template: Annotated[WorkspaceFile, Field(description="create: workspace .spt.")] = None,
     tangent_space_per_fragment: StrictBool = False,
@@ -119,6 +121,8 @@ async def project(
 ) -> PainterProject:
     """open/create only with no project open; close refuses unsaved edits unless
     discard_unsaved; save overwrites the workspace file; wait_ready polls until editable.
+    create waits for editable state and upgrades 8-bit source channels to 16-bit;
+    source_precision=template explicitly retains the template's formats.
     reload_mesh is async: wait_ready, then painter_status mesh_reload."""
     if action == "wait_ready":
         return await wait_until_ready(timeout_seconds)
@@ -126,13 +130,20 @@ async def project(
         return await painter("open_project", {"path": need(path, "path", action)},
                              lease_id=lease_id)
     if action == "create":
-        return await painter("create_project", {
+        created = await painter("create_project", {
             "path": need(mesh_path, "mesh_path", action),
             "normal_map_format": normal_map_format,
             "default_texture_resolution": default_texture_resolution,
             "udim": udim, "template": template,
             "tangent_space_per_fragment": tangent_space_per_fragment,
         }, lease_id=lease_id)
+        if source_precision == '16':
+            ready = await wait_until_ready(timeout_seconds)
+            if not ready['ready']:
+                raise RuntimeError('Project creation is still pending; source precision has not '
+                                   'been configured. Inspect before continuing.')
+            created['source_channels'] = await painter('initialize_channels', lease_id=lease_id)
+        return created
     if action == "reload_mesh":
         return await painter("reload_mesh", {
             "path": need(mesh_path, "mesh_path", action), "preserve_strokes": preserve_strokes,
@@ -156,7 +167,7 @@ async def inspect(
     ] = None,
     query: Annotated[str, Field(max_length=128, description="shelf search text.")] = "",
     usage: Literal[
-        "smart_material", "smart_mask", "material", "generator", "texture", "environment"
+        "smart_material", "smart_mask", "material", "generator", "texture", "environment", "brush"
     ] | None = None,
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50,
 ) -> PainterInspection:
@@ -251,31 +262,85 @@ async def layer_edit(
     }, lease_id=lease_id)
 
 
+class BrushSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    size: Annotated[float, Field(strict=True, gt=0, le=1000, allow_inf_nan=False)] | None = None
+    flow: Annotated[StrictInt, Field(ge=0, le=100)] | None = None
+    opacity: Annotated[StrictInt, Field(ge=0, le=100)] | None = None
+    spacing: Annotated[StrictInt, Field(ge=1, le=1000)] | None = None
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+async def texture_set_settings(
+    texture_set: TextureSetName,
+    channel_formats: Annotated[dict[str, Literal['sRGB8', 'L8', 'RGB8', 'L16', 'RGB16',
+        'L16F', 'RGB16F', 'L32F', 'RGB32F']] | None, Field(max_length=64)] = None,
+    resolution: Literal[256, 512, 1024, 2048, 4096, 8192] | None = None,
+    lease_id: LeaseId = None,
+) -> PainterInspection:
+    """Set actual source-channel formats and working resolution, then read back.
+    Channel names come from inspect texture_sets. Unspecified channels stay unchanged.
+    Exporting 16-bit cannot recover precision already lost in an 8-bit source channel.
+    Use RGB16/L16 for normalized color/data, RGB16F/L16F for HDR or signed data."""
+    if not channel_formats and resolution is None:
+        raise ValueError('Provide channel_formats or resolution')
+    return await painter('texture_set_settings', {'texture_set': texture_set,
+                         'channel_formats': channel_formats, 'resolution': resolution},
+                         lease_id=lease_id)
+
+
 @mcp.tool(annotations=DESTRUCTIVE)
 async def brush(
-    action: Literal["prepare", "stroke"],
+    action: Literal["prepare", "stroke", "settings"],
     texture_set: TextureSetName | None = None,
     uid: Uid = None,
     directory: str | None = None,
     context_token: Annotated[str | None, Field(max_length=128)] = None,
     points: Annotated[list[tuple[UnitValue, UnitValue, UnitValue]] | None,
                       Field(min_length=2, max_length=128)] = None,
+    settings: BrushSettings | None = None,
+    preset: Annotated[str | None, Field(max_length=512)] = None,
+    channel_values: Annotated[
+        dict[str, PaintValue | tuple[PaintValue, PaintValue, PaintValue]] | None,
+        Field(max_length=64)] = None,
+    enabled_channels: Annotated[dict[str, StrictBool] | None, Field(max_length=64)] = None,
+    target: Literal['content', 'mask'] = 'content',
+    mode: Literal['paint', 'erase'] = 'paint',
     lease_id: LeaseId = None,
 ) -> PainterBrushResult:
     """macOS native 2D painting. prepare selects a Paint layer, activates Painter,
     and captures the viewport + current brush settings into a new directory.
     Inspect the preview, then stroke with one-use context_token and [x,y,pressure]
     points in viewport coordinates (top-left origin, x/y strictly inside 0..1).
+    settings reads/sets size, flow, opacity and spacing in native UI units;
+    preset applies an exact brush URL from inspect shelf usage=brush.
+    channel_values sets uniform scalar/RGB working values using ChannelType names;
+    enabled_channels toggles which material channels receive the brush stroke.
+    prepare supports paint/erase and content/mask targets; masks must exist first.
     Uses the current brush and enabled material channels. No save or retry.
     Context expires after 60 seconds or intervening input/edits. A dispatched
     gesture needs exported-pixel or visual inspection before acceptance."""
+    if action == 'settings':
+        if any(v is not None for v in (texture_set, uid, directory, context_token, points)):
+            raise ValueError('settings does not target a layer or stroke')
+        return await painter('brush', {'action': action, 'preset': preset,
+                             'channel_values': channel_values, 'enabled_channels': enabled_channels,
+                             'settings':
+                             settings.model_dump(exclude_none=True) if settings else {}},
+                             lease_id=lease_id)
     if action == "prepare":
         if context_token is not None or points is not None:
             raise ValueError("prepare does not accept context_token or points")
         params = {"action": action, "texture_set": need(texture_set, "texture_set", action),
                   "uid": need(uid, "uid", action),
-                  "directory": need(directory, "directory", action)}
+                  "directory": need(directory, "directory", action), 'mode': mode,
+                  'target': target, 'settings':
+                  settings.model_dump(exclude_none=True) if settings else {}, 'preset': preset,
+                  'channel_values': channel_values, 'enabled_channels': enabled_channels}
     else:
+        if (settings is not None or preset is not None or channel_values is not None
+                or enabled_channels is not None or target != 'content' or mode != 'paint'):
+            raise ValueError('stroke uses its prepared settings, target and mode')
         if texture_set is not None or uid is not None or directory is not None:
             raise ValueError("stroke targets its context; omit texture_set, uid, directory")
         params = {"action": action, "context_token": need(context_token, "context_token", action),
