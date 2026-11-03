@@ -1,22 +1,23 @@
 # Painter tools
 
-`cavi-substance-mcp` publishes eight tools. Mutations need `lease_id` from a
+`cavi-substance-mcp` publishes nine tools. Mutations need `lease_id` from a
 `session_control` claim; see [Shared application ownership](session-ownership.md).
 
 | Tool | Actions | Parameters |
 |---|---|---|
 | `painter_status` | — | none; returns `connected`, `open`, `file`, `needs_saving`, `busy`, `edition_state`, `baking`, `mesh_reload`, `workspace`, `workspace_exists` |
 | `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
-| `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
+| `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `source_precision` (`16` or explicit `template`), `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
 | `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
-| `brush` | `prepare`, `stroke` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `lease_id` |
+| `brush` | `prepare`, `stroke`, `settings` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `settings`, `preset`, `channel_values`, `enabled_channels`, `mode`, `target`, `lease_id` |
+| `texture_set_settings` | — | `texture_set`, `channel_formats`, `resolution`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
 
 ## Projects
 
-- `open`/`create` run only with no project open; loading is asynchronous. `udim` selects `ProjectWorkflow.UVTile`.
+- `open`/`create` run only with no project open. `create` waits for editable state and upgrades 8-bit source channels to 16-bit while preserving existing higher precision. Explicit `source_precision="template"` retains template formats and asynchronous loading. `udim` selects `ProjectWorkflow.UVTile`.
 - `reload_mesh` is asynchronous: `wait_ready`, then read `painter_status.mesh_reload.status` (`SUCCESS`/`ERROR`).
 - `close` targets the inspected `expected_file` (null for unsaved) and refuses unsaved edits unless `discard_unsaved=true`.
 - `save` overwrites the project's existing workspace file; never-saved or out-of-workspace projects are refused.
@@ -26,7 +27,7 @@
 ## Inspection
 
 - `texture_sets` includes resolution, UV tiles and channel formats. `layer_stack` walks groups (depth ≤ 8, ≤ 512 nodes, `truncated` flags the cut) with masks, effects, visibility, per-channel blend mode and opacity, and every channel source.
-- `shelf` searches resources (≤ 100) optionally filtered by `smart_material`, `smart_mask`, `material`, `generator`, `texture`, `environment`. `bake_settings` lists per-set baking parameters and baked mesh maps.
+- `shelf` searches resources (≤ 100) optionally filtered by `smart_material`, `smart_mask`, `material`, `generator`, `texture`, `environment`, `brush`. `bake_settings` lists per-set baking parameters and baked mesh maps.
 
 ## Layers
 
@@ -68,10 +69,33 @@ Unexpected defects remain opaque.
 
 On macOS, `layer_edit(action="paint")` creates a real Painter paint layer.
 `brush(action="prepare", texture_set=..., uid=..., directory=..., lease_id=...)`
-activates Painter, selects that layer's content and the 2D Base Color view, and
+activates Painter, selects that layer and the 2D Base Color view, and
 writes `viewport.png` and `painter.png` into a new workspace directory. Inspect
-both images: the stroke uses the current brush, size, flow, material and enabled
-channels shown in Painter. Channel formats are reported without changing them.
+both images before dispatch. `mode="paint"` or `"erase"` selects the native tool;
+`target="content"` paints a visible paint layer, while `target="mask"` paints an
+existing layer mask. `layer_edit fill_mask` creates that mask first.
+
+`settings` accepts native brush `size`, `flow`, `opacity`, and `spacing`. `preset`
+applies an exact URL returned by `inspect(action="shelf", usage="brush")` through
+native resource activation. `channel_values` sets uniform scalar/RGB working
+values using names such as `BaseColor` and `SpecularRoughness` from `ChannelType`;
+`enabled_channels` toggles their contribution. For example:
+
+```json
+{"action":"settings","settings":{"size":24,"flow":100,"opacity":100,"spacing":8},"channel_values":{"BaseColor":[0.20137,0.40371,0.80719],"SpecularRoughness":0.234567},"enabled_channels":{"BaseColor":true,"Normal":false},"lease_id":"<lease>"}
+```
+
+The RGB editor commits the floating-point components together; the hexadecimal
+color field is not used. Returned channel details distinguish requested values
+from the UI's rounded display. Exported pixels establish the stored result.
+A procedural channel needs a uniform source before value editing. Controls may
+remain partially changed on a native error; inspect before another mutation.
+
+`texture_set_settings` changes actual working resolution and source channel
+formats. Set `channel_formats={"BaseColor":"RGB16","Height":"L16F"}` or explicit
+32-bit floating-point formats when needed. Unspecified channels stay unchanged;
+explicit 8-bit formats remain available. Export precision cannot reconstruct
+detail already lost in the source. `prepare` reports the resulting source formats.
 
 Pass the returned `context_token` to `brush(action="stroke", points=...,
 lease_id=...)`. Each point is `[x,y,pressure]`: x/y are strictly between 0 and 1,
@@ -90,3 +114,16 @@ confirm the mark. Save and reopen an owned project copy to verify persistence.
 The native path was exercised with Painter 12.2 and PySide6/Qt 6.8 on macOS.
 It requires an English Base Color selector. Other platforms or UI versions may
 need another native adapter; normal Painter API operations remain portable.
+
+
+The opt-in native regression covers source precision, preset activation, uniform
+channel values, toggles, paint, erasing, masks and exported pixels within one PNG16 sample after
+saving and reopening an editable SPP. Start licensed macOS Painter with remote
+scripting and no project open, then run:
+
+```sh
+CAVI_PAINTER_NATIVE_CONTROLS=1 uv run --locked python -m unittest discover -s tests -p test_painter_controls_native.py
+```
+
+It claims an edit lease and creates its own temporary project. It refuses an
+open project or another active owner.

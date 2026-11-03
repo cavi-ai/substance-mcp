@@ -22,6 +22,8 @@ OPERATIONS = frozenset(
         "save",
         "save_copy",
         "texture_sets",
+        "texture_set_settings",
+        "initialize_channels",
         "layer_stack",
         "create_fill_layer",
         "create_texture_fill",

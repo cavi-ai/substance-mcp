@@ -54,7 +54,7 @@ IN_APP = {
 # Value: top-level names the host application provides to code running inside it.
 APPLICATION_MODULES = {
     "designer/graph_native.py": {"sd"},
-    "painter/native_brush.py": {"PySide6", "shiboken6"},
+    "painter/native_brush.py": {"PySide6", "shiboken6", "substance_painter"},
     "painter/operations.py": {"substance_painter", "PySide6"},
     "receipts.py": set(),
     "core/workspace.py": set(),

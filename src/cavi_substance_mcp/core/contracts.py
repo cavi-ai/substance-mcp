@@ -226,8 +226,10 @@ class PainterLayerResult(VariantResult):
 
 class PainterBrushResult(VariantResult):
     shapes = (("prepared", "context_token", "preview", "viewport"),
+              ("settings",),
               ("dispatched", "points", "uid", "texture_set", "next"))
     prepared: Literal[True] | None = None
+    settings: Record | None = None
     context_token: str | None = None
     preview: str | None = None
     viewport: Record | None = None

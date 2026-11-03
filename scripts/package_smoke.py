@@ -39,7 +39,7 @@ TIMEOUT = 90  # seconds per MCP request or subprocess; first start-up imports nu
 
 # console script -> tool count
 SERVERS = {
-    "cavi-substance-mcp": 8,
+    "cavi-substance-mcp": 9,
     "cavi-substance-designer-mcp": 4,
     "cavi-substance-sampler-mcp": 8,
 }
