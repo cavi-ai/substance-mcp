@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cavi-substance-mcp"
-version = "0.10.0"
+version = "0.11.0"
 description = "MCP servers for Adobe Substance 3D Painter, Designer and Sampler"
 readme = "README.md"
 license = "MIT"
@@ -41,6 +41,8 @@ dependencies = [
     "pillow>=13.0,<14",
     "pypng>=0.20220715.0,<1",
     "pydantic>=2.11,<3",
+    "tifffile>=2025.1,<2027",
+    "openexr>=3.3,<4",
 ]
 
 [project.urls]

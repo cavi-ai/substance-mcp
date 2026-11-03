@@ -100,7 +100,7 @@ async def bake(
     match_by_name: StrictBool = False,
     suffix_low: Suffix = "_low",
     suffix_high: Suffix = "_high",
-    format: Literal["png", "tga", "tif", "exr"] = "png",
+    format: Literal["png", "tga", "tif", "exr"] = "exr",
     timeout_seconds: Annotated[Timeout, Field(description="Per map.")] = 600,
 ) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""

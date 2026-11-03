@@ -1148,15 +1148,15 @@
    "simulated"
   ],
   "equals": {
-   "/maps/normal": "baked/normal.png",
+   "/maps/normal": "baked/normal.exr",
    "/commands/ambient_occlusion": "AmbientOcclusion.Raytraced",
    "/commands/world_normal": "Normal.TangentToWorld",
    "/high_used/world_normal": false
   },
   "files": [
-   "baked/normal.png",
-   "baked/ambient_occlusion.png",
-   "baked/world_normal.png"
+   "baked/normal.exr",
+   "baked/ambient_occlusion.exr",
+   "baked/world_normal.exr"
   ]
  },
  {
@@ -1181,7 +1181,7 @@
    "/high_used/curvature": false
   },
   "files": [
-   "baked_low/id.png"
+   "baked_low/id.exr"
   ]
  },
  {
@@ -1365,7 +1365,7 @@
   "modes": [
    "simulated"
   ],
-  "error": "wrote no normal.png",
+  "error": "wrote no normal.exr",
   "absent": [
    "x"
   ]

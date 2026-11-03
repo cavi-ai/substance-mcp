@@ -14,6 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from PIL import Image
 
+from cavi_substance_mcp import packing
 from cavi_substance_mcp.designer import runner
 
 INSTALL = runner.installation()
@@ -123,7 +124,8 @@ class DesignerNativeTests(unittest.TestCase):
     def test_bake_normal_and_ao(self):
         meshes = self.workspace / "meshes"
         meshes.mkdir()
-        subprocess.run([BLENDER, "--background", "--factory-startup", "--python-expr", MESHES,
+        subprocess.run([BLENDER, "--background", "--factory-startup", "--python-exit-code", "1",
+                        "--python-expr", MESHES,
                         "--", str(meshes)], check=True, capture_output=True, timeout=120)
         (baked,) = asyncio.run(self.session_calls([
             ("bake", {"low": "meshes/low.fbx", "high": "meshes/high.fbx",
@@ -131,12 +133,14 @@ class DesignerNativeTests(unittest.TestCase):
                       "resolution": 1024, "max_frontal": 0.1, "max_rear": 0.1}),
         ]))
         print(f"[native] bake seconds: {baked['seconds']}", file=sys.stderr)
-        normal = pixels(self.workspace / baked["maps"]["normal"])
-        ao = np.asarray(Image.open(self.workspace / baked["maps"]["ambient_occlusion"]))
+        normal_path = self.workspace / baked["maps"]["normal"]
+        self.assertEqual(normal_path.suffix, ".exr")
+        normal = packing.load(normal_path)
+        ao = packing.load(self.workspace / baked["maps"]["ambient_occlusion"])
         self.assertEqual(normal.shape[:2], (1024, 1024))
         self.assertEqual(ao.shape[:2], (1024, 1024))
-        self.assertGreater(normal[:, :, 2].mean(), 200)
-        self.assertGreater(normal[:, :, 0].std(), 5)
+        self.assertGreater(normal[:, :, 2].mean(), .78)
+        self.assertGreater(normal[:, :, 0].std(), .02)
         self.assertGreater(ao.mean(), 0)
 
 
