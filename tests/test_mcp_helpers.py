@@ -14,7 +14,7 @@ EXPECTED = {
         "project": DESTRUCTIVE, "layer_edit": DESTRUCTIVE, "brush": DESTRUCTIVE,
     },
     designer_server.mcp: {
-        "designer_status": READ_ONLY, "material": WRITES, "bake": WRITES,
+        "designer_status": READ_ONLY, "material": WRITES, "bake": WRITES, "graph": WRITES,
     },
     sampler_server.mcp: {
         "sampler_status": READ_ONLY, "sampler_inspect": READ_ONLY,

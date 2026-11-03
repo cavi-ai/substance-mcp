@@ -27,7 +27,7 @@ class PackMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Annotated[str, StringConstraints(pattern=NAME)]
     format: Literal["png", "tga", "tif"] = "png"
-    bit_depth: Annotated[Literal[8, 16], Field(description="16: png only.")] = 8
+    bit_depth: Annotated[Literal[8, 16], Field(description="16: png only.")] = 16
     channels: Annotated[
         dict[Literal["R", "G", "B", "A", "RGB"], Source],
         Field(description="Source: usage, 1-usage, or constant 0..1."),

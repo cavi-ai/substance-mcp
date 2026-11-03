@@ -11,8 +11,8 @@ smart-mask and `.sbsar` layers, mesh-map baking, shelf search and channel-packed
 texture export. Native macOS brush input adds real 2D strokes with viewport
 previews and pressure; see [Painter tools](docs/substance-mcp/source/pages/painter/tools.md#native-brush-painting).
 
-The Designer server drives Designer's headless CLIs for cooking, rendering, baking and
-packing. The Sampler server launches Sampler for one script per call or one batch job.
+The Designer server authors editable node graphs through the native SDK and drives
+Designer’s headless CLIs for cooking, rendering, baking and packing. The Sampler server launches Sampler for one script per call or one batch job.
 The [overview](docs/substance-mcp/source/pages/introduction/overview.md) lists what has been
 checked natively and what has been tested only against a simulator.
 

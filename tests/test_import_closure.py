@@ -23,6 +23,10 @@ MINIMUM = (3, 11)
 
 # Entry module -> the package modules its import may load.
 IN_APP = {
+    "cavi_substance_mcp.designer.graph_native": {
+        "cavi_substance_mcp", "cavi_substance_mcp.designer",
+        "cavi_substance_mcp.designer.graph_native",
+    },
     "cavi_substance_mcp.painter.native_brush": {
         "cavi_substance_mcp", "cavi_substance_mcp.painter",
         "cavi_substance_mcp.painter.native_brush",
@@ -49,6 +53,7 @@ IN_APP = {
 # Source files whose every import statement, even one inside a function, is checked.
 # Value: top-level names the host application provides to code running inside it.
 APPLICATION_MODULES = {
+    "designer/graph_native.py": {"sd"},
     "painter/native_brush.py": {"PySide6", "shiboken6"},
     "painter/operations.py": {"substance_painter", "PySide6"},
     "receipts.py": set(),

@@ -54,7 +54,7 @@ def install(root: Path) -> Path:
         for name in names:
             (home / "resources" / kind / f"{name}.sbs").write_text("fake-sbs")
     bin_dir = home / "bin"
-    for tool in TOOLS:
+    for tool in (*TOOLS, 'Adobe Substance 3D Designer'):
         write_launcher(bin_dir, tool, (
             "import runpy\n"
             f"runpy.run_path({str(Path(__file__).resolve())!r}, "
@@ -205,6 +205,23 @@ def baker(argv):
     image(target, width, 230 if command in GRAY_BAKERS else (128, 128, 255))
 
 
+def graph_authoring(argv):
+    """Protocol fixture only; it does not execute the Designer SDK."""
+    script = Path(argv[argv.index('--startup-script') + 1])
+    request = json.loads((script.parent / '.graph-request.json').read_text())
+    if request['action'] == 'catalog':
+        value = {'definitions': ['sbs::compositing::uniform'], 'total': 1, 'offset': 0}
+    else:
+        recipe = request['recipe']
+        value = {'graphs': [{'identifier': recipe.get('identifier', 'material'),
+                             'precision': 'hdr_low_precision', 'inputs': {}, 'nodes': []}],
+                 'node_ids': {}, 'simulated': True}
+        if request['action'] in ('create', 'edit'):
+            Path(request['output']).write_text(json.dumps(value))
+    value['simulated'] = True
+    (script.parent / '.graph-response.json').write_text(json.dumps({'ok': True, 'result': value}))
+
+
 def main():
     tool = globals()["FAKE_TOOL"]
     argv = sys.argv[1:]
@@ -212,7 +229,8 @@ def main():
     if "--version" in argv:
         print("version 0.0.0-fake (build 0 commit 0x0)")
         return
-    {"sbscooker": cooker, "sbsrender": render, "substance3d_baker": baker}[tool](argv)
+    {'sbscooker': cooker, 'sbsrender': render, 'substance3d_baker': baker,
+     'Adobe Substance 3D Designer': graph_authoring}[tool](argv)
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ class PackingTests(unittest.TestCase):
 
     def test_color_and_mesh_sources(self):
         maps = ops.export_maps([{"name": "C", "channels": {"RGB": "baseColor", "A": 1}},
-                                {"name": "M", "channels": {"L": "curvature"}}], "tga", None)
+                                {"name": "M", "channels": {"L": "curvature"}}], "tga", "8")
         self.assertEqual([c["srcChannel"] for c in maps[0]["channels"]], ["R", "G", "B", "R"])
         self.assertEqual(maps[0]["channels"][3]["srcMapName"], "white")
         self.assertEqual(maps[1]["channels"][0]["srcMapType"], "meshMap")

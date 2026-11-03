@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import png
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from PIL import Image
@@ -21,7 +22,7 @@ if NATIVE:
     NATIVE = "fake" not in (asyncio.run(runner.version(INSTALL.binary("sbsrender"))) or "fake")
 BLENDER = os.environ.get("BLENDER") or shutil.which("blender") or "/opt/homebrew/bin/blender"
 HDRP = {"maps": [
-    {"name": "T_Rock_MaskMap", "format": "png", "bit_depth": 8,
+    {"name": "T_Rock_MaskMap", "format": "png", "bit_depth": 16,
      "channels": {"R": "metallic", "G": "ambientOcclusion", "B": "0", "A": "1-roughness"}},
     {"name": "T_Rock_BaseColor", "channels": {"RGB": "baseColor", "A": "opacity"}},
     {"name": "T_Rock_Normal", "channels": {"RGB": "normal"}}], "defaults": {"opacity": 1}}
@@ -51,6 +52,12 @@ unwrap(high, out + '/high.fbx')
 
 
 def pixels(path):
+    if Path(path).suffix.lower() == '.png':
+        with Path(path).open('rb') as stream:
+            if stream.read(26)[24] == 16:
+                stream.seek(0)
+                width, height, rows, info = png.Reader(file=stream).asDirect()
+                return np.array(list(rows), np.int32).reshape(height, width, info['planes'])
     return np.asarray(Image.open(path)).astype(np.int32)
 
 
@@ -106,10 +113,10 @@ class DesignerNativeTests(unittest.TestCase):
         np.testing.assert_array_equal(mask[:, :, 0], gray["metallic"])
         np.testing.assert_array_equal(mask[:, :, 1], gray["ambientOcclusion"])
         self.assertEqual(int(mask[:, :, 2].max()), 0)
-        np.testing.assert_array_equal(mask[:, :, 3], 255 - gray["roughness"])
+        np.testing.assert_array_equal(mask[:, :, 3], 65535 - gray["roughness"])
         base = packed["T_Rock_BaseColor"]
         np.testing.assert_array_equal(base[:, :, :3], maps["baseColor"][:, :, :3])
-        self.assertEqual(int(base[:, :, 3].min()), 255)
+        self.assertEqual(int(base[:, :, 3].min()), 65535)
         np.testing.assert_array_equal(packed["T_Rock_Normal"], maps["normal"][:, :, :3])
 
     @unittest.skipUnless(Path(BLENDER).is_file(), "Blender not installed")

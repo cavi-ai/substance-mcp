@@ -734,7 +734,11 @@ def export_maps(specs, default_format, default_depth):
         names.add(name)
         depth = bit_depth(spec.get("bit_depth")) or default_depth
         fmt = spec.get("format") or default_format or "png"
-        depth = depth or EXPORT_FORMATS.get(fmt, ("8",))[0]
+        if depth is None:
+            depth = "16f" if fmt == "exr" else "16"
+            if fmt in EXPORT_FORMATS and depth not in EXPORT_FORMATS[fmt]:
+                raise ValueError(f"{fmt} requires an explicit bit_depth; use PNG/TIFF/EXR "
+                                 "to retain high precision")
         file_format(fmt, depth)
         channels = spec.get("channels")
         if not isinstance(channels, dict) or not channels:

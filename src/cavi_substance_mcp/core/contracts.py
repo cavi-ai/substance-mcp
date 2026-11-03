@@ -295,6 +295,21 @@ class DesignerMaterial(VariantResult):
     packed: list[PackedOutput] | None = None
 
 
+class DesignerGraphResult(Result):
+    action: Literal['create', 'edit', 'inspect', 'catalog']
+    directory: str
+    manifest: str
+    report: str
+    package: str | None = None
+    graphs: list[Record] | None = None
+    node_ids: dict[str, str] | None = None
+    definitions: list[str] | None = None
+    total: int | None = None
+    offset: int | None = None
+    node_schema: Record | None = None
+    resources: list[Record] | None = None
+
+
 class SamplerInspection(VariantResult):
     shapes = (
         ("project", "project_path", "assets"),
