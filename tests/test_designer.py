@@ -14,12 +14,13 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from cavi_mcp_core import proc
 from designer_fake_cli import ENV, install, sbsar
 from env import DESIGNER, patched_environment
 from launcher import write_launcher
 
 from cavi_substance_mcp import packing
-from cavi_substance_mcp.core import discovery, proc
+from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.designer import operations, runner
 
 HDRP = {"maps": [

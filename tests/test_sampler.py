@@ -12,12 +12,12 @@ from home import isolate_home
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from cavi_mcp_core import proc
 from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp import receipts
-from cavi_substance_mcp.core import proc
 from cavi_substance_mcp.sampler import launch, runner
 
 TIMEOUT = 30

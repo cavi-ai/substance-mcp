@@ -1,9 +1,9 @@
 import asyncio
 import unittest
 
+from cavi_mcp_core.server import Server
 from mcp.server.mcpserver.exceptions import ToolError
 
-from cavi_substance_mcp.core.mcp import Server
 from cavi_substance_mcp.designer import server as designer_server
 from cavi_substance_mcp.painter import server as painter_server
 from cavi_substance_mcp.sampler import server as sampler_server

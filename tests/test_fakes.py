@@ -19,9 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 import designer_fake_cli
 import sampler_fake_cli
+from cavi_mcp_core import proc
 from launcher import write_launcher
 
-from cavi_substance_mcp.core import discovery, proc
+from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.designer import runner as designer_runner
 from cavi_substance_mcp.sampler import runner as sampler_runner
 

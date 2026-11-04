@@ -15,7 +15,9 @@ import time
 import uuid
 from pathlib import Path
 
-from ..core import proc, workspace
+from cavi_mcp_core import proc
+
+from ..core import workspace
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock

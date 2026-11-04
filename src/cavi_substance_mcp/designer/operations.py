@@ -6,8 +6,10 @@ import re
 import time
 from pathlib import Path
 
+from cavi_mcp_core import proc
+
 from .. import packing, receipts
-from ..core import proc, workspace
+from ..core import workspace
 from . import runner
 
 GRAPH = re.compile(r"^pkg://[A-Za-z0-9_./-]{1,128}$")

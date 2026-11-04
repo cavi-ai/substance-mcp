@@ -5,7 +5,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import discovery, proc
+from cavi_mcp_core import proc
+
+from ..core import discovery
 
 TOOLS = ("sbscooker", "sbsrender", "substance3d_baker")
 

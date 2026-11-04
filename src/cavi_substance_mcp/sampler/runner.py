@@ -5,7 +5,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import discovery, proc
+from cavi_mcp_core import proc
+
+from ..core import discovery
 
 # Sampler's output is only diagnostics (the response travels in a file).
 OUTPUT_LIMIT = 1024 * 1024

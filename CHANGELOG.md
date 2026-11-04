@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The server type, failure contract, schema compaction and subprocess runner come from `cavi-mcp-core`.
+
 ## 0.12.0 - 2026-11-03
 
 ### Added

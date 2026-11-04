@@ -2,10 +2,10 @@
 
 from typing import Annotated, Literal
 
+from cavi_mcp_core.server import READ_ONLY, WRITES, Server, need, reject_foreign
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
 from ..core.contracts import BakeResult, DesignerGraphResult, DesignerMaterial, DesignerStatus
-from ..core.mcp import READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import operations
 from .graph import invoke as graph_invoke
@@ -13,6 +13,7 @@ from .graph_models import GraphRecipe
 
 mcp = Server(
     "cavi-substance-designer-mcp",
+    package="cavi-substance-mcp",
     instructions=(
         "Runs Designer's sbscooker, sbsrender and substance3d_baker. Paths are relative to "
         "CAVI_SUBSTANCE_WORKSPACE; outputs go to new directories. Call designer_status first."

@@ -7,8 +7,10 @@ import sys
 import time
 from pathlib import Path
 
+from cavi_mcp_core import proc
+
 from .. import receipts
-from ..core import discovery, proc, workspace
+from ..core import discovery, workspace
 from . import runner
 from .graph_models import GraphRecipe
 

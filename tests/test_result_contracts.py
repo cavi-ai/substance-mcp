@@ -63,10 +63,9 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(failed.structured_content["error"]["next_action"], "list_tools")
 
     async def test_known_tool_error_text_does_not_imply_missing_dispatch(self):
+        from cavi_mcp_core.server import Server
         from mcp.server.mcpserver import Context
         from mcp.server.mcpserver.exceptions import ToolError
-
-        from cavi_substance_mcp.core.mcp import Server
 
         server = Server("dispatch-test")
 
@@ -109,10 +108,10 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
 
 class OutputFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_output_validation_keeps_mutation_outcome_unknown(self):
+        from cavi_mcp_core.server import Server
         from mcp.server.mcpserver import Context
 
         from cavi_substance_mcp.core.contracts import Result
-        from cavi_substance_mcp.core.mcp import Server
 
         class Receipt(Result):
             path: str

@@ -1,7 +1,8 @@
 import asyncio
 import unittest
 
-from cavi_substance_mcp.core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, need, reject_foreign
+from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, need, reject_foreign
+
 from cavi_substance_mcp.designer import server as designer_server
 from cavi_substance_mcp.painter import server as painter_server
 from cavi_substance_mcp.sampler import server as sampler_server
