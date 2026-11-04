@@ -1,22 +1,21 @@
 """Shared channel-packing contract: validation and numpy/Pillow writer."""
 
 import re
-import struct
-import zlib
 from pathlib import Path
 from typing import Annotated, Literal
 
 import numpy as np
-import OpenEXR
-import png
 import tifffile
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from .texture_io import dimensions, load, write_png16
+
+_write_png16 = write_png16
+
 USAGE = r"[A-Za-z][A-Za-z0-9_]{0,63}"
 SOURCE = rf"^(?:1-)?{USAGE}$|^(?:0(?:\.[0-9]{{1,6}})?|1(?:\.0{{1,6}})?|\.[0-9]{{1,6}})$"
 NAME = r"^[A-Za-z0-9_-]{1,96}$"
-MAX_EDGE = 8192
 # Decoded sources are float32 RGBA at most; refuse a pack that would need more than this.
 MAX_DECODED_BYTES = 2 * 1024**3
 READABLE = {".png", ".tga", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
@@ -57,125 +56,10 @@ def check_spec(spec: PackSpec):
         names.add(item.name.lower())
 
 
-def dimensions(path: Path) -> tuple[int, int]:
-    if path.suffix.lower() == ".exr":
-        with OpenEXR.File(str(path), header_only=True) as image:
-            if len(image.parts) != 1:
-                raise ValueError("Channel packing requires a single-part EXR")
-            header = image.header()
-            if (header["type"] not in (OpenEXR.scanlineimage, OpenEXR.tiledimage)
-                    or not 1 <= len(header["channels"]) <= 4):
-                raise ValueError("EXR packing requires a flat image with 1..4 channels")
-            low, high = header["dataWindow"]
-            width, height = (high - low + 1).tolist()
-    elif path.suffix.lower() in (".tif", ".tiff"):
-        with tifffile.TiffFile(path) as image:
-            if len(image.pages) != 1:
-                raise ValueError("Channel packing requires a single-page TIFF")
-            page = image.pages[0]
-            if not 1 <= page.samplesperpixel <= 4:
-                raise ValueError("TIFF packing requires 1..4 samples per pixel")
-            width, height = page.imagewidth, page.imagelength
-    else:
-        with Image.open(path) as image:
-            width, height = image.size
-    if not 1 <= width <= MAX_EDGE or not 1 <= height <= MAX_EDGE:
-        raise ValueError(f"{path.name} exceeds {MAX_EDGE} px or has invalid dimensions")
-    return width, height
-
-
-def precise_load(path: Path):
-    dimensions(path)
-    if path.suffix.lower() == ".exr":
-        with OpenEXR.File(str(path), separate_channels=True) as image:
-            channels = image.channels()
-            names = [n for n in ("R", "G", "B", "A") if n in channels]
-            if not names and len(channels) == 1:
-                names = list(channels)
-            if not names or (len(names) > 1 and names[:3] != ["R", "G", "B"]):
-                raise ValueError("EXR requires RGB[A] or one scalar channel")
-            data = np.stack([channels[n].pixels for n in names], axis=-1)
-            if data.dtype.kind != "f":
-                raise ValueError("EXR source channels must use half or full float")
-    else:
-        with tifffile.TiffFile(path) as image:
-            page = image.pages[0]
-            # Only grayscale and RGB[A], with no palette/CMYK interpretation.
-            if int(page.photometric) not in (1, 2):
-                raise ValueError("TIFF source must be grayscale or RGB[A]")
-            data = page.asarray()
-            if int(page.planarconfig) == 2:
-                data = np.moveaxis(data, 0, -1)
-    if data.ndim == 2:
-        data = data[:, :, None]
-    if data.ndim != 3 or data.shape[2] not in (1, 2, 3, 4):
-        raise ValueError("Source must have 1..4 interleaved channels")
-    if data.dtype.kind == "u" and data.dtype.itemsize in (1, 2):
-        return data.astype(np.float32) / np.iinfo(data.dtype).max
-    if data.dtype.kind == "f":
-        return data.astype(np.float32)
-    raise ValueError("Source requires unsigned 8/16-bit or floating samples")
-
-
-def load(path: Path) -> np.ndarray:
-    if path.suffix.lower() in (".exr", ".tif", ".tiff"):
-        return precise_load(path)
-    with path.open("rb") as stream:
-        header = stream.read(26)
-        if header[:8] == b"\x89PNG\r\n\x1a\n" and len(header) == 26 and header[24] == 16:
-            stream.seek(0)
-            width, height, rows, info = png.Reader(file=stream).read()
-            if width > MAX_EDGE or height > MAX_EDGE:
-                raise ValueError(f"{path.name} exceeds {MAX_EDGE} px")
-            pixels = np.empty((height, width * info["planes"]), dtype=np.float32)
-            for index, row in enumerate(rows):
-                pixels[index] = row
-            # Pillow decodes multichannel PNG16 as 8-bit. Keep every source sample.
-            return pixels.reshape(height, width, info["planes"]) / 65535.0
-    with Image.open(path) as image:
-        width, height = image.size
-        if width > MAX_EDGE or height > MAX_EDGE:
-            raise ValueError(f"{path.name} exceeds {MAX_EDGE} px")
-        mode = image.mode
-        if mode in ("I;16", "I;16B", "I;16L", "I"):
-            data = np.asarray(image).astype(np.float32) / 65535.0
-        elif mode == "F":
-            data = np.asarray(image, dtype=np.float32)
-        else:
-            if mode not in ("L", "LA", "RGB", "RGBA"):
-                image = image.convert("RGBA" if "A" in image.getbands() or mode == "P" else "RGB")
-            data = np.asarray(image).astype(np.float32) / 255.0
-    data = np.clip(data, 0.0, 1.0)
-    return data[:, :, None] if data.ndim == 2 else data
-
-
 def _plane(data: np.ndarray, rgb: bool) -> np.ndarray:
     if rgb:
         return data[:, :, :3] if data.shape[2] >= 3 else np.repeat(data[:, :, :1], 3, axis=2)
     return data[:, :, :1]
-
-
-def _write_png16(path: Path, pixels: np.ndarray):
-    height, width, channels = pixels.shape
-    color = {1: 0, 3: 2, 4: 6}[channels]
-    rows = pixels.astype(">u2").reshape(height, width * channels)
-    raw = b"".join(b"\0" + row.tobytes() for row in rows)
-
-    def chunk(kind, body):
-        return (
-            struct.pack(">I", len(body))
-            + kind
-            + body
-            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
-        )
-
-    header = struct.pack(">IIBBBBB", width, height, 16, color, 0, 0, 0)
-    path.write_bytes(
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(raw, 6))
-        + chunk(b"IEND", b"")
-    )
 
 
 def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:

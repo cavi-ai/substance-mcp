@@ -13,6 +13,10 @@ from pydantic import (
     model_validator,
 )
 
+from .schema import compact_schema as compact_schema
+from .schema import compact_union as compact_union
+from .schema import validate_variant, variant_schema
+
 
 class Result(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
@@ -138,34 +142,12 @@ class VariantResult(Result):
     @model_validator(mode="before")
     @classmethod
     def require_shape(cls, value):
-        if isinstance(value, dict):
-            fields = {field.alias or name for name, field in cls.model_fields.items()}
-            if any(
-                item is None and key in fields and key not in cls.nullable_shape_fields
-                for key, item in value.items()
-            ):
-                raise ValueError("Result contains null for a non-null response field")
-            if cls.shapes and not any(all(key in value for key in shape) for shape in cls.shapes):
-                raise ValueError("Result is missing the fields of an action response")
-        return value
+        fields = {field.alias or name for name, field in cls.model_fields.items()}
+        return validate_variant(value, fields, cls.shapes, cls.nullable_shape_fields)
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
-        schema = handler(core_schema)
-        for key, field in schema.get("properties", {}).items():
-            field.pop("default", None)
-            if key in cls.nullable_shape_fields:
-                continue
-            variants = field.get("anyOf")
-            if variants and {"type": "null"} in variants:
-                rest = [item for item in variants if item != {"type": "null"}]
-                field.pop("anyOf")
-                field.update(rest[0] if len(rest) == 1 else {"anyOf": rest})
-            if not field or set(field) <= {"title"}:
-                field["not"] = {"type": "null"}
-        if cls.shapes:
-            schema["anyOf"] = [{"required": list(shape)} for shape in cls.shapes]
-        return schema
+        return variant_schema(core_schema, handler, cls.shapes, cls.nullable_shape_fields)
 
 
 Number = int | float
@@ -421,86 +403,3 @@ class SamplerPackResult(Result):
     maps: list[PackedOutput]
     sources: list[str]
     manifest: str
-
-
-def compact_union(schema):
-    """Shorten equivalent union forms; output defaults are documentation only."""
-    branches = schema.get("anyOf", [])
-    if branches and all(
-        set(item) == {"type"} and isinstance(item["type"], str) for item in branches
-    ):
-        types = list(dict.fromkeys(item["type"] for item in branches))
-        if "number" in types and "integer" in types:
-            types.remove("integer")
-        schema.pop("anyOf")
-        schema["type"] = types[0] if len(types) == 1 else types
-    elif len(branches) == 2 and {"type": "null"} in branches:
-        other = next(item for item in branches if item != {"type": "null"})
-        safe = {
-            "type",
-            "items",
-            "additionalProperties",
-            "properties",
-            "required",
-            "minimum",
-            "maximum",
-            "exclusiveMinimum",
-            "exclusiveMaximum",
-            "multipleOf",
-            "minItems",
-            "maxItems",
-            "uniqueItems",
-            "minLength",
-            "maxLength",
-            "pattern",
-            "format",
-            "minProperties",
-            "maxProperties",
-            "enum",
-            "const",
-        }
-        if isinstance(other.get("type"), str) and set(other) <= safe:
-            schema.pop("anyOf")
-            schema.update(other)
-            schema["type"] = [other["type"], "null"]
-            if "const" in schema:
-                schema["enum"] = [schema.pop("const"), None]
-            elif "enum" in schema:
-                schema["enum"] = [*schema["enum"], None]
-    return schema
-
-
-def compact_schema(schema, *, output=False):
-    """Remove redundant schema titles without changing property names or literal data."""
-    if not isinstance(schema, dict):
-        return schema
-    result = {
-        key: value
-        for key, value in schema.items()
-        if key != "title" and not (output and key == "default")
-    }
-    if result.get("additionalProperties") is True:
-        result.pop("additionalProperties")
-    for key in ("properties", "patternProperties", "$defs", "dependentSchemas"):
-        if key in result:
-            result[key] = {
-                name: compact_schema(value, output=output) for name, value in result[key].items()
-            }
-    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
-        if key in result:
-            result[key] = [compact_schema(value, output=output) for value in result[key]]
-    for key in (
-        "items",
-        "additionalProperties",
-        "not",
-        "if",
-        "then",
-        "else",
-        "contains",
-        "unevaluatedProperties",
-        "propertyNames",
-        "contentSchema",
-    ):
-        if key in result:
-            result[key] = compact_schema(result[key], output=output)
-    return compact_union(result)

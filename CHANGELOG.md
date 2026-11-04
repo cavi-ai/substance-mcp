@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.12.0 - 2026-11-03
+
+### Added
+
+- Shared precision-preserving texture readers, original storage descriptors and PNG16 writing for material handoffs.
+- Canonical pure response-schema helpers for independent MCP adapters.
+
 ## 0.11.0 - 2026-11-03
 
 ### Added
