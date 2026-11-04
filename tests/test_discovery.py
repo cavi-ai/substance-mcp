@@ -11,10 +11,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from cavi_mcp_core import proc
 from env import patched_environment
 from launcher import write_launcher
 
-from cavi_substance_mcp.core import discovery, proc
+from cavi_substance_mcp.core import discovery
 
 POSIX = os.name != "nt"
 posix_only = unittest.skipUnless(POSIX, "needs pgrep and POSIX process names")

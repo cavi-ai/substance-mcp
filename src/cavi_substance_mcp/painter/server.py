@@ -5,6 +5,7 @@ import time
 from typing import Annotated, Literal
 
 import anyio.to_thread
+from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from ..core.contracts import (
@@ -17,11 +18,11 @@ from ..core.contracts import (
     PainterStatus,
     TextureExport,
 )
-from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from .client import PainterClient
 
 mcp = Server(
     "cavi-substance-mcp",
+    package="cavi-substance-mcp",
     instructions=(
         "Requires licensed Painter with remote scripting; `cavi-substance-mcp runtime start` "
         "launches it on macOS. Call painter_status first. Claim session_control and pass "

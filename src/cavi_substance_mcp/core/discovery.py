@@ -20,7 +20,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from . import proc
+from cavi_mcp_core import proc
 
 # Where each application installs by default. ``{programs}`` is Windows' Program Files.
 DEFAULTS = {

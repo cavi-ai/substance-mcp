@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -42,10 +42,20 @@ wheels = [
 ]
 
 [[package]]
+name = "cavi-mcp-core"
+version = "0.1.0"
+source = { git = "https://github.com/cavi-ai/mcp-core.git?rev=76f427f6c6f2ca0dc12faaebd53063930ff67b51#76f427f6c6f2ca0dc12faaebd53063930ff67b51" }
+dependencies = [
+    { name = "mcp" },
+    { name = "pydantic" },
+]
+
+[[package]]
 name = "cavi-substance-mcp"
 version = "0.12.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cavi-mcp-core" },
     { name = "mcp" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -64,6 +74,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cavi-mcp-core", git = "https://github.com/cavi-ai/mcp-core.git?rev=76f427f6c6f2ca0dc12faaebd53063930ff67b51" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "numpy", specifier = ">=2.0,<3" },
     { name = "openexr", specifier = ">=3.5.3,<4" },
@@ -1119,7 +1130,7 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c5/cb/2f6d79c7576e22c116352a801f4c3c8ace5957e9aced862012430b62e14f/tifffile-2026.3.3.tar.gz", hash = "sha256:d9a1266bed6f2ee1dd0abde2018a38b4f8b2935cb843df381d70ac4eac5458b7", size = 388745, upload-time = "2026-03-03T19:14:38.134Z" }
 wheels = [
@@ -1137,7 +1148,7 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fd/87/a982ca5b892579397c2b155275cc0119b51feb1701eaefa18acb0245f0a4/tifffile-2026.10.15.tar.gz", hash = "sha256:a5ee666dbd6d62e059830a3450825a2521a981b3f45c07a80ab009484aef56f0", size = 454150, upload-time = "2026-10-16T00:32:10.511Z" }
 wheels = [

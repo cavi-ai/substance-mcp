@@ -149,7 +149,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_painter_tool_is_a_coroutine(self):
         tools = await server.mcp.list_tools()
         self.assertTrue(tools)
-        # The module-level names are the undecorated coroutines (core.mcp.Server.tool).
+        # The module-level names are the undecorated coroutines (cavi_mcp_core.server.Server.tool).
         self.assertEqual([tool.name for tool in tools
                           if not inspect.iscoroutinefunction(getattr(server, tool.name))], [])
 

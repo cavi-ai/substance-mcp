@@ -3,6 +3,7 @@
 import asyncio
 from typing import Annotated, Literal
 
+from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -23,7 +24,6 @@ from ..core.contracts import (
     SamplerProjectResult,
     SamplerStatus,
 )
-from ..core.mcp import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
 from ..packing import USAGE, PackSpec
 from . import batch, launch
 from . import pack as packer
@@ -32,6 +32,7 @@ from .targets import TARGETS
 
 mcp = Server(
     "cavi-substance-sampler-mcp",
+    package="cavi-substance-mcp",
     instructions=(
         "Runs Sampler startup scripts through --run-script-silent. Quit Sampler first; an "
         "existing instance ignores startup scripts. Paths are relative to "
