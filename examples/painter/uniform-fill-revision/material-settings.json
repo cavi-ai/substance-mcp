@@ -1,0 +1,152 @@
+{
+  "example": "utility-case-materials",
+  "source_mesh": "utility_case.obj",
+  "source_generator": "create_utility_case.py",
+  "texture_resolution": [
+    1024,
+    1024
+  ],
+  "normal_map_format": "OpenGL",
+  "source_precision": "16",
+  "materials": {
+    "PaintedMetal": {
+      "base_color_srgb": [
+        0.12,
+        0.42,
+        0.35
+      ],
+      "roughness": 0.18,
+      "metallic": 0.15
+    },
+    "Hardware": {
+      "base_color_srgb": [
+        0.18,
+        0.2,
+        0.22
+      ],
+      "roughness": 0.35,
+      "metallic": 0.85
+    }
+  },
+  "export": {
+    "preset": "export-preset-generator://doc-channel-normal-no-alpha",
+    "file_format": "png",
+    "bit_depth": 16
+  },
+  "preview": {
+    "application": "Blender",
+    "engine": "eevee",
+    "camera": {
+      "name": "CaviStudioCamera",
+      "location": [
+        1.15,
+        -1.8,
+        0.95
+      ],
+      "target": [
+        0,
+        0,
+        0.25
+      ],
+      "projection": "orthographic",
+      "ortho_scale": 1.23
+    },
+    "world": {
+      "color": [
+        0.025,
+        0.03,
+        0.045
+      ],
+      "strength": 0.5
+    },
+    "lights": [
+      {
+        "name": "KeyStrip",
+        "location": [
+          -0.8,
+          1.2,
+          1.25
+        ],
+        "target": [
+          0,
+          0,
+          0.35
+        ],
+        "energy": 250,
+        "shape": "RECTANGLE",
+        "size": 0.9,
+        "size_y": 0.2
+      },
+      {
+        "name": "FrontStrip",
+        "location": [
+          -1,
+          -1.7,
+          0.12
+        ],
+        "target": [
+          0,
+          0,
+          0.25
+        ],
+        "energy": 100,
+        "shape": "RECTANGLE",
+        "size": 0.7,
+        "size_y": 0.12
+      },
+      {
+        "name": "SoftFill",
+        "location": [
+          1,
+          -2,
+          1.2
+        ],
+        "target": [
+          0,
+          0,
+          0.25
+        ],
+        "energy": 90,
+        "shape": "DISK",
+        "size": 2.5
+      }
+    ],
+    "ground": {
+      "z": -0.024,
+      "base_color_srgb": [
+        0.035,
+        0.045,
+        0.06
+      ],
+      "roughness": 0.7
+    },
+    "render": {
+      "width": 1600,
+      "height": 1000,
+      "samples": 64,
+      "bit_depth": 16,
+      "view_transform": "AgX",
+      "exposure": 0,
+      "gamma": 1
+    }
+  },
+  "versions": {
+    "substance_mcp": "0.12.0",
+    "painter": "12.2.0",
+    "blender_mcp": "0.44.0",
+    "blender": "5.2.3 LTS"
+  },
+  "variants": {
+    "A": {
+      "PaintedMetal_roughness": 0.18
+    },
+    "B": {
+      "PaintedMetal_roughness": 0.68
+    }
+  },
+  "comparison": "The two uniform fills have identical base color and metalness. The other 11 native exported images were byte-identical; only PaintedMetal roughness changed.",
+  "blender_materials": {
+    "body_and_lid": "CaviStudioPainted_A",
+    "hardware": "CaviHardware_A"
+  }
+}
