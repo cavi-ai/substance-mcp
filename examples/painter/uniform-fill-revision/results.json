@@ -1,0 +1,37 @@
+{
+  "kind": "example-results",
+  "versions": {
+    "substance_mcp": "0.12.0",
+    "painter": "12.2.0",
+    "platform": "macOS",
+    "blender": "5.2.3 LTS",
+    "blender_mcp": "0.44.0"
+  },
+  "roughness": {
+    "A": 0.18,
+    "B": 0.68,
+    "exported_A": 0.179995422293431,
+    "exported_B": 0.6800030518043794,
+    "absolute_tolerance": 3.0518043793392844e-05
+  },
+  "original_export_files": 12,
+  "only_changed_A_B_file": "PaintedMetal_Specular_roughness.png",
+  "saved_B_reopen_export": "All 12 PNG files were byte-identical",
+  "base_color_input_fidelity": "Not established by scalar checks",
+  "files_sha256": {
+    "LICENSE": "da3cac1bafb733641e0ba083681015f208fb2788c6b08f6f7b9fc626ff0dcb13",
+    "create_utility_case.py": "d72e6531c5934905b9a4f0ae799d5352b44ec08044e8f01100d2357f22f5d7ed",
+    "maps-A/Hardware_Base_color.png": "3de5835c2a7ae3ff4b76de1db5ab2a685b433c24cf4a1cde0f9caacc72aabc28",
+    "maps-A/Hardware_Base_metalness.png": "f40abe87e4ab025f7738f05f7d9f83b758c4ae897aaca0a9a92c3c9f4946b8e6",
+    "maps-A/Hardware_Specular_roughness.png": "d7b1812c3339dd85c37940a75d45a953f0bc1fcea9ed94a4bda7197f86ba56b0",
+    "maps-A/PaintedMetal_Base_color.png": "c37c512ee6233a004f31ef8660768a809f8e1e01a7c1aaab61544eaefa351aef",
+    "maps-A/PaintedMetal_Base_metalness.png": "2b547e87865a43a12ad982a0be71bf5b3755a8d278dff0e669ee8df2fbf37b4d",
+    "maps-A/PaintedMetal_Specular_roughness.png": "cd5b02accfab03a80debfe475e5df36405c1cbd35f1a236aa786ab49db151d6d",
+    "maps-B/PaintedMetal_Specular_roughness.png": "3ef6c87a775cc6ab223ede88d2eafd398c5aa941bd14a41d0181aea25f010ee0",
+    "material-settings.json": "ce2420c93b1a1232afd4f045ba097559d1e167fc26aa4cd729230b6e7e7eb4c9",
+    "utility-case-roughness-poster.png": "c1ffd54602b2b04bd4402af13e32e1c615911ae29c71278f40292acfa6f739bc",
+    "utility-case-roughness-walkthrough.mp4": "3cdfd82ed442eac4ee7514870cb35a117afec57503ece10743cd37007876fa4b",
+    "utility_case.mtl": "7aacac9c1cd0b1e86e0bf9bfd08e9c9082bf5fa673cf914fb9c7307477444cf0",
+    "utility_case.obj": "d508137cb3d305e65b0575bdffd56ac846d98386c8a3638dd39a0ffa113d7ee0"
+  }
+}

@@ -21,15 +21,24 @@ class EnvironmentHelperTests(unittest.TestCase):
             self.assertEqual(scrubbed_environment(), dict(os.environ))
 
     def test_the_patch_replaces_the_environment_and_restores_it(self):
-        with patch.dict(os.environ, {"CAVI_DESIGNER_APP": "c", "KEEP": "e"}):
-            with patched_environment(DESIGNER, {"CAVI_DESIGNER_BIN_DIR": "/bin"}):
-                self.assertNotIn("CAVI_DESIGNER_APP", os.environ)
-                self.assertEqual(os.environ["CAVI_DESIGNER_BIN_DIR"], "/bin")
-                self.assertEqual(os.environ["KEEP"], "e")
-                os.environ["LEAK"] = "x"
-            self.assertEqual(os.environ["CAVI_DESIGNER_APP"], "c")
-            self.assertNotIn("CAVI_DESIGNER_BIN_DIR", os.environ)
-            self.assertNotIn("LEAK", os.environ)
+        for inherited in (False, True):
+            with self.subTest(inherited_designer_binary=inherited):
+                outer = {"CAVI_DESIGNER_APP": "c", "KEEP": "e"}
+                if inherited:
+                    outer["CAVI_DESIGNER_BIN_DIR"] = "outer-bin"
+                with patch.dict(os.environ, outer, clear=True):
+                    with patched_environment(DESIGNER, {"CAVI_DESIGNER_BIN_DIR": "/bin"}):
+                        self.assertNotIn("CAVI_DESIGNER_APP", os.environ)
+                        self.assertEqual(os.environ["CAVI_DESIGNER_BIN_DIR"], "/bin")
+                        self.assertEqual(os.environ["KEEP"], "e")
+                        os.environ["LEAK"] = "x"
+                    self.assertEqual(os.environ["CAVI_DESIGNER_APP"], "c")
+                    if inherited:
+                        self.assertEqual(os.environ["CAVI_DESIGNER_BIN_DIR"], "outer-bin")
+                    else:
+                        self.assertNotIn("CAVI_DESIGNER_BIN_DIR", os.environ)
+                    self.assertNotIn("LEAK", os.environ)
+                    self.assertEqual(dict(os.environ), outer)
 
 
 if __name__ == "__main__":

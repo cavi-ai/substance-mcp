@@ -3,6 +3,18 @@
 MCP servers for Adobe Substance 3D Painter, Adobe Substance 3D Designer and Adobe
 Substance 3D Sampler. Each application has its own stdio server.
 
+## Try one material revision
+
+Change a utility case's painted roughness from 0.18 to 0.68, inspect the exported
+PNG16 maps, and reopen the saved project copy. The example includes the original
+mesh, maps and steps to recreate an editable Painter project locally.
+
+[![Blender material views of actual Painter exports at roughness 0.18 and 0.68](examples/painter/uniform-fill-revision/utility-case-roughness-poster.png)](examples/painter/uniform-fill-revision/utility-case-roughness-walkthrough.mp4)
+
+[Watch the 36-second edited walkthrough](examples/painter/uniform-fill-revision/utility-case-roughness-walkthrough.mp4)
+or [reproduce the uniform-fill example](examples/painter/uniform-fill-revision/README.md).
+The material views are Blender renders of actual Painter exports.
+
 ## Application support
 
 The Painter server supports project operations (UDIM, templates, mesh reload),
