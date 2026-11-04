@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -44,10 +44,14 @@ wheels = [
 [[package]]
 name = "cavi-mcp-core"
 version = "0.1.0"
-source = { git = "https://github.com/cavi-ai/mcp-core.git?rev=76f427f6c6f2ca0dc12faaebd53063930ff67b51#76f427f6c6f2ca0dc12faaebd53063930ff67b51" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/31/0184de98208fd875a65dbb32750808893531c0bd3b402eeadaa917613dce/cavi_mcp_core-0.1.0.tar.gz", hash = "sha256:1c62df88fa84323a1db3281586b3322739c9c81856ac6b2ec54efece786460dc", size = 19898, upload-time = "2026-11-04T08:34:59.644Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/ad/14d33d1b4f86e6e049d1cec5223452e30ac786e09afda16652e4c5b5805f/cavi_mcp_core-0.1.0-py3-none-any.whl", hash = "sha256:10687e0468a12a09a6ee691c6e049d0fb1ee89ff8700260398fe2ca2bb4dcd0f", size = 14216, upload-time = "2026-11-04T08:34:58.426Z" },
 ]
 
 [[package]]
@@ -74,7 +78,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cavi-mcp-core", git = "https://github.com/cavi-ai/mcp-core.git?rev=76f427f6c6f2ca0dc12faaebd53063930ff67b51" },
+    { name = "cavi-mcp-core", specifier = ">=0.1,<0.2" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "numpy", specifier = ">=2.0,<3" },
     { name = "openexr", specifier = ">=3.5.3,<4" },
@@ -1130,7 +1134,7 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c5/cb/2f6d79c7576e22c116352a801f4c3c8ace5957e9aced862012430b62e14f/tifffile-2026.3.3.tar.gz", hash = "sha256:d9a1266bed6f2ee1dd0abde2018a38b4f8b2935cb843df381d70ac4eac5458b7", size = 388745, upload-time = "2026-03-03T19:14:38.134Z" }
 wheels = [
@@ -1148,7 +1152,7 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fd/87/a982ca5b892579397c2b155275cc0119b51feb1701eaefa18acb0245f0a4/tifffile-2026.10.15.tar.gz", hash = "sha256:a5ee666dbd6d62e059830a3450825a2521a981b3f45c07a80ab009484aef56f0", size = 454150, upload-time = "2026-10-16T00:32:10.511Z" }
 wheels = [
