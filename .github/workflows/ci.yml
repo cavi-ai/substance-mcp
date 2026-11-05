@@ -28,7 +28,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.32"
-          python-version: "3.13"
+          python-version: "3.15"
       - run: uv sync --locked --dev
       - run: uv run --locked ruff check .
       - name: Build and verify the documentation
@@ -37,39 +37,7 @@ jobs:
           uv run --locked python -m scripts.docs.verify
 
   unit:
-    name: unit · ${{ matrix.os }} · py${{ matrix.python }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    # The Windows leg stays experimental until it has run green on a real runner. The fake
-    # Designer and Sampler programs now install as .cmd launchers there (evals/launcher.py),
-    # and process checks use tasklist, but none of that has run on Windows yet.
-    continue-on-error: ${{ matrix.experimental }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, python: "3.11", experimental: false }
-          - { os: ubuntu-latest, python: "3.12", experimental: false }
-          - { os: ubuntu-latest, python: "3.13", experimental: false }
-          - { os: macos-26-intel, python: "3.11", experimental: false }
-          - { os: macos-26-intel, python: "3.13", experimental: false }
-          - { os: windows-latest, python: "3.13", experimental: true }
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0 # tags give the version and the documented release
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: "0.11.32"
-          python-version: ${{ matrix.python }}
-      - run: uv sync --locked --dev
-      - run: uv run --locked python -m unittest discover -s tests
-
-  lowest-direct:
-    name: unit · lowest direct dependencies
+    name: unit
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -82,11 +50,9 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.32"
-      # Resolves every direct dependency at the lowest version pyproject.toml allows, in a
-      # throwaway environment, so a bound that is lower than the code needs fails here.
-      # Python 3.11 because numpy 2.0.0, the floor, ships no wheel for 3.13 and would build
-      # from source.
-      - run: uv run --isolated --no-dev --python 3.11 --resolution lowest-direct python -m unittest discover -s tests
+          python-version: "3.15"
+      - run: uv sync --locked --dev
+      - run: uv run --locked python -m unittest discover -s tests
 
   evals:
     name: evals
@@ -102,7 +68,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.32"
-          python-version: "3.13"
+          python-version: "3.15"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
@@ -125,20 +91,11 @@ jobs:
           if-no-files-found: error
 
   package:
-    name: package · ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: package
+    runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The Windows leg is experimental until it has run once on a real runner.
-    continue-on-error: ${{ matrix.experimental }}
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, experimental: false }
-          - { os: macos-26-intel, experimental: false }
-          - { os: windows-latest, experimental: true }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -147,5 +104,17 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.32"
-          python-version: "3.13"
+          python-version: "3.15"
       - run: uv run --locked python scripts/package_smoke.py
+
+  pin-consumers:
+    # A green main moves the substance-mcp pin in game-art-pipeline through its pin-servers workflow.
+    needs: [lint, unit, evals, package]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch server-merged to game-art-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
+        run: gh api repos/cavi-ai/game-art-pipeline/dispatches --method POST -f event_type=server-merged

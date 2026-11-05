@@ -19,7 +19,7 @@ from cavi_substance_mcp.painter import client
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = SRC / "cavi_substance_mcp"
-MINIMUM = (3, 11)
+MINIMUM = (3, 11)  # Sampler 6 embeds Python 3.11; Painter 12 and Designer 16 embed 3.13.
 
 # Entry module -> the package modules its import may load.
 IN_APP = {
@@ -91,7 +91,7 @@ assert callable(namespace["execute"])
 
 
 def interpreters():
-    """This interpreter, plus a 3.11 one when the machine has it (the oldest supported)."""
+    """This interpreter, plus a 3.11 one when the machine has it (the Python Sampler embeds)."""
     found = {sys.executable: sys.version_info[:2]}
     other = shutil.which("python3.11")
     if other and other != sys.executable:
@@ -211,7 +211,7 @@ class SyntaxFloorTests(unittest.TestCase):
     def test_a_real_python_3_11_compiles_every_in_app_source_when_available(self):
         executable = shutil.which("python3.11")
         if executable is None:
-            self.skipTest("no python3.11 on PATH; the 3.11 CI legs compile these natively")
+            self.skipTest("no python3.11 on PATH")
         for relative in APPLICATION_MODULES:
             with self.subTest(file=relative):
                 code = ("import sys; "

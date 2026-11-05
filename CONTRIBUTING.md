@@ -2,7 +2,7 @@
 
 ## Setup
 
-Install Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and Node.js 22, then:
+Install Python 3.15 or newer, [uv](https://docs.astral.sh/uv/), and Node.js 22, then:
 
 ```bash
 git clone https://github.com/cavi-ai/substance-mcp.git
