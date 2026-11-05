@@ -30,7 +30,7 @@ checked natively and what has been tested only against a simulator.
 
 ## Install
 
-Requires Python 3.13+, [uv](https://docs.astral.sh/uv/), and a separately installed and
+Requires Python 3.15+, [uv](https://docs.astral.sh/uv/), and a separately installed and
 licensed Adobe application. The MCP does not supply an Adobe license or authenticate
 accounts.
 

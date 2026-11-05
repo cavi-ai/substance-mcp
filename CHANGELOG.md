@@ -9,8 +9,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - The package version, and the release the documentation names, come from the git tag.
 - The server type, failure contract, schema compaction and subprocess runner come from `cavi-mcp-core`.
 - Application lookup, version and running-process probes come from `cavi-mcp-core`; the default install locations and override variables are unchanged.
-- Requires Python 3.13 or newer. Code that runs inside the Substance apps stays compatible with Python 3.11, the interpreter Sampler 6 embeds.
-- CI runs once, on Linux with Python 3.13, and a green `main` dispatches the game-art-pipeline server pin.
+- Requires Python 3.15 or newer. Code that runs inside the Substance apps stays compatible with Python 3.11, the interpreter Sampler 6 embeds.
+- CI runs once, on Linux with Python 3.15, and a green `main` dispatches the game-art-pipeline server pin.
 
 ## 0.12.0 - 2026-11-03
 
