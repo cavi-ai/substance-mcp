@@ -19,7 +19,7 @@ from cavi_substance_mcp.painter import client
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = SRC / "cavi_substance_mcp"
-MINIMUM = (3, 11)
+MINIMUM = (3, 11)  # Sampler 6 embeds Python 3.11; Painter 12 and Designer 16 embed 3.13.
 
 # Entry module -> the package modules its import may load.
 IN_APP = {
@@ -91,7 +91,7 @@ assert callable(namespace["execute"])
 
 
 def interpreters():
-    """This interpreter, plus a 3.11 one when the machine has it (the oldest supported)."""
+    """This interpreter, plus a 3.11 one when the machine has it (the Python Sampler embeds)."""
     found = {sys.executable: sys.version_info[:2]}
     other = shutil.which("python3.11")
     if other and other != sys.executable:
