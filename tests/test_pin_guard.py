@@ -1,4 +1,4 @@
-"""Run the CI pin-guard step against pull requests in a scratch repository."""
+"""Run the pin-guard and pin-integrity steps against pull requests in a scratch repository."""
 
 import os
 import shutil
@@ -8,10 +8,25 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COPIED = ("scripts/pin_guard.py", ".github/workflows/ci.yml", "pyproject.toml", "uv.lock",
-          "package.json")
+GUARD = "scripts/pin_guard.py"
+WORKFLOW = "ci.yml"
+NEXT_JOB = "\n\n  lint:"
+DISPATCH = "repos/cavi-ai/game-art-pipeline/dispatches"
+DEPENDENCY = ('"numpy>=2.0,<3"', '"numpy>=2.1,<3"')
+OTHER_JOB = ("timeout-minutes: 25", "timeout-minutes: 30")
+DISPATCH_FILE = f".github/workflows/{WORKFLOW}"
+DISPATCH_ERROR = "changes the pin-consumers job"
+COPIED = (GUARD, f".github/workflows/{WORKFLOW}", ".github/workflows/pin-integrity.yml",
+          DISPATCH_FILE, "pyproject.toml", "uv.lock", "package.json")
 COMMIT = "547b4b1" + "0" * 33
 CORE = "https://github.com/cavi-ai/mcp-core.git"
+
+
+def step(workflow, job, after):
+    """The run script of a job's last step, as the workflow file holds it."""
+    text = (ROOT / ".github/workflows" / workflow).read_text()
+    block = text.split(f"  {job}:\n", 1)[1].split("        run: |\n", 1)[1]
+    return "\n".join(line[10:] for line in block.split(after, 1)[0].splitlines())
 
 
 class PinGuardTests(unittest.TestCase):
@@ -25,8 +40,9 @@ class PinGuardTests(unittest.TestCase):
                         GIT_CONFIG_NOSYSTEM="1")
         self.repo = self.root / "repo"
         for name in COPIED:
-            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(ROOT / name, self.repo / name)
+            if (ROOT / name).exists():
+                (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / name, self.repo / name)
         self.git("init", "-q", "-b", "main")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "base")
@@ -50,59 +66,82 @@ class PinGuardTests(unittest.TestCase):
             stream.write(f'\n[[package]]\nname = "cavi-pin-test"\nversion = "0.1.0"\n'
                          f'source = {{ git = "{CORE}?rev={COMMIT}#{COMMIT}" }}\n')
 
-    def pull_request(self, change):
+    def add_submodule(self):
+        (self.repo / ".gitmodules").write_text(
+            f'[submodule "vendor/core"]\n\tpath = vendor/core\n\turl = {CORE}\n')
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{COMMIT},vendor/core")
+
+    def commit(self, change):
         self.git("checkout", "-q", "-b", "change", self.base)
         change()
         self.git("add", "-A", "--", ".", ":(exclude)vendor")
         self.git("commit", "-q", "-m", "change")
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        block = workflow.split("  pin-guard:\n", 1)[1].split("        run: |\n", 1)[1]
-        script = "\n".join(line[10:] for line in block.split("\n\n  lint:", 1)[0].splitlines())
+        return self.git("rev-parse", "HEAD")
+
+    def run_step(self, script, **env):
         runner = self.root / "runner"
         runner.mkdir(exist_ok=True)
-        head = self.git("rev-parse", "HEAD")
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, capture_output=True,
                               text=True, check=False,
-                              env=dict(self.env, BASE=self.base, HEAD=head,
-                                       RUNNER_TEMP=str(runner)))
+                              env={**self.env, "BASE": self.base, "RUNNER_TEMP": str(runner),
+                                   **env})
+
+    def guard(self, change):
+        head = self.commit(change)
+        return self.run_step(step(WORKFLOW, "pin-guard", NEXT_JOB), HEAD=head)
+
+    def integrity(self, change):
+        """Run pin-integrity as pull_request_target does: main checked out, the PR fetched."""
+        head = self.commit(change)
+        origin = self.root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, env=self.env)
+        self.git("push", "-q", str(origin), "main", f"{head}:refs/pull/7/head")
+        self.git("remote", "add", "origin", str(origin))
+        self.git("checkout", "-q", "main")
+        return self.run_step(step("pin-integrity.yml", "pin-integrity", "\0"),
+                             HEAD=head, NUMBER="7")
 
     def test_git_dependency_pin_fails(self):
-        result = self.pull_request(self.pin_core_to_git)
+        result = self.guard(self.pin_core_to_git)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("::error file=pyproject.toml::", result.stdout)
         self.assertIn("::error file=uv.lock::", result.stdout)
 
     def test_submodule_fails(self):
-        def add_submodule():
-            (self.repo / ".gitmodules").write_text(
-                f'[submodule "vendor/core"]\n\tpath = vendor/core\n\turl = {CORE}\n')
-            self.git("update-index", "--add", "--cacheinfo", f"160000,{COMMIT},vendor/core")
-        result = self.pull_request(add_submodule)
+        result = self.guard(self.add_submodule)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("::error file=.gitmodules::", result.stdout)
         self.assertIn("::error file=vendor/core::", result.stdout)
 
     def test_consumer_dispatch_is_never_changed(self):
-        result = self.pull_request(lambda: self.edit(
-            ".github/workflows/ci.yml", "repos/cavi-ai/game-art-pipeline/dispatches",
-            "repos/cavi-ai/other/dispatches"))
+        result = self.guard(lambda: self.edit(
+            DISPATCH_FILE, DISPATCH, "repos/cavi-ai/other/dispatches"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("changes the pin-consumers job", result.stdout)
+        self.assertIn(DISPATCH_ERROR, result.stdout)
 
     def test_main_guard_judges_a_rewritten_guard(self):
         def disable_guard():
-            (self.repo / "scripts/pin_guard.py").write_text("import sys\nsys.exit(0)\n")
+            (self.repo / GUARD).write_text("import sys\nsys.exit(0)\n")
             self.pin_core_to_git()
-        result = self.pull_request(disable_guard)
+        result = self.guard(disable_guard)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("::error file=scripts/pin_guard.py::", result.stdout)
+        self.assertIn(f"::error file={GUARD}::", result.stdout)
         self.assertIn("::error file=uv.lock::", result.stdout)
+
+    def test_integrity_fails_a_gutted_guard_job(self):
+        result = self.integrity(lambda: self.edit(
+            f".github/workflows/{WORKFLOW}", 'python3 "$RUNNER_TEMP/pin_guard.py"', "true #"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("changes the pin-guard job", result.stdout)
+
+    def test_integrity_passes_an_unrelated_change(self):
+        result = self.integrity(lambda: self.edit(f".github/workflows/{WORKFLOW}", *OTHER_JOB))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_dependency_range_and_other_jobs_pass(self):
         def update():
-            self.edit("pyproject.toml", '"numpy>=2.0,<3"', '"numpy>=2.1,<3"')
-            self.edit(".github/workflows/ci.yml", "timeout-minutes: 25", "timeout-minutes: 30")
-        result = self.pull_request(update)
+            self.edit("pyproject.toml", *DEPENDENCY)
+            self.edit(f".github/workflows/{WORKFLOW}", *OTHER_JOB)
+        result = self.guard(update)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
