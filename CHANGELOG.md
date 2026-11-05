@@ -5,6 +5,7 @@
 ### Changed
 
 - The server type, failure contract, schema compaction and subprocess runner come from `cavi-mcp-core`.
+- Application lookup, version and running-process probes come from `cavi-mcp-core`; the default install locations and override variables are unchanged.
 
 ## 0.12.0 - 2026-11-03
 

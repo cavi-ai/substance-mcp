@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from cavi_mcp_core import proc
+from cavi_mcp_core import apps, proc
 
 from ..core import discovery
 
@@ -18,7 +18,7 @@ class Installation:
     source: str
 
     def binary(self, name: str) -> Path | None:
-        return discovery.tool(self.bin_dir, name)
+        return apps.tool(self.bin_dir, name)
 
     def require(self, name: str) -> Path:
         path = self.binary(name)
@@ -59,7 +59,7 @@ def parsed_stdout(result: proc.Result, name: str) -> str:
 
 
 async def version(path: Path | None) -> str | None:
-    return await asyncio.to_thread(discovery.version, path)
+    return await asyncio.to_thread(apps.version, path)
 
 
 def parse_info(text: str) -> list[dict]:

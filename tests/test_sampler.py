@@ -435,7 +435,7 @@ class SamplerRunnerTests(unittest.TestCase):
         (macos / "Adobe Substance 3D Sampler").write_text("not run")
         with (
             patch.dict(os.environ, {"CAVI_SAMPLER_APP": str(app)}),
-            patch.object(runner.discovery.sys, "platform", "darwin"),
+            patch.object(runner.apps.sys, "platform", "darwin"),
         ):
             found = runner.installation()
             self.assertEqual(found.executable, macos / "Adobe Substance 3D Sampler")
@@ -446,7 +446,7 @@ class SamplerRunnerTests(unittest.TestCase):
         installed = runner.Installation(Path("/fake/Adobe Substance 3D Sampler"), "test")
         with (
             patch.object(runner, "installation", return_value=installed),
-            patch.object(runner.discovery, "running", return_value=True) as ask,
+            patch.object(runner.apps, "running", return_value=True) as ask,
         ):
             self.assertTrue(runner.running())
         ask.assert_called_once_with(installed.executable)

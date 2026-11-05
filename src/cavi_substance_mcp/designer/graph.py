@@ -7,10 +7,10 @@ import sys
 import time
 from pathlib import Path
 
-from cavi_mcp_core import proc
+from cavi_mcp_core import apps, proc
 
 from .. import receipts
-from ..core import discovery, workspace
+from ..core import workspace
 from . import runner
 from .graph_models import GraphRecipe
 
@@ -121,7 +121,7 @@ async def invoke(action, directory, path=None, recipe=None, query='', offset=0, 
     app = executable()
     started = time.monotonic()
     with AppLock(root):
-        running = discovery.running(app)
+        running = apps.running(app)
         if running is not False:
             raise RuntimeError('Designer is running or its state is unknown; nothing launched. '
                                'Save and close that instance before batch authoring.')
