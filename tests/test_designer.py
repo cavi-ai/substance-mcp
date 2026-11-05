@@ -14,7 +14,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
-from cavi_mcp_core import proc
+from cavi_mcp_core import apps, proc
 from designer_fake_cli import ENV, install, sbsar
 from env import DESIGNER, patched_environment
 from launcher import write_launcher
@@ -65,13 +65,13 @@ class InstallationTests(unittest.TestCase):
     def test_platform_defaults(self):
         with patched_environment(DESIGNER):
             # shutil.which cannot run as another platform, and nothing is installed anyway.
-            with patch.object(discovery.sys, "platform", "win32"), \
-                    patch.object(discovery.shutil, "which", return_value=None):
+            with patch.object(apps.sys, "platform", "win32"), \
+                    patch.object(apps.shutil, "which", return_value=None):
                 found = runner.installation()
                 self.assertEqual(found.bin_dir, Path(
                     r"C:\Program Files\Adobe\Adobe Substance 3D Designer"))
-            with patch.object(discovery.sys, "platform", "linux"), \
-                    patch.object(discovery.shutil, "which", return_value=None):
+            with patch.object(apps.sys, "platform", "linux"), \
+                    patch.object(apps.shutil, "which", return_value=None):
                 self.assertEqual(str(runner.installation().bin_dir),
                                  "/opt/Adobe/Adobe_Substance_3D_Designer")
 

@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from cavi_mcp_core import proc
+from cavi_mcp_core import apps, proc
 
 from ..core import discovery
 
@@ -34,7 +34,7 @@ class Installation:
 
     def version_within(self, timeout: float | None) -> str | None:
         """``version``, waiting no longer than ``timeout`` seconds for a program to answer."""
-        return discovery.version(self.executable, timeout)
+        return apps.version(self.executable, timeout)
 
 
 def installation() -> Installation:
@@ -57,7 +57,7 @@ def scripts_dir() -> Path:
 
 
 def running() -> bool | None:
-    return discovery.running(installation().executable)
+    return apps.running(installation().executable)
 
 
 async def run_script(script: Path, timeout: float, job_dir: Path, extra=()) -> proc.Result:

@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cavi_mcp_core import apps
+
 from ..core import discovery
 from .client import PainterClient
 
@@ -37,7 +39,7 @@ def start_painter():
     ):
         raise ValueError("CAVI_PAINTER_APP must identify Adobe Substance 3D Painter")
     executable = app / "Contents/MacOS" / executable
-    running = discovery.running(executable)
+    running = apps.running(executable)
     if running is None:
         raise RuntimeError("Cannot tell whether Painter is already running (pgrep failed)")
     if running:

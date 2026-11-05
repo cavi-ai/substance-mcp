@@ -19,10 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 import designer_fake_cli
 import sampler_fake_cli
-from cavi_mcp_core import proc
+from cavi_mcp_core import apps, proc
 from launcher import write_launcher
 
-from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.designer import runner as designer_runner
 from cavi_substance_mcp.sampler import runner as sampler_runner
 
@@ -45,7 +44,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_discovery_finds_the_launcher_by_its_plain_name(self):
         program = write_launcher(self.root, "sbsrender", ECHO)
-        self.assertEqual(discovery.tool(self.root, "sbsrender"), program)
+        self.assertEqual(apps.tool(self.root, "sbsrender"), program)
 
     def test_posix_layout_is_one_executable_script(self):
         program = write_launcher(self.root, "tool", ECHO, windows=False)
@@ -83,7 +82,7 @@ class FakeDesignerTests(unittest.TestCase):
             for name in designer_runner.TOOLS:
                 with self.subTest(tool=name):
                     path = found.require(name)
-                    self.assertEqual(discovery.version(path), "0.0.0-fake")
+                    self.assertEqual(apps.version(path), "0.0.0-fake")
         self.assertEqual(found.source, designer_fake_cli.ENV)
 
     def test_resources_are_beside_the_tools(self):

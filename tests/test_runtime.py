@@ -41,7 +41,7 @@ class PainterLaunchTests(unittest.TestCase):
                 patch(f"{RUNTIME}.sys.platform", "darwin"),
                 patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
                 patch(f"{RUNTIME}.subprocess.run", side_effect=run),
-                patch(f"{RUNTIME}.discovery.running", return_value=False),
+                patch(f"{RUNTIME}.apps.running", return_value=False),
             ):
                 result = start_painter()
         self.assertTrue(result["launch_requested"])
@@ -93,7 +93,7 @@ class PainterLaunchTests(unittest.TestCase):
                 patch.dict("os.environ", {"CAVI_PAINTER_APP": str(app)}),
                 patch(f"{RUNTIME}.sys.platform", "darwin"),
                 patch(f"{RUNTIME}.PainterClient.call", side_effect=ConnectionError()),
-                patch(f"{RUNTIME}.discovery.running", return_value=None),
+                patch(f"{RUNTIME}.apps.running", return_value=None),
                 patch(f"{RUNTIME}.subprocess.run", side_effect=AssertionError("launched")),
                 self.assertRaisesRegex(RuntimeError, "Cannot tell whether Painter"),
             ):

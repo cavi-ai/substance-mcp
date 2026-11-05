@@ -11,13 +11,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
+from cavi_mcp_core import apps
 from clock import Clock
 from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
 from sampler_jobs import job_data, run_job_file
 
-from cavi_substance_mcp.core import discovery
 from cavi_substance_mcp.sampler import batch, cli, job, targets
 
 TIMEOUT = 60
@@ -304,7 +304,7 @@ class BatchTests(unittest.TestCase):
         # itself is what times out.
         with (
             patch.dict(os.environ, {"CAVI_SAMPLER_BIN": str(slow)}),
-            patch.object(discovery, "VERSION_TIMEOUT", 0.1),
+            patch.object(apps, "VERSION_TIMEOUT", 0.1),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             self.assertEqual(cli.main([
