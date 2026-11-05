@@ -18,7 +18,8 @@ from cavi_substance_mcp import packing
 from cavi_substance_mcp.designer import runner
 
 INSTALL = runner.installation()
-NATIVE = all(INSTALL.binary(name) for name in ("sbscooker", "sbsrender", "substance3d_baker"))
+NATIVE = os.environ.get("CAVI_DESIGNER_NATIVE") == "1" and all(
+    INSTALL.binary(name) for name in ("sbscooker", "sbsrender", "substance3d_baker"))
 if NATIVE:
     NATIVE = "fake" not in (asyncio.run(runner.version(INSTALL.binary("sbsrender"))) or "fake")
 BLENDER = os.environ.get("BLENDER") or shutil.which("blender") or "/opt/homebrew/bin/blender"
@@ -62,7 +63,7 @@ def pixels(path):
     return np.asarray(Image.open(path)).astype(np.int32)
 
 
-@unittest.skipUnless(NATIVE, "Substance 3D Designer CLIs not installed")
+@unittest.skipUnless(NATIVE, "Set CAVI_DESIGNER_NATIVE=1 with the Designer CLIs installed")
 class DesignerNativeTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

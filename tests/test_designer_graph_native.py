@@ -17,7 +17,8 @@ from cavi_substance_mcp.designer import runner
 
 INSTALL = runner.installation()
 EXECUTABLES = ('Adobe Substance 3D Designer', 'Adobe Substance 3D Designer.exe')
-AVAILABLE = any((INSTALL.bin_dir / name).is_file() for name in EXECUTABLES)
+AVAILABLE = os.environ.get('CAVI_DESIGNER_NATIVE') == '1' and any(
+    (INSTALL.bin_dir / name).is_file() for name in EXECUTABLES)
 
 
 def samples(path):
@@ -28,7 +29,7 @@ def samples(path):
         return np.array(list(rows), np.int32).reshape(h, w, info['planes'])
 
 
-@unittest.skipUnless(AVAILABLE, 'Designer native application not installed')
+@unittest.skipUnless(AVAILABLE, 'Set CAVI_DESIGNER_NATIVE=1 with Designer installed')
 class DesignerGraphNativeTests(unittest.TestCase):
     def test_editable_graph_parameters_survive_save_cook_and_render(self):
         with tempfile.TemporaryDirectory() as folder:

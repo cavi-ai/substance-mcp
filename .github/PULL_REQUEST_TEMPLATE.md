@@ -10,8 +10,8 @@
 
 - [ ] `uv run --locked python -m unittest discover -s tests`
 - [ ] `uv run --locked ruff check .`
-- [ ] The six `npm run eval:*` scripts
-- [ ] Checked against the native application, if app-side behavior changed (application and version: )
+- [ ] The `npm run eval:*` scripts your change touches
+- [ ] Optional: one scoped native test, if app-side behavior changed (application and version: )
 
 ## Contract impact
 

@@ -20,7 +20,8 @@ Painter API and fake Designer and Sampler executables.
 
 ## Checks
 
-Run every command in [`.pr-gates`](.pr-gates) before opening a pull request. The main ones:
+CI runs every command in [`.pr-gates`](.pr-gates). Locally, run the unit module(s) and
+the eval scripts your change touches, plus `ruff`. The main commands:
 
 ```bash
 uv run --locked python -m unittest discover -s tests
@@ -34,8 +35,8 @@ npm run eval:sampler-core
 npm run verify:package
 ```
 
-Tests marked native skip unless the application is installed (`CAVI_SAMPLER_NATIVE=1` also
-launches Sampler). Evaluation reports are written under `.tmp/evals/`. `verify:package` builds the wheel and
+Native tests skip unless you opt in with `CAVI_DESIGNER_NATIVE=1`, `CAVI_SAMPLER_NATIVE=1`
+or `CAVI_PAINTER_NATIVE_CONTROLS=1`; they are never part of a gate. Evaluation reports are written under `.tmp/evals/`. `verify:package` builds the wheel and
 sdist, installs the wheel into a clean virtual environment and checks every console script.
 
 ## Where changes go
@@ -88,6 +89,8 @@ sdist, installs the wheel into a clean virtual environment and checks every cons
   `.spp`, `.spt`). Use synthetic fixtures only.
 - Do not commit local plans, transcripts, credentials, or machine-specific paths.
 - Keep a pull request to one concern.
+- Do not change a version. Add CHANGELOG lines under `## Unreleased`; releases are cut
+  from a `vX.Y.Z` tag when the owner calls one.
 
 ## Commits
 
