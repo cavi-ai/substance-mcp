@@ -211,7 +211,7 @@ class SyntaxFloorTests(unittest.TestCase):
     def test_a_real_python_3_11_compiles_every_in_app_source_when_available(self):
         executable = shutil.which("python3.11")
         if executable is None:
-            self.skipTest("no python3.11 on PATH; the 3.11 CI legs compile these natively")
+            self.skipTest("no python3.11 on PATH")
         for relative in APPLICATION_MODULES:
             with self.subTest(file=relative):
                 code = ("import sys; "
