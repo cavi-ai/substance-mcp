@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "cavi-substance-mcp"
-version = "0.12.0"
+dynamic = ["version"]
 description = "MCP servers for Adobe Substance 3D Painter, Designer and Sampler"
 readme = "README.md"
 license = "MIT"
@@ -60,6 +60,10 @@ cavi-substance-receipts = "cavi_substance_mcp.receipts_cli:main"
 
 [dependency-groups]
 dev = ["ruff>=0.14,<1"]
+
+# The version comes from the git tag: vX.Y.Z builds X.Y.Z, later commits X.Y.(Z+1).devN+g<sha>.
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cavi_substance_mcp"]

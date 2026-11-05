@@ -1,9 +1,12 @@
 # Changelog
 
+Versions come from git tags; a pull request adds its lines under Unreleased and never edits a version.
+
 ## Unreleased
 
 ### Changed
 
+- The package version, and the release the documentation names, come from the git tag.
 - The server type, failure contract, schema compaction and subprocess runner come from `cavi-mcp-core`.
 - Application lookup, version and running-process probes come from `cavi-mcp-core`; the default install locations and override variables are unchanged.
 
