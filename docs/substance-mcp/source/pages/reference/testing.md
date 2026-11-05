@@ -24,7 +24,7 @@ Without `CAVI_SAMPLER_NATIVE=1` the Sampler tests that launch Sampler are skippe
 
 ```sh
 uv sync --locked --dev
-npm ci
+npm install
 npm run eval:protocol
 npm run eval:core
 npm run eval:designer-protocol

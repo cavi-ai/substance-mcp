@@ -11,6 +11,6 @@
     "verify:package": "uv run --locked python scripts/package_smoke.py"
   },
   "devDependencies": {
-    "@cavi-ai/mcp-eval": "0.8.0"
+    "@cavi-ai/mcp-eval": "github:cavi-ai/mcp-eval#main"
   }
 }
