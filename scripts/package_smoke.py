@@ -302,7 +302,7 @@ def check_install_isolation(python: Path, venv: Path, version: str, cwd: Path, e
         venv.resolve() in Path(file).resolve().parents,
         f"imported {file}, which is outside the clean venv {venv}",
     )
-    expect(installed == version, f"installed metadata says {installed}, pyproject says {version}")
+    expect(installed == version, f"installed metadata says {installed}, the wheel says {version}")
 
 
 def check_server(script: Path, name: str, count: int, version: str, env: dict, cwd: Path) -> None:
@@ -406,7 +406,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    version = project["version"]
     uv = uv_command()
 
     scratch_root = ROOT / ".tmp"
@@ -421,10 +420,12 @@ def main(argv: list[str] | None = None) -> int:
         dist = args.dist.resolve()
     else:
         dist = work / "dist"
-        print(f"building {project['name']} {version} with uv build", flush=True)
+        print(f"building {project['name']} with uv build", flush=True)
         run([uv, "build", "--out-dir", dist, ROOT], cwd=ROOT)
     wheel = only(dist, "*.whl")
     sdist = only(dist, "*.tar.gz")
+    # The version comes from the git tag, so the built wheel names it.
+    version = wheel.name.split("-")[1]
     print(f"checking {wheel.name} and {sdist.name}", flush=True)
 
     report.run("wheel contains the in-app modules, no tests/ or evals/",

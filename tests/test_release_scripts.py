@@ -106,46 +106,43 @@ class CheckReleaseTests(unittest.TestCase):
         self.root = Path(self.folder.name)
         self.write()
 
-    def write(self, *, pyproject="0.6.0", lock="0.6.0", changelog="0.6.0 - 2026-10-31",
+    def write(self, *, version=None, source="vcs", changelog="0.6.0 - 2026-10-31",
               name="cavi-substance-mcp"):
+        static = f'version = "{version}"\n' if version else 'dynamic = ["version"]\n'
         (self.root / "pyproject.toml").write_text(
-            f'[project]\nname = "{name}"\nversion = "{pyproject}"\n', encoding="utf-8")
-        (self.root / "uv.lock").write_text(
-            'version = 1\n\n[[package]]\nname = "mcp"\nversion = "1.30.0"\n\n'
-            f'[[package]]\nname = "cavi-substance-mcp"\nversion = "{lock}"\n'
-            'source = { editable = "." }\n', encoding="utf-8")
+            f'[project]\nname = "{name}"\n{static}\n[tool.hatch.version]\nsource = "{source}"\n',
+            encoding="utf-8")
         (self.root / "CHANGELOG.md").write_text(
-            f"# Changelog\n\n## {changelog}\n\n- Notes.\n", encoding="utf-8")
+            f"# Changelog\n\n## Unreleased\n\n## {changelog}\n\n- Notes.\n", encoding="utf-8")
 
     def check(self, tag="v0.6.0"):
         return check_release.check(self.root, tag)
 
-    def test_everything_agreeing_passes_with_and_without_a_tag(self):
+    def test_a_tag_with_its_changelog_section_passes(self):
+        problems, summary = self.check()
+        self.assertEqual(problems, [])
+        self.assertEqual(summary, "tag v0.6.0 and CHANGELOG.md agree on 0.6.0")
+
+    def test_no_tag_checks_the_version_configuration_only(self):
+        self.assertEqual(self.check(None), ([], "no tag: the version comes from the git tag"))
+
+    def test_a_tag_that_is_not_v_x_y_z_fails(self):
+        for tag in ("0.6.0", "v0.6.0-rc1", "v0.6", "v06.0.0"):
+            with self.subTest(tag=tag):
+                self.assertEqual(self.check(tag), ([f"tag {tag} is not vX.Y.Z"], ""))
+
+    def test_a_static_version_fails_with_or_without_a_tag(self):
+        self.write(version="0.6.0")
         for tag in ("v0.6.0", None):
             with self.subTest(tag=tag):
-                problems, summary = self.check(tag)
-                self.assertEqual(problems, [])
-                self.assertIn("agree on 0.6.0", summary)
-
-    def test_a_tag_that_is_not_v_plus_the_version_fails(self):
-        for tag in ("v0.6.1", "0.6.0", "v0.6.0-rc1"):
-            with self.subTest(tag=tag):
                 problems, _ = self.check(tag)
-                self.assertEqual(len(problems), 1)
-                self.assertIn(f"tag {tag} does not match", problems[0])
-                self.assertIn("want v0.6.0", problems[0])
+                self.assertTrue(any("static version" in p for p in problems), problems)
+                self.assertTrue(any('dynamic must list "version"' in p for p in problems), problems)
 
-    def test_no_tag_still_requires_the_other_sources_to_agree(self):
-        self.write(lock="0.5.0")
-        problems, _ = self.check(None)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("uv.lock records cavi-substance-mcp 0.5.0", problems[0])
-
-    def test_a_stale_lockfile_fails(self):
-        self.write(pyproject="0.7.0", lock="0.6.0", changelog="0.7.0 - 2026-11-01")
-        problems, _ = self.check("v0.7.0")
-        self.assertEqual(len(problems), 1)
-        self.assertIn("run `uv lock`", problems[0])
+    def test_another_version_source_fails(self):
+        self.write(source="regex")
+        problems, _ = self.check()
+        self.assertEqual(problems, ['pyproject.toml: [tool.hatch.version] source must be "vcs"'])
 
     def test_a_missing_changelog_section_fails(self):
         self.write(changelog="0.5.0 - 2026-09-01")
@@ -171,18 +168,18 @@ class CheckReleaseTests(unittest.TestCase):
         problems, _ = self.check()
         self.assertEqual(problems, ["CHANGELOG.md has 2 sections for 0.6.0"])
 
-    def test_every_disagreement_is_reported_together(self):
-        self.write(lock="0.5.0", changelog="0.4.0 - 2026-01-01")
-        problems, _ = self.check("v9.9.9")
+    def test_every_problem_is_reported_together(self):
+        self.write(version="0.6.0", changelog="0.4.0 - 2026-01-01")
+        problems, _ = self.check()
         self.assertEqual(len(problems), 3)
 
     def test_unreadable_sources_are_reported_not_raised(self):
         (self.root / "CHANGELOG.md").unlink()
-        (self.root / "uv.lock").write_text("not [valid toml", encoding="utf-8")
+        (self.root / "pyproject.toml").write_text("not [valid toml", encoding="utf-8")
         problems, _ = self.check()
         self.assertEqual(len(problems), 2)
-        self.assertTrue(any(p.startswith("uv.lock: cannot read version") for p in problems))
-        self.assertTrue(any(p.startswith("CHANGELOG.md: cannot read") for p in problems))
+        self.assertTrue(problems[0].startswith("pyproject.toml: cannot read"))
+        self.assertTrue(problems[1].startswith("CHANGELOG.md: cannot read"))
 
     def test_a_foreign_project_name_fails(self):
         self.write(name="something-else")
@@ -197,11 +194,10 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertTrue(out.startswith("ok: tag v0.6.0"))
         code, out, err = run(check_release, "--root", str(self.root), "--tag", "v1.0.0")
         self.assertEqual((code, out), (1, ""))
-        self.assertTrue(err.startswith("error: tag v1.0.0 does not match"))
+        self.assertTrue(err.startswith("error: CHANGELOG.md has no `## 1.0.0"))
 
-    def test_the_repository_itself_agrees_on_pyproject_and_lock(self):
-        root = SCRIPTS.parent
-        self.assertEqual(check_release.pyproject_version(root), check_release.lock_version(root))
+    def test_the_repository_itself_takes_its_version_from_the_tag(self):
+        self.assertEqual(check_release.version_configuration(SCRIPTS.parent), [])
 
 
 if __name__ == "__main__":

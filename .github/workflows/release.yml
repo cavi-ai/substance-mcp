@@ -28,15 +28,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # A run from a branch (workflow_dispatch) has no tag to compare; the version
-      # sources must still agree with each other.
-      - name: Check that the release sources agree
+          fetch-depth: 0 # the tag must be on main
+      # A run from a branch (workflow_dispatch) has no tag; the version configuration is
+      # still checked.
+      - name: Check the release tag and changelog
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [ "$REF_TYPE" = "tag" ]; then
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag $REF_NAME is not on main"; exit 1; }
             python3 scripts/check_release.py --tag "$REF_NAME"
           else
             python3 scripts/check_release.py
@@ -53,6 +55,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # the version is read from the tag
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.32"
@@ -62,12 +65,18 @@ jobs:
       # SOURCE_DATE_EPOCH pins the archive timestamps to the commit, so rebuilding the
       # same commit yields the same wheel and sdist.
       - name: Build the wheel and sdist
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
           uv build --out-dir dist
           ls -l dist
+          if [ "$REF_TYPE" = "tag" ]; then
+            ls "dist/cavi_substance_mcp-${REF_NAME#v}-py3-none-any.whl" "dist/cavi_substance_mcp-${REF_NAME#v}.tar.gz"
+          fi
       # The exact files that will be uploaded, not a second build.
       - name: Smoke test the built distributions
         run: uv run --locked python scripts/package_smoke.py --dist dist

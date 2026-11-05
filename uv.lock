@@ -56,7 +56,6 @@ wheels = [
 
 [[package]]
 name = "cavi-substance-mcp"
-version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "cavi-mcp-core" },

@@ -5,7 +5,6 @@ import json
 import os
 import re
 import subprocess
-import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,10 +21,17 @@ COMMIT_SHA = re.compile(r"^[a-f0-9]{40}$")
 
 
 def _documented_version():
-    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    version = data["project"]["version"]
-    if not isinstance(version, str) or not STABLE_VERSION.fullmatch(version):
-        raise ValueError("pyproject.toml must contain a stable project version")
+    """The release this checkout documents: the newest vX.Y.Z tag reachable from HEAD."""
+    try:
+        tag = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+            cwd=REPO_ROOT, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("no vX.Y.Z release tag is reachable; fetch the tags") from exc
+    version = tag.removeprefix("v")
+    if not STABLE_VERSION.fullmatch(version):
+        raise ValueError(f"release tag {tag} is not vX.Y.Z")
     return version
 
 
