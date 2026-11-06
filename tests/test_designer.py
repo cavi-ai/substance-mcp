@@ -10,13 +10,16 @@ from unittest.mock import patch
 import numpy as np
 import png
 from home import isolate_home
+from jsonschema import Draft202012Validator
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from cavi_mcp_core import apps, proc
 from designer_fake_cli import ENV, install, sbsar
-from env import DESIGNER, patched_environment
+from env import DESIGNER, patched_environment, scrubbed_environment
 from launcher import write_launcher
 
 from cavi_substance_mcp import packing
@@ -382,6 +385,40 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(tools["designer_status"].annotations.read_only_hint)
         actions = tools["material"].input_schema["properties"]["action"]["enum"]
         self.assertEqual(actions, ["info", "cook", "render", "pack"])
+
+
+class StatusContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_status_resources_match_the_advertised_schema_over_stdio(self):
+        for installed in (True, False):
+            with self.subTest(installed=installed), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                bin_dir = install(root) if installed else root / "missing-bin"
+                params = StdioServerParameters(
+                    command=sys.executable,
+                    args=["-m", "cavi_substance_mcp.designer.server"],
+                    env=scrubbed_environment(DESIGNER, {
+                        ENV: str(bin_dir), "CAVI_SUBSTANCE_WORKSPACE": str(root),
+                    }),
+                )
+                async with stdio_client(params) as (r, w), ClientSession(r, w) as client:
+                    await client.initialize()
+                    tools = {t.name: t for t in (await client.list_tools()).tools}
+                    result = await client.call_tool("designer_status", {})
+                    self.assertFalse(result.is_error, result.content)
+                    body = result.structured_content
+                    schema = tools["designer_status"].output_schema
+                    self.assertLessEqual(body.keys(), schema["properties"].keys())
+                    Draft202012Validator(schema).validate(body)
+                    self.assertEqual(json.loads(result.content[0].text), body)
+                    self.assertEqual(body["available"], installed)
+                    self.assertEqual(body["package_count"], int(installed))
+                    self.assertEqual(body["templates"],
+                                     ["01_02_pbr_metallic_roughness"] if installed else [])
+                    if installed:
+                        self.assertTrue(Path(body["packages_dir"]).samefile(
+                            bin_dir.parent / "resources/packages"))
+                    else:
+                        self.assertIsNone(body["packages_dir"])
 
 
 if __name__ == "__main__":

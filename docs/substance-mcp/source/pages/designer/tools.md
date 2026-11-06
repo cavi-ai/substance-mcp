@@ -41,6 +41,8 @@ Opacity.Raytraced. One baker run per map; each output file is verified.
 ## Response contracts and recovery
 
 Status tools publish declared fields; additional existing details are retained.
+`designer_status` declares `packages_dir`, `package_count` and `templates` in its
+response schema. Without installed resources these are `null`, `0` and `[]`.
 Anticipated failures preserve readable text and add versioned error details with
 code, operation, outcome, retry_safe and next_action. Transport/protocol failures
 retain an unknown outcome even when caused by JSON decoding. Inspect the
