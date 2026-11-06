@@ -173,7 +173,7 @@ def start(directory_prefix: str = ""):
     args = parser.parse_args()
     evaluator = ROOT / "node_modules/.bin/mcpeval"
     if not evaluator.exists():
-        parser.error("Install the pinned evaluator with npm ci first")
+        parser.error("Install the evaluator with npm install first")
     output_root = ROOT / ".tmp/evals"
     output_root.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix=f"{directory_prefix}{args.mode}-", dir=output_root))

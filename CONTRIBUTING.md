@@ -8,7 +8,7 @@ Install Python 3.15 or newer, [uv](https://docs.astral.sh/uv/), and Node.js 22, 
 git clone https://github.com/cavi-ai/substance-mcp.git
 cd substance-mcp
 uv sync --locked --dev
-npm ci
+npm install
 ```
 
 The servers then run from the checkout as `uv run cavi-substance-mcp`,
