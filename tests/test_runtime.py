@@ -23,7 +23,7 @@ class PainterLaunchTests(unittest.TestCase):
         }))
         return app
 
-    def test_launch_includes_remote_scripting_flag(self):
+    def test_launch_stays_hidden_and_enables_remote_scripting(self):
         from cavi_substance_mcp.painter.runtime import start_painter
 
         with tempfile.TemporaryDirectory() as folder:
@@ -47,7 +47,8 @@ class PainterLaunchTests(unittest.TestCase):
         self.assertTrue(result["launch_requested"])
         self.assertFalse(result["connected"])
         self.assertEqual(calls[-1], [
-            "/usr/bin/open", "-a", str(app.resolve()), "--args", "--enable-remote-scripting",
+            "/usr/bin/open", "-g", "-j", "-a", str(app.resolve()),
+            "--args", "--enable-remote-scripting",
         ])
 
     def test_connected_painter_is_reused_without_launch(self):

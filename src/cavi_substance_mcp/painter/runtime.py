@@ -48,7 +48,7 @@ def start_painter():
             "Save and quit it, then run runtime start again; no process was stopped."
         )
     subprocess.run(
-        ["/usr/bin/open", "-a", str(app), "--args", "--enable-remote-scripting"],
+        ["/usr/bin/open", "-g", "-j", "-a", str(app), "--args", "--enable-remote-scripting"],
         capture_output=True, text=True, check=True, timeout=15,
     )
     return {
