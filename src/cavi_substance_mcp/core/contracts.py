@@ -262,14 +262,14 @@ class SamplerAssetResult(VariantResult):
 
 class SamplerLayerResult(VariantResult):
     shapes = (
-        ("project", "asset", "layer", "saved"),
-        ("project", "asset", "removed", "position", "saved"),
+        ("layer",),
+        ("removed", "position"),
     )
     nullable_shape_fields = frozenset({"asset", "layer", "applies_to", "blend_applies_to"})
-    project: str | None = None
-    asset: Any = None
+    project: str
+    asset: Any
     layer: Record | str | None = None
-    saved: bool | None = None
+    saved: bool
     removed: str | None = None
     position: int | None = None
 
@@ -287,16 +287,10 @@ class SamplerExportResult(Result):
 
 class SamplerBuildResult(VariantResult):
     shapes = (
-        ("directory", "project", "assets", "inputs", "steps", "job", "source", "dry_run"),
+        ("directory", "dry_run"),
         (
             "status",
-            "job",
             "job_sha256",
-            "project",
-            "source",
-            "assets",
-            "steps",
-            "inputs",
             "outputs",
             "schema",
             "app",
@@ -305,12 +299,12 @@ class SamplerBuildResult(VariantResult):
     )
     nullable_shape_fields = frozenset({"project", "source", "version", "seconds"})
     directory: str | None = None
-    project: str | None = None
-    assets: list[str | Record] | None = None
-    inputs: list[str | Record] | None = None
-    steps: list[str | Record] | None = None
-    job: str | None = None
-    source: str | None = None
+    project: str | None
+    assets: list[str | Record]
+    inputs: list[str | Record]
+    steps: list[str | Record]
+    job: str
+    source: str | None
     dry_run: Literal[True] | None = None
     schema_version: int | None = Field(default=None, alias="schema")
     app: Literal["sampler"] | None = None

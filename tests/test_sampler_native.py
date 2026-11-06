@@ -1,11 +1,11 @@
 import asyncio
 import json
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from native_workspace import native_workspace
 from PIL import Image
 from sampler_jobs import run_job_file
 
@@ -55,7 +55,7 @@ class NativeSamplerTests(unittest.TestCase):
             self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
-        with tempfile.TemporaryDirectory() as folder:
+        with native_workspace() as folder:
             workspace = self._workspace(folder)
             probe = asyncio.run(launch.invoke("probe", {}, 300))
             self.assertTrue(probe["b2m_available"])
@@ -94,7 +94,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             created = asyncio.run(launch.invoke(
@@ -117,7 +117,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             created = asyncio.run(launch.invoke(
@@ -163,7 +163,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             workspace = self._workspace(folder)
@@ -235,7 +235,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             workspace = self._workspace(folder)
@@ -284,7 +284,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             workspace = self._workspace(folder)
@@ -359,7 +359,7 @@ class NativeSamplerTests(unittest.TestCase):
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
         with (
-            tempfile.TemporaryDirectory() as folder,
+            native_workspace() as folder,
             patch.dict(os.environ, {"CAVI_SUBSTANCE_WORKSPACE": folder}),
         ):
             probe = asyncio.run(launch.invoke("probe", {}, 300))
@@ -408,7 +408,7 @@ class NativeSamplerTests(unittest.TestCase):
             self.skipTest("set CAVI_SAMPLER_NATIVE=1 to launch Sampler")
         if runner.running():
             self.skipTest("Sampler is already running; quit it before the native test")
-        with tempfile.TemporaryDirectory() as folder:
+        with native_workspace() as folder:
             workspace = Path(folder)
             (workspace / "maps").mkdir()
             (workspace / "jobs").mkdir()

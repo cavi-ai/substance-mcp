@@ -47,13 +47,29 @@ catalog inspection after rejected project inputs. Both Designer and Sampler requ
 explicit tool errors for missing project/material inputs; unit tests check their
 structured rejection fields through the MCP boundary.
 
-Simulated readiness must score at least 95 for Painter and Sampler, and 80 for Designer.
-Protocol, catalog, reliability and coverage each require 100; Painter and Sampler also
-require error-honesty 100. Latency is excluded from these floors because CI hosts vary.
-Designer's only read-only tool is parameterless, so its standard error-honesty area is
-unmeasured and receives zero credit. Mutating tools keep their write annotations.
-Catalog byte and token ceilings are enforced in both evaluation modes. Sampler's byte
-budget includes the parameter descriptions and conditional project/asset requirements.
+Every server must score at least 95. Protocol, catalog, error-honesty, reliability and
+coverage each require 100. Parameterless tools reject unexpected arguments, making their
+invalid-input behavior measurable. Latency is excluded from these floors because CI
+hosts vary. Catalog byte and token ceilings apply in both evaluation modes, including
+Sampler's 14,000-byte ceiling. Parameter descriptions and typed validation remain present.
+
+### Installed-application evaluation
+
+On a host with the licensed Designer command-line tools installed:
+
+```sh
+npm run eval:designer-native
+```
+
+This route runs only headless cooking, rendering, packing and mesh-map baking acceptance
+tests, then read-only MCP probes. It does not start the Designer GUI. Skipped acceptance
+tests fail the lane. Reports include installed CLI versions, per-test outcomes and raw
+native test logs. The command is separate from portable protocol/simulated CI lanes.
+
+GUI SDK batches, Painter controls and Sampler startup tests require separate native
+capabilities; this command does not establish their behavior. Set
+`CAVI_NATIVE_EVIDENCE_DIR` when running native tests to retain failed fixtures at their
+original paths. Successful disposable fixtures are removed.
 
 The corpus exercises the portable Painter tools through real stdio MCP calls and the real
 loopback transport. The core adapter explicitly simulates Painter's Python API while

@@ -20,6 +20,7 @@ class Graph:
         self.bounds = {}
         self.inheritance = {'$outputsize': 1, '$format': 1}
         self.values = {}
+        self.parent_size = None
 
     @staticmethod
     def sNew(package):
@@ -55,13 +56,17 @@ class Graph:
     def getPropertyInheritanceMethod(self, property_):
         return self.inheritance[property_.getId()]
 
+    def setDefaultParentSize(self, size):
+        self.parent_size = size
+
 
 class NativePropertyTests(unittest.TestCase):
     def setUp(self):
         self.modules = {
             'sd.api.sdproperty': SimpleNamespace(
                 SDPropertyCategory=SimpleNamespace(Input=0),
-                SDPropertyInheritanceMethod=SimpleNamespace(Absolute=2)),
+                SDPropertyInheritanceMethod=SimpleNamespace(Absolute=2, RelativeToParent=1)),
+            'sd.api.sdbasetypes': SimpleNamespace(int2=lambda x, y: (x, y)),
             'sd.api.sdvaluestring': SimpleNamespace(
                 SDValueString=SimpleNamespace(sNew=lambda value: ('string', value))),
         }
@@ -109,8 +114,9 @@ class NativePropertyTests(unittest.TestCase):
 
         def set_values(target, values):
             if '$outputsize' in values:
-                self.assertEqual(target.inheritance['$outputsize'], 2,
-                                 'output size must be absolute before assigning its exponents')
+                self.assertEqual(target.inheritance['$outputsize'], 1,
+                                 'output size must stay relative so cooking can expose it')
+                self.assertEqual(values['$outputsize'], [0, 0])
             target.values.update(values)
 
         with patch.dict(sys.modules, {'sd': sd, 'sd.api.sbs.sdsbscompgraph':
@@ -122,18 +128,21 @@ class NativePropertyTests(unittest.TestCase):
                         'path': 'existing.sbs' if action == 'edit' else None, 'libraries': {}})
         return graph
 
-    def test_create_sets_absolute_size_and_preserves_precision_seed_defaults(self):
+    def test_create_preserves_working_size_without_freezing_cooked_resolution(self):
         graph = self.run_graph('create', {})
-        self.assertEqual(graph.values, {'$outputsize': [11, 11], '$randomseed': 0,
+        self.assertEqual(graph.values, {'$outputsize': [0, 0], '$randomseed': 0,
                                        '$format': 'hdr_low_precision'})
-        self.assertEqual(graph.inheritance, {'$outputsize': 2, '$format': 2})
+        self.assertEqual(graph.parent_size, (2048, 2048))
+        self.assertEqual(graph.inheritance, {'$outputsize': 1, '$format': 2})
 
     def test_edit_only_changes_declared_size(self):
         graph = self.run_graph('edit', {'resolution': 2048})
-        self.assertEqual(graph.values, {'$outputsize': [11, 11]})
-        self.assertEqual(graph.inheritance, {'$outputsize': 2, '$format': 1})
+        self.assertEqual(graph.values, {'$outputsize': [0, 0]})
+        self.assertEqual(graph.parent_size, (2048, 2048))
+        self.assertEqual(graph.inheritance, {'$outputsize': 1, '$format': 1})
 
     def test_edit_without_size_keeps_existing_inheritance(self):
         graph = self.run_graph('edit', {'seed': 17})
         self.assertEqual(graph.values, {'$randomseed': 17})
+        self.assertIsNone(graph.parent_size)
         self.assertEqual(graph.inheritance, {'$outputsize': 1, '$format': 1})

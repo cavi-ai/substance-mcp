@@ -17,6 +17,7 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_top_level_parameter_has_a_description(self):
         for app in (painter, designer, sampler):
             for tool in await app.mcp.list_tools():
+                self.assertGreaterEqual(len(tool.description.strip()), 40, tool.name)
                 for name, prop in tool.input_schema.get('properties', {}).items():
                     with self.subTest(tool=tool.name, parameter=name):
                         self.assertTrue(prop.get('description'))

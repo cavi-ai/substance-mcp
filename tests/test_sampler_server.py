@@ -94,7 +94,9 @@ class ServerContractTests(unittest.TestCase):
                 await client.initialize()
                 tools = {tool.name: tool for tool in (await client.list_tools()).tools}
                 validator = Draft202012Validator(tools["sampler_inspect"].input_schema)
-                for arguments in ({"action": "catalog"},
+                discovery = tools["sampler_inspect"].input_schema["properties"]["action"]["enum"][0]
+                self.assertEqual(discovery, "catalog")
+                for arguments in ({"action": discovery},
                                   {"action": "project", "project": project},
                                   {"action": "asset", "project": project, "asset": "Rock"}):
                     with self.subTest(arguments=arguments):
