@@ -1,13 +1,18 @@
 """Typed, declarative Designer graph authoring requests."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAliasType
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 
-Identifier = Annotated[str, Field(pattern=r'^[A-Za-z_][A-Za-z0-9_]{0,95}$')]
-NodeId = Annotated[str, Field(pattern=r'^[A-Za-z0-9_:-]{1,128}$')]
-Number = StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)]
-Value = StrictBool | Number | str | list[Number]
+Identifier = TypeAliasType(
+    "Identifier", Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,95}$")]
+)
+NodeId = TypeAliasType(
+    "NodeId", Annotated[str, Field(pattern=r"^[A-Za-z0-9_:-]{1,128}$")]
+)
+Number = TypeAliasType("Number", StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)])
+Value = TypeAliasType("Value", StrictBool | Number | str | list[Number])
+Position = TypeAliasType("Position", tuple[Number, Number])
 
 
 class Edit(BaseModel):
@@ -19,7 +24,7 @@ class AddNode(Edit):
     key: NodeId
     definition: Annotated[str, Field(min_length=1, max_length=256)]
     values: dict[str, Value] = Field(default_factory=dict, max_length=128)
-    position: tuple[Number, Number] = (0, 0)
+    position: Position = (0, 0)
 
 
 class Instance(Edit):
@@ -28,7 +33,7 @@ class Instance(Edit):
     package: str
     resource: Annotated[str, Field(pattern=r'^pkg://', min_length=7, max_length=512)]
     values: dict[str, Value] = Field(default_factory=dict, max_length=128)
-    position: tuple[Number, Number] = (0, 0)
+    position: Position = (0, 0)
 
 
 class SetValues(Edit):
@@ -81,7 +86,7 @@ class Output(Edit):
     usage: Identifier
     components: Literal['R', 'G', 'B', 'A', 'RGB', 'RGBA'] = 'RGBA'
     color_space: str = ''
-    position: tuple[Number, Number] = (400, 0)
+    position: Position = (400, 0)
 
 
 GraphEdit = Annotated[AddNode | Instance | SetValues | Connect | Disconnect | Remove

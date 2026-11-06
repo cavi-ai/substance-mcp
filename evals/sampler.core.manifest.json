@@ -6,14 +6,14 @@
       "probe": "discovery-cost",
       "access": "read_only",
       "max_tools": 8,
-      "max_schema_bytes": 14000
+      "max_schema_bytes": 17500
     },
     {
       "id": "token-budget",
       "probe": "token-cost",
       "access": "read_only",
       "max_total_tokens": 4500,
-      "max_tool_tokens": 2200
+      "max_tool_tokens": 1250
     },
     {
       "id": "catalog-pagination",
@@ -61,6 +61,66 @@
       "tool": "sampler_status",
       "access": "read_only",
       "arguments": {}
+    },
+    {
+      "id": "inspect-catalog-schema-guessability",
+      "probe": "schema-guessability",
+      "tool": "sampler_inspect",
+      "access": "read_only",
+      "arguments": {
+        "action": "catalog"
+      }
+    },
+    {
+      "id": "inspect-catalog-output-schema",
+      "probe": "output-schema",
+      "tool": "sampler_inspect",
+      "access": "read_only",
+      "arguments": {
+        "action": "catalog"
+      }
+    },
+    {
+      "id": "inspect-missing-project-invalid-input",
+      "probe": "instruction-fidelity",
+      "tool": "sampler_inspect",
+      "access": "read_only",
+      "arguments": {
+        "action": "project"
+      },
+      "expect": {
+        "outcome": "error"
+      }
+    },
+    {
+      "id": "catalog-after-invalid-inspection",
+      "probe": "workflow",
+      "access": "read_only",
+      "repetitions": 2,
+      "steps": [
+        {
+          "tool": "sampler_inspect",
+          "arguments": {
+            "action": "project"
+          },
+          "expect": {
+            "outcome": "error"
+          }
+        },
+        {
+          "tool": "sampler_inspect",
+          "arguments": {
+            "action": "catalog"
+          },
+          "expect": {
+            "outcome": "ok",
+            "required_result_paths": [
+              "/structuredContent/filters",
+              "/structuredContent/export_targets"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

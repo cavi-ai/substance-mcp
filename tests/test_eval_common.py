@@ -1,7 +1,13 @@
+import contextlib
+import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
@@ -73,6 +79,41 @@ class PointerTests(unittest.TestCase):
         self.assertEqual(common.pointer(data, "/a/0/b"), 5)
         with self.assertRaises(KeyError):
             common.pointer(data, "/missing")
+
+
+class EvaluatorTests(unittest.TestCase):
+    def test_source_executable_override_does_not_require_npm(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            evaluator = root / "source-mcpeval"
+            evaluator.write_text("#!/bin/sh\nexit 0\n")
+            evaluator.chmod(0o700)
+            with (patch.object(common, "ROOT", root),
+                  patch.dict(os.environ, {"MCPEVAL_EXECUTABLE": str(evaluator)}),
+                  patch.object(sys, "argv", ["runner", "protocol"])):
+                _, selected, _ = common.start()
+            self.assertEqual(selected, evaluator.resolve())
+            self.assertFalse((root / "node_modules").exists())
+
+    def test_failed_readiness_gate_fails_the_runner_and_records_binary_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            evaluator = output / "mcpeval"
+            evaluator.write_bytes(b"test evaluator")
+            calls = [subprocess.CompletedProcess([], 0, stdout="mcpeval test\n"),
+                     subprocess.CompletedProcess([], 1)]
+            with (patch.object(common.subprocess, "run", side_effect=calls) as run,
+                  contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit)):
+                common.finish(mode="simulated", evaluator=evaluator, output=output,
+                              results=[], env={}, app="substance", server=[],
+                              manifest_prefix="", native_status="not run")
+            command = run.call_args_list[-1].args[0]
+            self.assertIn("--min-readiness", command)
+            self.assertIn("catalog=100", command)
+            self.assertIn("--exclude-latency", command)
+            recorded = json.loads((output / "evaluator.json").read_text())
+            self.assertEqual(recorded["version"], "mcpeval test")
+            self.assertEqual(len(recorded["sha256"]), 64)
 
 
 if __name__ == "__main__":

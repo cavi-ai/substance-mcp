@@ -45,26 +45,50 @@ async def designer_status() -> DesignerStatus:
 
 @mcp.tool(annotations=WRITES)
 async def material(
-    action: Literal["info", "cook", "render", "pack"],
+    action: Annotated[
+        Literal["info", "cook", "render", "pack"], Field(description="Material operation.")
+    ],
     path: Annotated[str | None, Field(description="info/render: .sbsar; cook: .sbs.")] = None,
-    builtin: Annotated[str | None, Field(
-        description="cook: templates/<name> or packages/<name>.")] = None,
+    builtin: Annotated[
+        str | None, Field(description="cook: templates/<name> or packages/<name>.")
+    ] = None,
     directory: Annotated[str | None, Field(description="New workspace directory.")] = None,
     graph: Annotated[str | None, Field(description="pkg://name; needed if several.")] = None,
-    values: Annotated[dict[Identifier, Number | Annotated[list[Number], Field(
-        min_length=1, max_length=4)]] | None, Field(max_length=64)] = None,
-    resolution: Resolution | None = None,
-    seed: Annotated[StrictInt | None, Field(ge=0, le=2147483647)] = None,
-    preset: Annotated[str | None, Field(max_length=128)] = None,
-    outputs: Annotated[list[Identifier] | None, Field(max_length=64)] = None,
-    format: Literal["png", "exr", "tga", "tif", "jpg"] = "png",
-    bit_depth: Literal["8", "16", "16f", "32f"] = "16",
+    values: Annotated[
+        dict[Identifier, Number | Annotated[list[Number], Field(min_length=1, max_length=4)]]
+        | None,
+        Field(max_length=64, description="render: exposed input values by identifier."),
+    ] = None,
+    resolution: Annotated[
+        Resolution | None, Field(description="render: output texture size.")
+    ] = None,
+    seed: Annotated[
+        StrictInt | None, Field(ge=0, le=2147483647, description="render: random seed.")
+    ] = None,
+    preset: Annotated[str | None, Field(max_length=128, description="render: preset name.")] = None,
+    outputs: Annotated[
+        list[Identifier] | None,
+        Field(max_length=64, description="render: output identifiers; null selects all."),
+    ] = None,
+    format: Annotated[
+        Literal["png", "exr", "tga", "tif", "jpg"],
+        Field(description="render: output image format."),
+    ] = "png",
+    bit_depth: Annotated[
+        Literal["8", "16", "16f", "32f"], Field(description="render: output channel precision.")
+    ] = "16",
     pack: Annotated[PackSpec | None, Field(description="render/pack channel packing.")] = None,
-    sources: Annotated[dict[Annotated[str, StringConstraints(pattern=f"^{USAGE}$")], str] | None,
-                       Field(max_length=32, description="pack: usage -> image.")] = None,
-    expose_output_size: StrictBool = True,
-    expose_random_seed: StrictBool = True,
-    timeout_seconds: Timeout = 600,
+    sources: Annotated[
+        dict[Annotated[str, StringConstraints(pattern=f"^{USAGE}$")], str] | None,
+        Field(max_length=32, description="pack: usage -> image."),
+    ] = None,
+    expose_output_size: Annotated[
+        StrictBool, Field(description="cook: expose output size input.")
+    ] = True,
+    expose_random_seed: Annotated[
+        StrictBool, Field(description="cook: expose random seed input.")
+    ] = True,
+    timeout_seconds: Annotated[Timeout, Field(description="CLI timeout in seconds.")] = 600,
 ) -> DesignerMaterial:
     """info lists graphs; cook .sbs -> .sbsar; render outputs (+optional pack); pack maps."""
     reject_foreign(action, {
@@ -87,21 +111,35 @@ async def material(
 @mcp.tool(annotations=WRITES)
 async def bake(
     low: Annotated[str, Field(description="Workspace low-poly mesh.")],
-    maps: Annotated[list[MapName], Field(min_length=1, max_length=10)],
+    maps: Annotated[
+        list[MapName], Field(min_length=1, max_length=10, description="Mesh maps to bake.")
+    ],
     directory: Annotated[str, Field(description="New workspace directory.")],
     high: Annotated[str | None, Field(description="High-poly mesh; else low is used.")] = None,
     cage: Annotated[str | None, Field(description="Cage mesh; needs use_cage.")] = None,
-    use_cage: StrictBool = False,
-    resolution: Resolution = 2048,
-    normal_format: Literal["OpenGL", "DirectX"] = "OpenGL",
-    max_frontal: Annotated[StrictFloat | StrictInt | None, Field(
-        ge=0, le=10, description="Fraction of bbox.")] = None,
-    max_rear: Annotated[StrictFloat | StrictInt | None, Field(ge=0, le=10)] = None,
-    udim: Annotated[StrictInt | None, Field(ge=1001, le=1999)] = None,
-    match_by_name: StrictBool = False,
-    suffix_low: Suffix = "_low",
-    suffix_high: Suffix = "_high",
-    format: Literal["png", "tga", "tif", "exr"] = "exr",
+    use_cage: Annotated[StrictBool, Field(description="Use the supplied cage mesh.")] = False,
+    resolution: Annotated[Resolution, Field(description="Output texture size.")] = 2048,
+    normal_format: Annotated[
+        Literal["OpenGL", "DirectX"], Field(description="Normal map orientation.")
+    ] = "OpenGL",
+    max_frontal: Annotated[
+        StrictFloat | StrictInt | None, Field(ge=0, le=10, description="Fraction of bbox.")
+    ] = None,
+    max_rear: Annotated[
+        StrictFloat | StrictInt | None,
+        Field(ge=0, le=10, description="Rear ray distance as fraction of bounds."),
+    ] = None,
+    udim: Annotated[
+        StrictInt | None, Field(ge=1001, le=1999, description="UDIM tile to bake.")
+    ] = None,
+    match_by_name: Annotated[
+        StrictBool, Field(description="Match meshes by their name suffixes.")
+    ] = False,
+    suffix_low: Annotated[Suffix, Field(description="Low mesh name suffix.")] = "_low",
+    suffix_high: Annotated[Suffix, Field(description="High mesh name suffix.")] = "_high",
+    format: Annotated[
+        Literal["png", "tga", "tif", "exr"], Field(description="Output image format.")
+    ] = "exr",
     timeout_seconds: Annotated[Timeout, Field(description="Per map.")] = 600,
 ) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""
@@ -114,21 +152,25 @@ async def bake(
 
 @mcp.tool(annotations=WRITES)
 async def graph(
-    action: Literal['create', 'edit', 'inspect', 'catalog'],
-    directory: Annotated[str, Field(description='New workspace output directory.')],
-    path: Annotated[str | None, Field(description='Workspace .sbs for edit/inspect.')] = None,
-    recipe: GraphRecipe | None = None,
-    query: Annotated[str, Field(max_length=128)] = '',
-    offset: Annotated[StrictInt, Field(ge=0)] = 0,
-    limit: Annotated[StrictInt, Field(ge=1, le=500)] = 100,
-    timeout_seconds: Annotated[StrictInt, Field(ge=1, le=600)] = 300,
+    action: Annotated[
+        Literal["create", "edit", "inspect", "catalog"], Field(description="Graph operation.")
+    ],
+    directory: Annotated[str, Field(description="New workspace output directory.")],
+    path: Annotated[str | None, Field(description="Workspace .sbs for edit/inspect.")] = None,
+    recipe: Annotated[
+        GraphRecipe | None, Field(description="create/edit: typed graph operations.")
+    ] = None,
+    query: Annotated[str, Field(max_length=128, description="catalog: node ID search text.")] = "",
+    offset: Annotated[StrictInt, Field(ge=0, description="catalog: first result index.")] = 0,
+    limit: Annotated[StrictInt, Field(ge=1, le=500, description="catalog: maximum results.")] = 100,
+    timeout_seconds: Annotated[
+        StrictInt, Field(ge=1, le=600, description="Native batch timeout in seconds.")
+    ] = 300,
 ) -> DesignerGraphResult:
-    """Author editable SBS graphs with Designer's native SDK: nodes, library instances,
-    wiring, values, exposed inputs and outputs. create defaults to 16f graph precision;
-    edit writes a new package and preserves undeclared source settings. inspect reopens
-    saved graphs; catalog pages native node definition IDs. Each call starts its own
-    Designer batch and quits it; an already-running instance is preserved and refused.
-    Feed the returned package to material cook/render. No arbitrary Python is accepted."""
+    """Author editable SBS graphs in a dedicated Designer batch. create defaults to 16f;
+    edit copies the source and preserves undeclared settings. inspect reopens saved graphs;
+    catalog pages node IDs. Refuses an already-running Designer instance. Cook/render the
+    returned package with material."""
     return await graph_invoke(action, directory, path, recipe, query, offset, limit,
                               timeout_seconds)
 
