@@ -41,6 +41,9 @@ class DesignerStatus(Result):
     source: str
     bin_dir: str
     binaries: dict[str, Binary]
+    packages_dir: str | None
+    package_count: int
+    templates: list[str]
     workspace: str
     workspace_exists: bool
 
