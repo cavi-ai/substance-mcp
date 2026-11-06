@@ -61,6 +61,15 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(failed.structured_content["error"]["code"], "TOOL_NOT_FOUND")
                 self.assertEqual(failed.structured_content["error"]["outcome"], "rejected")
                 self.assertEqual(failed.structured_content["error"]["next_action"], "list_tools")
+                if module == "designer":
+                    for _ in range(2):
+                        rejected = await client.call_tool("material", {"action": "info"})
+                        self.assertTrue(rejected.is_error)
+                        error = rejected.structured_content["error"]
+                        self.assertEqual(error["code"], "INVALID_ARGUMENT")
+                        self.assertEqual(error["outcome"], "rejected")
+                        self.assertFalse(error["retry_safe"])
+                    self.assertFalse((await client.call_tool(status, {})).is_error)
 
     async def test_known_tool_error_text_does_not_imply_missing_dispatch(self):
         from cavi_mcp_core.server import Server

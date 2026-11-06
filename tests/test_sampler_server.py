@@ -1,9 +1,14 @@
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from jsonschema import Draft202012Validator
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
@@ -75,6 +80,39 @@ class ServerContractTests(unittest.TestCase):
         self.assertEqual(listed["assets"][0]["name"], "Rock")
         self.assertEqual(self.run_tool(server.sampler_inspect, action="catalog")["filters"][:1],
                          ["Brightness/Contrast"])
+
+    def test_inspection_schema_and_stdio_dispatch_agree(self):
+        project = self.project()
+
+        async def exercise():
+            params = StdioServerParameters(command=sys.executable,
+                args=["-m", "cavi_substance_mcp.sampler.server"],
+                env={ENV: os.environ[ENV],
+                     "CAVI_SUBSTANCE_WORKSPACE": str(self.workspace)})
+            async with stdio_client(params) as (reader, writer), \
+                    ClientSession(reader, writer) as client:
+                await client.initialize()
+                tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+                validator = Draft202012Validator(tools["sampler_inspect"].input_schema)
+                for arguments in ({"action": "catalog"},
+                                  {"action": "project", "project": project},
+                                  {"action": "asset", "project": project, "asset": "Rock"}):
+                    with self.subTest(arguments=arguments):
+                        validator.validate(arguments)
+                        result = await client.call_tool("sampler_inspect", arguments)
+                        self.assertFalse(result.is_error, str(result.content))
+                for arguments in ({"action": "project"},
+                                  {"action": "asset", "project": project}):
+                    with self.subTest(arguments=arguments):
+                        self.assertFalse(validator.is_valid(arguments))
+                        result = await client.call_tool("sampler_inspect", arguments)
+                        self.assertTrue(result.is_error)
+                        error = result.structured_content["error"]
+                        self.assertEqual(error["code"], "INVALID_ARGUMENT")
+                        self.assertEqual(error["outcome"], "rejected")
+                        self.assertFalse(error["retry_safe"])
+
+        asyncio.run(exercise())
 
     def test_export_target_rejects_a_resource_format(self):
         project = self.project()

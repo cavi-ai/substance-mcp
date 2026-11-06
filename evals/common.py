@@ -20,6 +20,9 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parents[1]
 MODES = ["protocol", "simulated"]
+# Latency is excluded: CI hosts vary. Designer's parameterless read-only status
+# cannot exercise invalid inputs; its manifest separately tests material info errors.
+READINESS_FLOORS = {"": 95, "designer.": 80, "sampler.": 95}
 # What a case may fail with; anything else is a defect in the runner and propagates.
 CASE_ERRORS = (AssertionError, KeyError, TypeError, ValueError, OSError)
 
@@ -171,9 +174,10 @@ def start(directory_prefix: str = ""):
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=MODES)
     args = parser.parse_args()
-    evaluator = ROOT / "node_modules/.bin/mcpeval"
-    if not evaluator.exists():
-        parser.error("Install the evaluator with npm install first")
+    evaluator = Path(os.environ.get(
+        "MCPEVAL_EXECUTABLE", ROOT / "node_modules/.bin/mcpeval")).expanduser().resolve()
+    if not evaluator.is_file() or not os.access(evaluator, os.X_OK):
+        parser.error("Install the evaluator with npm install or set MCPEVAL_EXECUTABLE")
     output_root = ROOT / ".tmp/evals"
     output_root.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix=f"{directory_prefix}{args.mode}-", dir=output_root))
@@ -199,7 +203,8 @@ def environment(output: Path, workspace: Path, drop=()) -> dict:
 
 
 def finish(*, mode: str, evaluator: Path, output: Path, results: list, env: dict, app: str,
-           server: list, manifest_prefix: str, native_status: str) -> None:
+           server: list, manifest_prefix: str, native_status: str,
+           probe_arguments: dict | None = None) -> None:
     """Write ``cases.json``, run mcpeval over the server, print a summary and exit non-zero
     when a case or the evaluator failed."""
     report = {
@@ -211,11 +216,31 @@ def finish(*, mode: str, evaluator: Path, output: Path, results: list, env: dict
         "model_evaluation": "not supported",
     }
     (output / "cases.json").write_text(json.dumps(report, indent=2) + "\n")
+    version = subprocess.run([str(evaluator), "--version"], capture_output=True, text=True,
+                             check=True, timeout=30).stdout.strip()
+    (output / "evaluator.json").write_text(json.dumps({
+        "version": version,
+        "sha256": hashlib.sha256(evaluator.read_bytes()).hexdigest(),
+        "source": "MCPEVAL_EXECUTABLE" if "MCPEVAL_EXECUTABLE" in os.environ else "npm",
+        "source_revision": os.environ.get("MCPEVAL_SOURCE_REVISION"),
+        "npm_dependency": "github:cavi-ai/mcp-eval#main",
+    }, indent=2) + "\n")
     manifest = "protocol" if mode == "protocol" else "core"
     command = [str(evaluator), "probe", "--server", f"{app}-{mode}", "--manifest",
                str(ROOT / f"evals/{manifest_prefix}{manifest}.manifest.json"), "--format", "json"]
     if mode == "protocol":
         command.append("--gate-only")
+    else:
+        command.extend(["--min-readiness", str(READINESS_FLOORS[manifest_prefix]),
+                        "--exclude-latency"])
+        for area in ("protocol", "catalog", "reliability", "coverage"):
+            command.extend(["--min-area", f"{area}=100"])
+        if manifest_prefix != "designer.":
+            command.extend(["--min-area", "error-honesty=100"])
+        if probe_arguments:
+            arguments_path = output / "arguments.json"
+            arguments_path.write_text(json.dumps(probe_arguments) + "\n")
+            command.extend(["--arguments", str(arguments_path)])
     command.extend(["--", sys.executable, *server])
     with (output / "mcpeval.json").open("w") as stream:
         evaluated = subprocess.run(command, env=env, cwd=ROOT, stdout=stream, check=False)
