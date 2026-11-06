@@ -23,7 +23,7 @@ class PainterLaunchTests(unittest.TestCase):
         }))
         return app
 
-    def test_launch_stays_hidden_and_enables_remote_scripting(self):
+    def test_launch_requests_hidden_background_with_remote_scripting(self):
         from cavi_substance_mcp.painter.runtime import start_painter
 
         with tempfile.TemporaryDirectory() as folder:
