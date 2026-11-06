@@ -1,0 +1,133 @@
+<?xml version='1.0' encoding='utf-8'?>
+<package>
+
+  <identifier v="ResolutionFixture" />
+  <formatVersion v="1.1.0.202502" />
+  <updaterVersion v="1.1.0.202502" />
+  <fileUID v="{c8d9eb16-0f32-4e64-a108-20483d015d1a}" />
+  <versionUID v="0" />
+  <dependencies />
+  <content>
+    <graph>
+      <identifier v="ResolutionFixture" />
+      <uid v="1585981130" />
+      <paraminputs>
+        <paraminput>
+          <identifier v="paintColor" />
+          <uid v="1585981134" />
+          <type v="2048" />
+          <defaultValue>
+            <constantValueFloat4 v="0.100000001 0.300000012 0.600000024 1" />
+          </defaultValue>
+          <defaultWidget>
+            <name v="" />
+            <options />
+          </defaultWidget>
+        </paraminput>
+      </paraminputs>
+      <graphOutputs>
+        <graphoutput>
+          <identifier v="BaseColor" />
+          <uid v="1585981136" />
+          <usages>
+            <usage>
+              <components v="RGBA" />
+              <name v="baseColor" />
+              <colorspace v="sRGB" />
+            </usage>
+          </usages>
+        </graphoutput>
+      </graphOutputs>
+      <compNodes>
+        <compNode>
+          <uid v="1585981132" />
+          <compOutputs>
+            <compOutput>
+              <uid v="1585981133" />
+              <comptype v="1" />
+            </compOutput>
+          </compOutputs>
+          <compImplementation>
+            <compFilter>
+              <filter v="uniform" />
+              <parameters>
+                <parameter>
+                  <name v="outputcolor" />
+                  <relativeTo v="0" />
+                  <paramValue>
+                    <dynamicValue>
+                      <rootnode v="1585981135" />
+                      <paramNodes>
+                        <paramNode>
+                          <uid v="1585981135" />
+                          <function v="get_float4" />
+                          <type v="2048" />
+                          <funcDatas>
+                            <funcData>
+                              <name v="get_float4" />
+                              <constantValue>
+                                <constantValueString v="paintColor" />
+                              </constantValue>
+                            </funcData>
+                          </funcDatas>
+                        </paramNode>
+                      </paramNodes>
+                    </dynamicValue>
+                  </paramValue>
+                </parameter>
+              </parameters>
+            </compFilter>
+          </compImplementation>
+        </compNode>
+        <compNode>
+          <uid v="1585981137" />
+          <connections>
+            <connection>
+              <identifier v="inputNodeOutput" />
+              <connRef v="1585981132" />
+            </connection>
+          </connections>
+          <GUILayout>
+            <gpos v="400 0 0" />
+          </GUILayout>
+          <compImplementation>
+            <compOutputBridge>
+              <output v="1585981136" />
+            </compOutputBridge>
+          </compImplementation>
+        </compNode>
+      </compNodes>
+      <baseParameters>
+        <parameter>
+          <name v="outputsize" />
+          <relativeTo v="1" />
+          <paramValue>
+            <constantValueInt2 v="0 0" />
+          </paramValue>
+        </parameter>
+        <parameter>
+          <name v="format" />
+          <relativeTo v="0" />
+          <paramValue>
+            <constantValueInt32 v="2" />
+          </paramValue>
+        </parameter>
+      </baseParameters>
+      <root>
+        <rootOutputs>
+          <rootOutput>
+            <output v="1585981136" />
+            <format v="0" />
+            <usertag v="" />
+          </rootOutput>
+        </rootOutputs>
+      </root>
+      <options>
+        <option>
+          <name v="defaultParentSize" />
+          <value v="5x5" />
+        </option>
+      </options>
+    </graph>
+  </content>
+</package>

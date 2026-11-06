@@ -38,7 +38,12 @@ def fixtures(output: Path) -> Path:
 
 
 def main():
-    mode, evaluator, output = common.start("designer-")
+    mode, evaluator, output = common.start("designer-", native=True)
+    if mode == "native":
+        from native import run
+
+        run(APP, SERVER, 'designer.', evaluator, output)
+        return
     workspace = fixtures(output)
     env = common.environment(
         output, workspace, drop=("CAVI_DESIGNER_APP", "CAVI_DESIGNER_BIN_DIR"))

@@ -8,7 +8,8 @@
     "eval:designer-core": "uv run --locked python evals/designer_run.py simulated",
     "eval:sampler-protocol": "uv run --locked python evals/sampler_run.py protocol",
     "eval:sampler-core": "uv run --locked python evals/sampler_run.py simulated",
-    "verify:package": "uv run --locked python scripts/package_smoke.py"
+    "verify:package": "uv run --locked python scripts/package_smoke.py",
+    "eval:designer-native": "uv run --locked python evals/designer_run.py native"
   },
   "devDependencies": {
     "@cavi-ai/mcp-eval": "github:cavi-ai/mcp-eval#main"

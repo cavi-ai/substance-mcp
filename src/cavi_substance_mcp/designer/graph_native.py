@@ -230,6 +230,7 @@ def describe(graph):
 def run(request):
     import sd
     from sd.api.sbs.sdsbscompgraph import SDSBSCompGraph
+    from sd.api.sdbasetypes import int2
     from sd.api.sdproperty import SDPropertyCategory, SDPropertyInheritanceMethod
 
     manager = sd.getContext().getSDApplication().getPackageMgr()
@@ -275,12 +276,16 @@ def run(request):
         if action in ('create', 'edit'):
             manager.savePackageAs(package, request['output'])
             if action == 'create' or 'resolution' in recipe:
-                size = int(math.log2(recipe.get('resolution', 2048)))
+                resolution = recipe.get('resolution', 2048)
+                graph.setDefaultParentSize(int2(resolution, resolution))
                 prop = graph.getPropertyFromId('$outputsize', SDPropertyCategory.Input)
-                graph.setPropertyInheritanceMethod(prop, SDPropertyInheritanceMethod.Absolute)
-                if graph.getPropertyInheritanceMethod(prop) != SDPropertyInheritanceMethod.Absolute:
-                    raise ValueError('Graph output size did not accept absolute inheritance')
-                set_values(graph, {'$outputsize': [size, size]})
+                inheritance = SDPropertyInheritanceMethod.RelativeToParent
+                graph.setPropertyInheritanceMethod(prop, inheritance)
+                if graph.getPropertyInheritanceMethod(prop) != inheritance:
+                    raise ValueError('Graph output size did not accept parent inheritance')
+                # Keep the editable working size in the graph's default parent.
+                # Absolute base parameters suppress the cooker's $outputsize input.
+                set_values(graph, {'$outputsize': [0, 0]})
             if action == 'create' or 'seed' in recipe:
                 set_values(graph, {'$randomseed': recipe.get('seed', 0)})
             if action == 'create' or 'precision' in recipe:

@@ -6,6 +6,7 @@ dist/
 .env*
 *.spp
 *.sbs
+!tests/fixtures/designer/*.sbs
 *.sbsar
 node_modules/
 .tmp/

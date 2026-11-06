@@ -1,3 +1,4 @@
+import itertools
 import sys
 import unittest
 
@@ -6,6 +7,53 @@ from mcp.client.stdio import stdio_client
 
 
 class ResultContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_common_required_fields_preserve_sampler_response_acceptance(self):
+        from jsonschema import Draft202012Validator
+        from pydantic import ValidationError
+
+        from cavi_substance_mcp.core.contracts import SamplerBuildResult, SamplerLayerResult
+
+        models = [
+            (SamplerLayerResult,
+             (("project", "asset", "layer", "saved"),
+              ("project", "asset", "removed", "position", "saved")),
+             [{"project": "rock.ssa", "asset": None, "layer": None, "saved": True},
+              {"project": "rock.ssa", "asset": "Rock", "removed": "Layer",
+               "position": 0, "saved": True}]),
+            (SamplerBuildResult,
+             (("directory", "project", "assets", "inputs", "steps", "job", "source", "dry_run"),
+              ("status", "job", "job_sha256", "project", "source", "assets", "steps", "inputs",
+               "outputs", "schema", "app", "operation")),
+             [{"directory": "out", "project": None, "assets": [], "inputs": [], "steps": [],
+               "job": "job.json", "source": None, "dry_run": True},
+              {"status": "success", "job": "job.json", "job_sha256": "digest",
+               "project": "rock.ssa", "source": None, "assets": [], "steps": [], "inputs": [],
+               "outputs": [], "schema": 1, "app": "sampler", "operation": "build"}]),
+        ]
+        for model, previous_shapes, examples in models:
+            current = model.model_json_schema()
+            previous = {**current, "anyOf": [{"required": list(s)} for s in previous_shapes]}
+            previous.pop("required", None)
+            old_validator, new_validator = map(Draft202012Validator, (previous, current))
+            for example in examples:
+                keys = list(example)
+                # Exercise every missing-field combination, plus null at every field.
+                candidates = [
+                    {key: example[key] for key, keep in zip(keys, mask, strict=True) if keep}
+                    for mask in itertools.product((False, True), repeat=len(keys))
+                ]
+                candidates.extend({**example, key: None} for key in keys)
+                for value in candidates:
+                    with self.subTest(model=model.__name__, fields=list(value)):
+                        expected = old_validator.is_valid(value)
+                        self.assertEqual(new_validator.is_valid(value), expected)
+                        try:
+                            model.model_validate(value)
+                            accepted = True
+                        except ValidationError:
+                            accepted = False
+                        self.assertEqual(accepted, expected)
+
     def test_nested_decode_failure_keeps_transport_outcome_unknown(self):
         from mcp.server.mcpserver.exceptions import ToolError
 
@@ -61,6 +109,12 @@ class ResultContractTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(failed.structured_content["error"]["code"], "TOOL_NOT_FOUND")
                 self.assertEqual(failed.structured_content["error"]["outcome"], "rejected")
                 self.assertEqual(failed.structured_content["error"]["next_action"], "list_tools")
+                self.assertIs(tools[status].input_schema["additionalProperties"], False)
+                unexpected = await client.call_tool(status, {"unexpected": True})
+                self.assertTrue(unexpected.is_error)
+                self.assertEqual(unexpected.structured_content["error"]["code"], "INVALID_ARGUMENT")
+                self.assertEqual(unexpected.structured_content["error"]["outcome"], "rejected")
+                self.assertFalse(unexpected.structured_content["error"]["retry_safe"])
                 if module == "designer":
                     for _ in range(2):
                         rejected = await client.call_tool("material", {"action": "info"})
@@ -141,7 +195,7 @@ class OutputFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(reply.structured_content["error"]["retry_safe"])
         self.assertNotIn("private_detail", str(reply.content))
 
-    def test_compact_unions_preserve_schema_acceptance_and_input_defaults(self):
+    def test_compact_unions_preserve_acceptance_and_nonnull_defaults(self):
         from jsonschema import Draft202012Validator
 
         from cavi_substance_mcp.core.contracts import compact_schema
@@ -158,8 +212,10 @@ class OutputFailureTests(unittest.IsolatedAsyncioTestCase):
         for schema in schemas:
             for output in [False, True]:
                 compact = compact_schema(schema, output=output)
-                if not output and "default" in schema:
+                if not output and schema.get("default") is not None:
                     self.assertEqual(compact["default"], schema["default"])
+                elif schema.get("default") is None:
+                    self.assertNotIn("default", compact)
                 for value in [None, True, False, 1, 1.5, "a", "ab", "b", [], {},
                               {"title": "x", "extra": 1}, {"title": 1}]:
                     self.assertEqual(Draft202012Validator(schema).is_valid(value),

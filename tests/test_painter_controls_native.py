@@ -3,7 +3,6 @@
 import asyncio
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import numpy as np
 import png
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from native_workspace import native_workspace
 
 MESH = ('o Surface\nv -1 -1 0\nv 1 -1 0\nv 1 1 0\nv -1 1 0\n'
         'vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nvn 0 0 1\nusemtl Surface\n'
@@ -29,7 +29,7 @@ def pixels(path):
                      'Set CAVI_PAINTER_NATIVE_CONTROLS=1 for an idle licensed macOS Painter')
 class PainterControlsNativeTests(unittest.TestCase):
     def test_precision_presets_channels_erase_masks_and_saved_source(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with native_workspace() as folder:
             asyncio.run(self.exercise(Path(folder)))
 
     async def exercise(self, root):

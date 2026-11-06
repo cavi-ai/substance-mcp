@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import numpy as np
 import png
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from native_workspace import native_workspace
 
 from cavi_substance_mcp.designer import runner
 
@@ -33,11 +33,11 @@ def samples(path):
 @unittest.skipUnless(AVAILABLE, 'set CAVI_DESIGNER_NATIVE=1 with Designer installed')
 class DesignerGraphNativeTests(unittest.TestCase):
     def test_editable_graph_parameters_survive_save_cook_and_render(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with native_workspace() as folder:
             asyncio.run(self.exercise(Path(folder)))
 
     def test_graph_wiring_library_instances_and_higher_precision_round_trip(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with native_workspace() as folder:
             asyncio.run(self.operations_round_trip(Path(folder)))
 
     async def operations_round_trip(self, root):
@@ -138,7 +138,14 @@ class DesignerGraphNativeTests(unittest.TestCase):
             for label, package in packages:
                 cooked = await call('material', {'action': 'cook', 'path': package,
                                                  'directory': label + '-cooked'})
+                self.assertIn('$outputsize',
+                              {item['id'] for item in cooked['graphs'][0]['inputs']})
                 rendered = await call('material', {'action': 'render', 'path': cooked['sbsar'],
                                                    'directory': label + '-maps', 'resolution': 32})
-                colors.append(samples(root / rendered['maps']['baseColor']))
+                pixels = samples(root / rendered['maps']['baseColor'])
+                self.assertEqual(pixels.shape[:2], (32, 32))
+                colors.append(pixels)
+                larger = await call('material', {'action': 'render', 'path': cooked['sbsar'],
+                                                 'directory': label + '-large', 'resolution': 64})
+                self.assertEqual(samples(root / larger['maps']['baseColor']).shape[:2], (64, 64))
             self.assertGreater(int(np.abs(colors[1] - colors[0]).max()), 1000)

@@ -10,7 +10,7 @@ Identifier = TypeAliasType(
 NodeId = TypeAliasType(
     "NodeId", Annotated[str, Field(pattern=r"^[A-Za-z0-9_:-]{1,128}$")]
 )
-Number = TypeAliasType("Number", StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)])
+Number = StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)]
 Value = TypeAliasType("Value", StrictBool | Number | str | list[Number])
 Position = TypeAliasType("Position", tuple[Number, Number])
 

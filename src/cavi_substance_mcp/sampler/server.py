@@ -39,15 +39,14 @@ class SamplerServer(Server):
         for index, tool in enumerate(tools):
             if tool.name != "sampler_inspect":
                 continue
-            requirements = []
-            for action, names in (("project", ("project",)), ("asset", ("project", "asset"))):
-                requirements.append({
-                    "if": {"properties": {"action": {"const": action}}, "required": ["action"]},
-                    "then": {"required": list(names),
-                             "properties": {name: {"type": "string"} for name in names}},
-                })
             tools[index] = tool.model_copy(update={"input_schema": {
-                **tool.input_schema, "allOf": requirements,
+                **tool.input_schema,
+                "if": {"properties": {"action": {"const": "catalog"}}},
+                "else": {
+                    "required": ["project"], "properties": {"project": {"type": "string"}},
+                    "if": {"properties": {"action": {"const": "asset"}}},
+                    "then": {"required": ["asset"], "properties": {"asset": {"type": "string"}}},
+                },
             }})
         return tools
 
@@ -63,8 +62,8 @@ mcp = SamplerServer(
     ),
 )
 Timeout = Annotated[StrictInt, Field(ge=1, le=3600)]
-ProjectPath = Annotated[str, Field(description="Existing .ssa relative to the workspace.")]
-NewDirectory = Annotated[str, Field(description="New directory relative to the workspace.")]
+ProjectPath = Annotated[str, Field(description='.ssa path')]
+NewDirectory = Annotated[str, Field(description='New path')]
 AssetName = Annotated[str, Field(min_length=1, max_length=128)]
 PlainName = Annotated[str, Field(min_length=1, max_length=96)]
 Query = Annotated[str, Field(max_length=128)]
@@ -74,7 +73,7 @@ ExportFormat = Literal[EXPORT_FORMATS]
 MaterialType = Literal[MATERIAL_TYPES]
 TargetName = Literal[tuple(TARGETS)]
 ParameterValue = bool | int | float | str | list[bool | int | float | str]
-JobFile = Annotated[str, Field(description="Workspace .json batch job.")]
+JobFile = Annotated[str, Field(description='Job JSON')]
 ChannelName = Annotated[str, Field(min_length=1, max_length=64)]
 PackUsage = Annotated[str, StringConstraints(pattern=f"^{USAGE}$")]
 ResourceNameArg = Annotated[str, Field(min_length=1, max_length=128)]
@@ -112,26 +111,26 @@ ASSET_PARAMS = {
 
 @mcp.tool(annotations=READ_ONLY)
 async def sampler_status() -> SamplerStatus:
-    """Sampler executable, version, scripts folder, workspace and running state."""
+    """Sampler version, paths and running state"""
     return await asyncio.to_thread(launch.status)
 
 
 @mcp.tool(annotations=READ_ONLY)
 async def sampler_inspect(
     action: Annotated[
-        Literal["project", "asset", "catalog"],
-        Field(description="project needs project; asset needs project and asset."),
+        Literal["catalog", "project", "asset"],
+        Field(description='Inspection'),
     ],
     project: Annotated[
-        ProjectPath | None, Field(description="Required for project/asset: workspace .ssa.")
+        ProjectPath | None, Field(description='.ssa path')
     ] = None,
     asset: Annotated[
-        AssetName | None, Field(description="Required for asset: existing asset name.")
+        AssetName | None, Field(description='Asset name')
     ] = None,
-    query: Annotated[Query, Field(description="catalog: resource search text.")] = "",
-    timeout_seconds: Annotated[Timeout, Field(description="Sampler timeout in seconds.")] = 600,
+    query: Annotated[Query, Field(description='Search')] = "",
+    timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerInspection:
-    """project lists assets; asset lists layers; catalog lists resources and targets."""
+    """Inspect projects, assets and resource lists."""
     given = {"project": project, "asset": asset, "query": query or None}
     reject_foreign(action, given, INSPECT_PARAMS[action])
     if action in ("project", "asset"):
@@ -146,18 +145,18 @@ async def sampler_inspect(
 
 @mcp.tool(annotations=WRITES)
 async def sampler_project(
-    action: Annotated[Literal["create", "save_as"], Field(description="Create or copy a project.")],
+    action: Annotated[Literal["create", "save_as"], Field(description='Operation')],
     directory: NewDirectory,
     name: Annotated[
         PlainName | None,
-        Field(description="create: required project name; save_as: optional new name."),
+        Field(description='New name'),
     ] = None,
     project: Annotated[
-        ProjectPath | None, Field(description="save_as: required workspace .ssa.")
+        ProjectPath | None, Field(description='.ssa path')
     ] = None,
-    timeout_seconds: Annotated[Timeout, Field(description="Sampler timeout in seconds.")] = 600,
+    timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerProjectResult:
-    """create a new .ssa in a new directory; save_as copies an existing project."""
+    """Create/copy a project in a new directory."""
     if action == "create":
         if project is not None:
             raise ValueError("project is only valid for action=save_as")
@@ -187,76 +186,73 @@ async def sampler_asset(
             "insert_filter",
             "insert_material",
         ],
-        Field(description="Asset or resource operation."),
+        Field(description='Operation'),
     ],
     project: ProjectPath,
     asset: Annotated[
         AssetName | None,
-        Field(description="Existing asset; required except create/import_resource."),
+        Field(description='Asset name'),
     ] = None,
-    name: Annotated[PlainName | None, Field(description="create: required asset name.")] = None,
+    name: Annotated[PlainName | None, Field(description='New name')] = None,
     model: Annotated[
-        Literal["asm", "openpbr"], Field(description="create: material model.")
+        Literal["asm", "openpbr"], Field(description='Material model')
     ] = "asm",
     preset: Annotated[
-        str | None, Field(max_length=128, description="create: asset preset.")
+        str | None, Field(max_length=128, description='Asset preset')
     ] = None,
     empty: Annotated[
-        StrictBool, Field(description="create: start without default layers.")
+        StrictBool, Field(description='Empty stack')
     ] = False,
     metadata: Annotated[
-        AssetMetadata | None, Field(description="set_metadata: nonempty metadata fields.")
+        AssetMetadata | None, Field(description='Nonempty metadata')
     ] = None,
     channels: Annotated[
         list[ChannelName] | None,
         Field(
-            min_length=1, max_length=64, description="activate/deactivate_channels: channel names."
+            min_length=1, max_length=64, description='Channel names'
         ),
     ] = None,
     path: Annotated[
-        str | None, Field(description="import_resource: workspace .sbsar or .sbs.")
+        str | None, Field(description='Source .sbs/.sbsar')
     ] = None,
     source_manifest: Annotated[
-        str | None, Field(description="import_resource: source receipt.")
+        str | None, Field(description='Receipt')
     ] = None,
     expected_sha256: Annotated[
-        str | None, Field(description="import_resource: expected source digest.")
+        str | None, Field(description='SHA-256')
     ] = None,
     resources: Annotated[
         list[ResourceNameArg] | None,
         Field(
-            min_length=1, max_length=64, description="import_resource: resource names to register."
+            min_length=1, max_length=64, description='Resource names'
         ),
     ] = None,
     images: Annotated[
         list[str] | dict[str, str] | None,
-        Field(description="import_images: path list; import_textures: usage to path."),
+        Field(description='Paths or usage:path'),
     ] = None,
     position: Annotated[
-        StrictInt, Field(ge=0, le=100000, description="Layer insertion index.")
+        StrictInt, Field(ge=0, le=100000, description='Insertion index')
     ] = 0,
     import_option: Annotated[
-        ImportOption, Field(description="import_images: conversion method.")
+        ImportOption, Field(description='Image conversion')
     ] = "use_as_bitmap",
     insert_above: Annotated[
-        StrictBool | None, Field(description="Insert above the selected layer.")
+        StrictBool | None, Field(description='Insert above')
     ] = None,
     filter: Annotated[
-        PlainName | None, Field(description="insert_filter: required catalog name.")
+        PlainName | None, Field(description='Filter name')
     ] = None,
     material: Annotated[
-        PlainName | None, Field(description="insert_material: required catalog name.")
+        PlainName | None, Field(description='Material name')
     ] = None,
     blend_mode: Annotated[
-        BlendMode, Field(description="insert_material: layer blend mode.")
+        BlendMode, Field(description='Material blend')
     ] = "blend_normal",
-    confirm: Annotated[StrictBool, Field(description="Required true for action=delete.")] = False,
-    timeout_seconds: Annotated[Timeout, Field(description="Sampler timeout in seconds.")] = 600,
+    confirm: Annotated[StrictBool, Field(description='delete: true')] = False,
+    timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerAssetResult:
-    """Create assets/resources, set metadata or channels, or extend asset layers.
-
-    Edits run on a copy that replaces the project only after Sampler saved it.
-    """
+    """Edit a copy; save before replacing the project."""
     values = {
         "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
         "empty": empty, "metadata": metadata, "channels": channels, "path": path,
@@ -354,33 +350,33 @@ async def sampler_layer(
             "set_blend_parameters",
             "remove",
         ],
-        Field(description="Layer operation."),
+        Field(description='Operation'),
     ],
     project: ProjectPath,
-    asset: Annotated[AssetName, Field(description="Existing asset name.")],
-    layer: Annotated[str, Field(min_length=1, max_length=128, description="Existing layer name.")],
+    asset: Annotated[AssetName, Field(description='Asset name')],
+    layer: Annotated[str, Field(min_length=1, max_length=128, description='Layer name')],
     position: Annotated[
-        StrictInt | None, Field(ge=0, le=100000, description="Disambiguating layer index.")
+        StrictInt | None, Field(ge=0, le=100000, description='Layer index')
     ] = None,
     parameters: Annotated[
         dict[str, ParameterValue] | None,
-        Field(max_length=64, description="set_parameters/set_blend_parameters: nonempty values."),
+        Field(max_length=64, description='Parameter values'),
     ] = None,
     preset: Annotated[
-        str | None, Field(max_length=128, description="apply_preset: required preset name.")
+        str | None, Field(max_length=128, description='Preset name')
     ] = None,
     applies_to: Annotated[
         list[ChannelName] | None,
-        Field(min_length=1, max_length=64, description="set_channels: layer channels."),
+        Field(min_length=1, max_length=64, description='Channels'),
     ] = None,
     blend_applies_to: Annotated[
         list[ChannelName] | None,
-        Field(min_length=1, max_length=64, description="set_channels: blend channels."),
+        Field(min_length=1, max_length=64, description='Blend channels'),
     ] = None,
-    confirm: Annotated[StrictBool, Field(description="remove: required true.")] = False,
-    timeout_seconds: Annotated[Timeout, Field(description="Sampler timeout in seconds.")] = 600,
+    confirm: Annotated[StrictBool, Field(description='remove: true')] = False,
+    timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerLayerResult:
-    """Edit layer parameters, presets, channels or blend parameters."""
+    """Edit layer channels, parameters or presets."""
     if action == "set_parameters":
         if not isinstance(parameters, dict) or not parameters:
             raise ValueError("parameters must be a non-empty object")
@@ -441,35 +437,35 @@ async def sampler_export(
     project: ProjectPath,
     directory: NewDirectory,
     asset: Annotated[
-        AssetName | None, Field(description="Asset name; null selects the selected or first asset.")
+        AssetName | None, Field(description='Selected/first if omitted')
     ] = None,
     target: Annotated[
-        TargetName | None, Field(description="Texture target with optional channel packing.")
+        TargetName | None, Field(description='Export target')
     ] = None,
     format: Annotated[
         ExportFormat | None,
-        Field(description="Default sbsar, or png when target is set."),
+        Field(description='sbsar; png with target'),
     ] = None,
-    preset: Annotated[str | None, Field(max_length=128, description="Export preset name.")] = None,
+    preset: Annotated[str | None, Field(max_length=128, description='Preset name')] = None,
     channels: Annotated[
-        list[str] | None, Field(max_length=64, description="Texture channels to export.")
+        list[str] | None, Field(max_length=64, description='Export channels')
     ] = None,
     resolution: Annotated[
-        StrictInt | None, Field(ge=64, le=8192, description="Output texture size.")
+        StrictInt | None, Field(ge=64, le=8192, description='Map size')
     ] = None,
     material_type: Annotated[
-        MaterialType, Field(description="Target material variant.")
+        MaterialType, Field(description='Variant')
     ] = "standard",
-    subfolder: Annotated[StrictBool, Field(description="Create a per-asset subfolder.")] = False,
+    subfolder: Annotated[StrictBool, Field(description='Asset folder')] = False,
     wait_seconds: Annotated[
-        StrictInt, Field(ge=1, le=3600, description="Wait for output files, in seconds.")
+        StrictInt, Field(ge=1, le=3600, description='Output wait')
     ] = 600,
-    dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
+    dry_run: Annotated[StrictBool, Field(description='False exports')] = True,
     timeout_seconds: Annotated[
-        Timeout, Field(description="Sampler process timeout in seconds.")
+        Timeout, Field(description='Timeout')
     ] = 600,
 ) -> SamplerExportResult:
-    """Preview or export an asset into a new workspace directory."""
+    """Preview/export maps into a new directory."""
     if target is not None and format in ("sbsar", "sbs"):
         raise ValueError("target exports textures; use png, tga, tif or exr")
     if format is None:
@@ -485,19 +481,19 @@ async def sampler_export(
 @mcp.tool(annotations=WRITES)
 async def sampler_build(
     job: JobFile,
-    dry_run: Annotated[StrictBool, Field(description="Only explicit false runs the job.")] = True,
+    dry_run: Annotated[StrictBool, Field(description='False runs')] = True,
     check_sampler: Annotated[
-        StrictBool, Field(description="Dry run: validate against installed resources.")
+        StrictBool, Field(description='Check app catalog')
     ] = False,
     check_project: Annotated[
-        StrictBool, Field(description="Dry run: inspect the source project.")
+        StrictBool, Field(description='Inspect project')
     ] = False,
     check_build: Annotated[
-        StrictBool, Field(description="Dry run: build a temporary project and inspect it.")
+        StrictBool, Field(description='Check temp build')
     ] = False,
-    timeout_seconds: Annotated[Timeout, Field(description="Job timeout in seconds.")] = 1800,
+    timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 1800,
 ) -> SamplerBuildResult:
-    """Validate a batch job file (default) or, with dry_run=false, run it."""
+    """Validate a job; dry_run=false executes it."""
     if (check_sampler or check_project or check_build) and not dry_run:
         raise ValueError(
             "check_sampler, check_project and check_build require dry_run=true"
@@ -522,11 +518,11 @@ async def sampler_pack(
     directory: NewDirectory,
     sources: Annotated[
         dict[PackUsage, str],
-        Field(min_length=1, max_length=32, description="Map usage to workspace image path."),
+        Field(min_length=1, max_length=32, description='Usage:image path'),
     ],
-    pack: Annotated[PackSpec, Field(description="Channel packing spec.")],
+    pack: Annotated[PackSpec, Field(description='Channel packing')],
 ) -> SamplerPackResult:
-    """Pack maps into a new workspace directory."""
+    """Pack texture channels in a new directory."""
     return await packer.pack(directory, sources, pack)
 
 

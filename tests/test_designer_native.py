@@ -3,7 +3,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -12,6 +11,7 @@ import numpy as np
 import png
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from native_workspace import native_workspace
 from PIL import Image
 
 from cavi_substance_mcp import packing
@@ -66,14 +66,6 @@ def pixels(path):
 
 @unittest.skipUnless(NATIVE, "set CAVI_DESIGNER_NATIVE=1 with the Designer CLIs installed")
 class DesignerNativeTests(unittest.TestCase):
-    def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.workspace = Path(self.folder.name) / "workspace"
-        self.workspace.mkdir()
-
-    def tearDown(self):
-        self.folder.cleanup()
-
     async def session_calls(self, calls):
         env = dict(os.environ, CAVI_SUBSTANCE_WORKSPACE=str(self.workspace))
         params = StdioServerParameters(
@@ -95,56 +87,82 @@ class DesignerNativeTests(unittest.TestCase):
         return results
 
     def test_cook_render_pack(self):
-        status, cooked, rendered = asyncio.run(self.session_calls([
-            ("designer_status", {}),
-            ("material", {"action": "cook", "builtin": "templates/01_02_pbr_metallic_roughness",
-                          "directory": "cooked"}),
-            ("material", {"action": "render", "path": "cooked/01_02_pbr_metallic_roughness.sbsar",
-                          "graph": "pkg://metallic_roughness", "directory": "rendered",
-                          "resolution": 1024, "pack": HDRP}),
-        ]))
-        self.assertTrue(status["available"])
-        self.assertIn("pkg://metallic_roughness", [g["url"] for g in cooked["graphs"]])
-        maps = {key: pixels(self.workspace / path) for key, path in rendered["maps"].items()}
-        packed = {item["name"]: pixels(self.workspace / item["path"])
-                  for item in rendered["packed"]}
-        for image in packed.values():
-            self.assertEqual(image.shape[:2], (1024, 1024))
-        mask = packed["T_Rock_MaskMap"]
-        self.assertEqual(mask.shape, (1024, 1024, 4))
-        gray = {key: value if value.ndim == 2 else value[:, :, 0] for key, value in maps.items()}
-        np.testing.assert_array_equal(mask[:, :, 0], gray["metallic"])
-        np.testing.assert_array_equal(mask[:, :, 1], gray["ambientOcclusion"])
-        self.assertEqual(int(mask[:, :, 2].max()), 0)
-        np.testing.assert_array_equal(mask[:, :, 3], 65535 - gray["roughness"])
-        base = packed["T_Rock_BaseColor"]
-        np.testing.assert_array_equal(base[:, :, :3], maps["baseColor"][:, :, :3])
-        self.assertEqual(int(base[:, :, 3].min()), 65535)
-        np.testing.assert_array_equal(packed["T_Rock_Normal"], maps["normal"][:, :, :3])
+        with native_workspace() as folder:
+            self.workspace = Path(folder) / "workspace"
+            self.workspace.mkdir()
+            status, cooked, rendered = asyncio.run(self.session_calls([
+                ("designer_status", {}),
+                ("material", {"action": "cook", "builtin": "templates/01_02_pbr_metallic_roughness",
+                              "directory": "cooked"}),
+                ("material", {"action": "render",
+                              "path": "cooked/01_02_pbr_metallic_roughness.sbsar",
+                              "graph": "pkg://metallic_roughness", "directory": "rendered",
+                              "resolution": 1024, "pack": HDRP}),
+            ]))
+            self.assertTrue(status["available"])
+            self.assertIn("pkg://metallic_roughness", [g["url"] for g in cooked["graphs"]])
+            maps = {key: pixels(self.workspace / path) for key, path in rendered["maps"].items()}
+            packed = {item["name"]: pixels(self.workspace / item["path"])
+                      for item in rendered["packed"]}
+            for image in packed.values():
+                self.assertEqual(image.shape[:2], (1024, 1024))
+            mask = packed["T_Rock_MaskMap"]
+            self.assertEqual(mask.shape, (1024, 1024, 4))
+            gray = {key: value if value.ndim == 2 else value[:, :, 0]
+                    for key, value in maps.items()}
+            np.testing.assert_array_equal(mask[:, :, 0], gray["metallic"])
+            np.testing.assert_array_equal(mask[:, :, 1], gray["ambientOcclusion"])
+            self.assertEqual(int(mask[:, :, 2].max()), 0)
+            np.testing.assert_array_equal(mask[:, :, 3], 65535 - gray["roughness"])
+            base = packed["T_Rock_BaseColor"]
+            np.testing.assert_array_equal(base[:, :, :3], maps["baseColor"][:, :, :3])
+            self.assertEqual(int(base[:, :, 3].min()), 65535)
+            np.testing.assert_array_equal(packed["T_Rock_Normal"], maps["normal"][:, :, :3])
+
+    def test_relative_graph_preserves_exposed_render_resolution(self):
+        with native_workspace() as folder:
+            self.workspace = Path(folder)
+            source = self.workspace / "material.sbs"
+            shutil.copyfile(Path(__file__).parent / "fixtures/designer/output-size.sbs", source)
+            before = source.read_bytes()
+            (cooked,) = asyncio.run(self.session_calls([
+                ("material", {"action": "cook", "path": "material.sbs", "directory": "cooked"}),
+            ]))
+            self.assertIn("$outputsize", {item["id"] for item in cooked["graphs"][0]["inputs"]})
+            for size in (32, 64):
+                (rendered,) = asyncio.run(self.session_calls([
+                    ("material", {"action": "render", "path": cooked["sbsar"],
+                                  "directory": f"maps-{size}", "resolution": size}),
+                ]))
+                image = pixels(self.workspace / rendered["maps"]["baseColor"])
+                self.assertEqual(image.shape[:2], (size, size))
+            self.assertEqual(source.read_bytes(), before)
 
     @unittest.skipUnless(Path(BLENDER).is_file(), "Blender not installed")
     def test_bake_normal_and_ao(self):
-        meshes = self.workspace / "meshes"
-        meshes.mkdir()
-        subprocess.run([BLENDER, "--background", "--factory-startup", "--python-exit-code", "1",
-                        "--python-expr", MESHES,
-                        "--", str(meshes)], check=True, capture_output=True, timeout=120)
-        (baked,) = asyncio.run(self.session_calls([
-            ("bake", {"low": "meshes/low.fbx", "high": "meshes/high.fbx",
-                      "maps": ["normal", "ambient_occlusion"], "directory": "baked",
-                      "resolution": 1024, "max_frontal": 0.1, "max_rear": 0.1}),
-        ]))
-        print(f"[native] bake seconds: {baked['seconds']}", file=sys.stderr)
-        normal_path = self.workspace / baked["maps"]["normal"]
-        self.assertEqual(normal_path.suffix, ".exr")
-        normal = packing.load(normal_path)
-        ao = packing.load(self.workspace / baked["maps"]["ambient_occlusion"])
-        self.assertEqual(normal.shape[:2], (1024, 1024))
-        self.assertEqual(ao.shape[:2], (1024, 1024))
-        self.assertGreater(normal[:, :, 2].mean(), .78)
-        self.assertGreater(normal[:, :, 0].std(), .02)
-        self.assertGreater(ao.mean(), 0)
-
+        with native_workspace() as folder:
+            self.workspace = Path(folder) / "workspace"
+            self.workspace.mkdir()
+            meshes = self.workspace / "meshes"
+            meshes.mkdir()
+            subprocess.run([BLENDER, "--background", "--factory-startup", "--python-exit-code", "1",
+                            "--python-expr", MESHES,
+                            "--", str(meshes)], check=True, capture_output=True, timeout=120)
+            (baked,) = asyncio.run(self.session_calls([
+                ("bake", {"low": "meshes/low.fbx", "high": "meshes/high.fbx",
+                          "maps": ["normal", "ambient_occlusion"], "directory": "baked",
+                          "resolution": 1024, "max_frontal": 0.1, "max_rear": 0.1}),
+            ]))
+            print(f"[native] bake seconds: {baked['seconds']}", file=sys.stderr)
+            normal_path = self.workspace / baked["maps"]["normal"]
+            self.assertEqual(normal_path.suffix, ".exr")
+            normal = packing.load(normal_path)
+            ao = packing.load(self.workspace / baked["maps"]["ambient_occlusion"])
+            self.assertEqual(normal.shape[:2], (1024, 1024))
+            self.assertEqual(ao.shape[:2], (1024, 1024))
+            self.assertGreater(normal[:, :, 2].mean(), .78)
+            self.assertGreater(normal[:, :, 0].std(), .02)
+            self.assertGreater(ao.mean(), 0)
 
 if __name__ == "__main__":
     unittest.main()

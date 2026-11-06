@@ -236,7 +236,6 @@ def main():
         server=SERVER, manifest_prefix="sampler.",
         native_status=(
             "fake Sampler or no executable; run tests/test_sampler_native.py for native"),
-        probe_arguments={"sampler_inspect": {"action": "catalog"}},
     )
 
 
