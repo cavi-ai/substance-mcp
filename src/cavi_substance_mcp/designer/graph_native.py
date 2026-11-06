@@ -105,10 +105,21 @@ def expose(graph, node, spec):
     if spec.get('label'):
         graph.setPropertyAnnotationValueFromId(graph_input, 'label',
                                               SDValueString.sNew(spec['label']))
+    annotation_types = {p.getId(): p.getType().getId()
+                        for p in graph.getPropertyAnnotations(graph_input)}
+    bounds = []
     for name, field in (('min', 'minimum'), ('max', 'maximum')):
         if spec.get(field) is not None:
-            graph.setPropertyAnnotationValueFromId(graph_input, name,
-                                                  value_for('float', float(spec[field])))
+            if name not in annotation_types:
+                raise ValueError(f'Exposed input has no {name} annotation')
+            kind, value = annotation_types[name], spec[field]
+            if kind == 'int':
+                if not math.isfinite(value) or value != math.trunc(value):
+                    raise ValueError(f'{name} annotation needs an integer bound')
+                value = int(value)
+            bounds.append((name, value_for(kind, value)))
+    for name, value in bounds:
+        graph.setPropertyAnnotationValueFromId(graph_input, name, value)
     fn = node.newPropertyGraph(prop, 'SDSBSFunctionGraph')
     getter = {'float': 'float1', 'int': 'integer1', 'int2': 'integer2',
               'int3': 'integer3', 'int4': 'integer4'}.get(exposed_type, exposed_type)
@@ -219,7 +230,7 @@ def describe(graph):
 def run(request):
     import sd
     from sd.api.sbs.sdsbscompgraph import SDSBSCompGraph
-    from sd.api.sdproperty import SDPropertyInheritanceMethod
+    from sd.api.sdproperty import SDPropertyCategory, SDPropertyInheritanceMethod
 
     manager = sd.getContext().getSDApplication().getPackageMgr()
     recipe, action = request['recipe'], request['action']
@@ -265,6 +276,10 @@ def run(request):
             manager.savePackageAs(package, request['output'])
             if action == 'create' or 'resolution' in recipe:
                 size = int(math.log2(recipe.get('resolution', 2048)))
+                prop = graph.getPropertyFromId('$outputsize', SDPropertyCategory.Input)
+                graph.setPropertyInheritanceMethod(prop, SDPropertyInheritanceMethod.Absolute)
+                if graph.getPropertyInheritanceMethod(prop) != SDPropertyInheritanceMethod.Absolute:
+                    raise ValueError('Graph output size did not accept absolute inheritance')
                 set_values(graph, {'$outputsize': [size, size]})
             if action == 'create' or 'seed' in recipe:
                 set_values(graph, {'$randomseed': recipe.get('seed', 0)})
@@ -272,8 +287,7 @@ def run(request):
                 fmt = {'8': 'low_precision', '16': 'high_precision',
                        '16f': 'hdr_low_precision', '32f': 'hdr_high_precision'}[
                            recipe.get('precision', '16f')]
-                prop = graph.getPropertyFromId('$format', __import__(
-                    'sd.api.sdproperty', fromlist=['SDPropertyCategory']).SDPropertyCategory.Input)
+                prop = graph.getPropertyFromId('$format', SDPropertyCategory.Input)
                 graph.setPropertyInheritanceMethod(prop, SDPropertyInheritanceMethod.Absolute)
                 set_values(graph, {'$format': fmt})
             aliases = apply(graph, recipe.get('operations', []), manager, request['libraries'])

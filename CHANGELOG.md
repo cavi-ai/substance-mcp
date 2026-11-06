@@ -4,6 +4,11 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Fixed
+
+- Match exposed Designer input bounds to their native annotation types.
+- Set authored Designer graph resolutions with absolute output-size inheritance.
+
 ### Changed
 
 - The package version, and the release the documentation names, come from the git tag.
