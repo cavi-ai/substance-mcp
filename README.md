@@ -73,6 +73,7 @@ cavi-substance-mcp runtime status
 
 Automatic launch currently supports macOS. It finds the standard Adobe installation,
 or the app bundle selected by `CAVI_PAINTER_APP`, and supplies `--enable-remote-scripting`.
+The launcher requests a hidden, background start.
 A connected session is reused. An open app without a reachable scripting connection
 is left untouched; save and quit that app before launching it again. The launcher does
 not install software, sign in, accept terms, or dismiss license prompts.
