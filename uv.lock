@@ -34,15 +34,15 @@ wheels = [
 
 [[package]]
 name = "cavi-mcp-core"
-version = "0.1.2"
+version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/d5/ae79ff658da5e00979bec647959ff695643472db39c6e187e6363ed1363c/cavi_mcp_core-0.1.2.tar.gz", hash = "sha256:6a59912c14c78e39bcd4cd3715118d73eb4deffcccac3e72a2a7a40a79c6a4b6", size = 38279, upload-time = "2026-11-06T06:05:05.479Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/69/79f15e8de348da7c6e77ee710f89c45be396c959083417677eb25507e76b/cavi_mcp_core-0.1.3.tar.gz", hash = "sha256:2ede0b1491114f14d5803f1b775f502036be35c17f416990d966d05ab172c964", size = 80618, upload-time = "2026-11-09T18:39:20.18Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/3c/b8ca4d0e5c69aa7a16b0edfb7b3a550f16b0334a496de62f0c86912832f8/cavi_mcp_core-0.1.2-py3-none-any.whl", hash = "sha256:4909425ffebe3b66f7d3ca3ba3cd1f73627bfc32d3e8b77a7c0d80df3724c31c", size = 23155, upload-time = "2026-11-06T06:05:04.338Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/5e/bef1046e971fd7f739b04fbfd91f24c8fefdcf74b6dd21f2dd23b2fe46bb/cavi_mcp_core-0.1.3-py3-none-any.whl", hash = "sha256:ba75630e277ff35195c84b8ad196b4b8a1be717efce2adf6deaf662fee1a8e58", size = 48889, upload-time = "2026-11-09T18:39:18.877Z" },
 ]
 
 [[package]]
