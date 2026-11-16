@@ -1,19 +1,20 @@
 # Cavi Substance MCP
 
-MCP servers for Adobe Substance 3D Painter, Adobe Substance 3D Designer and Adobe
-Substance 3D Sampler. Each application has its own stdio server.
+[![PyPI weekly downloads](https://img.shields.io/pypi/dw/cavi-substance-mcp?label=PyPI%20downloads%2Fweek)](https://pypi.org/project/cavi-substance-mcp/)
 
-## Try one material revision
+![A dragon in a velvet jacket inspects its cuff while holding a tiny teacup](media/substance-mcp-hero.png)
 
-Change a utility case's painted roughness from 0.18 to 0.68, inspect the exported
-PNG16 maps, and reopen the saved project copy. The example includes the original
-mesh, maps and steps to recreate an editable Painter project locally.
+## Give imagination a surface.
 
-[![Blender material views of actual Painter exports at roughness 0.18 and 0.68](examples/painter/uniform-fill-revision/utility-case-roughness-poster.png)](examples/painter/uniform-fill-revision/utility-case-roughness-walkthrough.mp4)
+Work with an assistant across Adobe Substance 3D Painter, Designer and Sampler. Cavi Substance MCP connects your MCP client to each application through its own local server, with a shared asset workspace for moving work between them.
 
-[Watch the 36-second edited walkthrough](examples/painter/uniform-fill-revision/utility-case-roughness-walkthrough.mp4)
-or [reproduce the uniform-fill example](examples/painter/uniform-fill-revision/README.md).
-The material views are Blender renders of actual Painter exports.
+Ask for the result you want:
+
+- “Make a working copy of this Painter project, adjust the finish and export its texture maps.”
+- “Create an editable Designer material graph, then cook and render it.”
+- “Open a copy of this Sampler project, adjust its layers and export maps for my target.”
+
+Keep working in the native projects and inspect the results at each step. The applications support different operations; see the application support and tool documentation below for their boundaries.
 
 ## Application support
 
@@ -25,14 +26,12 @@ previews and pressure; see [Painter tools](docs/substance-mcp/source/pages/paint
 
 The Designer server authors editable node graphs through the native SDK and drives
 Designer’s headless CLIs for cooking, rendering, baking and packing. The Sampler server launches Sampler for one script per call or one batch job.
-The [overview](docs/substance-mcp/source/pages/introduction/overview.md) lists what has been
-checked natively and what has been tested only against a simulator.
+See the [overview](docs/substance-mcp/source/pages/introduction/overview.md) for the application workflows and setup.
 
 ## Install
 
 Requires Python 3.15+, [uv](https://docs.astral.sh/uv/), and a separately installed and
-licensed Adobe application. The MCP does not supply an Adobe license or authenticate
-accounts.
+licensed Adobe application.
 
 Install the three servers as commands on your `PATH`: `cavi-substance-mcp` (Painter),
 `cavi-substance-designer-mcp` and `cavi-substance-sampler-mcp`. The same install provides
@@ -71,17 +70,15 @@ cavi-substance-mcp runtime start
 cavi-substance-mcp runtime status
 ```
 
-Automatic launch currently supports macOS. It finds the standard Adobe installation,
-or the app bundle selected by `CAVI_PAINTER_APP`, and supplies `--enable-remote-scripting`.
-The launcher requests a hidden, background start.
-A connected session is reused. An open app without a reachable scripting connection
-is left untouched; save and quit that app before launching it again. The launcher does
-not install software, sign in, accept terms, or dismiss license prompts.
+Automatic launch supports macOS and requests a hidden, background start. If Painter is already open without a reachable scripting connection, save and quit it before launching again.
 
-`start` reports that launch was requested; it does not claim Painter is ready. Require
-`connected=true` from `status` or the actual `painter_status` MCP tool before project work.
+Ask your assistant to confirm that Painter is connected and wait until the project is ready before editing.
 
-Call `painter_status` first. After `open`/`create`/`reload_mesh`, call `project` with `action="wait_ready"` before editing.
+## See a material revision
+
+[![Blender views of Painter exports before and after a roughness revision](examples/painter/uniform-fill-revision/utility-case-roughness-poster.png)](examples/painter/uniform-fill-revision/README.md)
+
+[Explore the editable Painter example](examples/painter/uniform-fill-revision/README.md), including the mesh, maps and steps to recreate it locally. The views are Blender renders of Painter exports.
 
 ## Documentation
 
@@ -124,13 +121,3 @@ not include or redistribute Adobe software, templates, presets or Substance file
 your own licensed applications. Other product names (for example Unreal Engine, Unity and
 Blender) belong to their respective owners.
 
-## Response contracts and recovery
-
-The catalog declares fields for key status, ownership and export results. Existing
-additional details remain available. Discovery omits redundant schema titles while
-retaining validation constraints and field names.
-
-Anticipated MCP failures retain readable text and include code, operation, outcome,
-retry_safe and next_action. Unknown outcomes require application and output
-inspection; these hints never automatically retry a mutation. Unexpected defects
-remain opaque to callers.
