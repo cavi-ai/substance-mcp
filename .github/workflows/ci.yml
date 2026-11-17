@@ -39,9 +39,28 @@ jobs:
           fi
           python3 "$RUNNER_TEMP/pin_guard.py" "$BASE" "$HEAD"
 
+  merged-pr:
+    # A main push from a merged pull request skips the suites that pull request already passed.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          merged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length' || echo 0)
+          if [ "$merged" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
+
   lint:
     name: lint
-    needs: [pin-guard]
+    needs: [pin-guard, merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -63,7 +82,8 @@ jobs:
 
   unit:
     name: unit
-    needs: [pin-guard]
+    needs: [pin-guard, merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -81,7 +101,8 @@ jobs:
 
   evals:
     name: evals
-    needs: [pin-guard]
+    needs: [pin-guard, merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -135,7 +156,8 @@ jobs:
 
   package:
     name: package
-    needs: [pin-guard]
+    needs: [pin-guard, merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -153,7 +175,7 @@ jobs:
   pin-consumers:
     # A green main moves the substance-mcp pin in game-art-pipeline through its pin-servers workflow.
     needs: [lint, unit, evals, package]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !failure() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
