@@ -18,6 +18,11 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 - Painter `texture_fill` accepts PNG, EXR and TIFF up to 8192 px; float images bind in the working color space.
 - An unknown Painter blend mode lists every valid name.
+- Painter `layer_edit` and `brush` and every Sampler editing tool refuse arguments the chosen action does not use.
+
+### Fixed
+
+- Painter native brush strokes refuse a window handle that is not an `NSView` instead of crashing Painter.
 
 ## 0.13.0 - 2026-11-09
 

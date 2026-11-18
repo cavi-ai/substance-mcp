@@ -8,6 +8,7 @@ import anyio.to_thread
 from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from ..core.actions import checked
 from ..core.contracts import (
     Ownership,
     PainterBakeResult,
@@ -236,6 +237,30 @@ async def inspect(
 Rgb = TypeAliasType("Rgb", tuple[UnitValue, UnitValue, UnitValue])
 Uid = Annotated[StrictInt | None, Field(ge=0)]
 LAYER_ACTIONS = {"fill": "create_fill_layer", "texture_fill": "create_texture_fill"}
+_PLACE = {"parent_uid", "above_uid"}
+_FILL = {*_PLACE, "roughness", "metallic", "values"}
+_SBSAR = {"source_manifest", "expected_sha256"}
+# action -> (required, optional) arguments besides action, texture_set and lease_id
+LAYER_EDIT_PARAMS = {
+    "fill": ({"name", "base_color"}, _FILL),
+    "texture_fill": ({"name", "base_color_texture"}, _FILL),
+    "paint": ({"name"}, _PLACE),
+    "group": ({"name"}, _PLACE),
+    "smart_material": ({"name", "resource"}, _PLACE),
+    "sbsar_fill": ({"name", "sbsar"}, {*_PLACE, *_SBSAR, "parameters"}),
+    "sbsar_update": ({"sbsar", "resource"}, _SBSAR),
+    "fill_mask": ({"uid", "mask"}, set()),
+    "smart_mask": ({"uid", "resource"}, {"mask"}),
+    "generator": ({"uid", "resource"}, {"mask", "parameters"}),
+    "set_properties": ({"uid"}, {"name", "visible", "blend_mode", "opacity", "channel"}),
+    "delete": ({"uid"}, {"confirm_name"}),
+    "levels": ({"uid"}, {"mask", "channel", "parameters"}),
+    "filter": ({"uid", "resource"}, {"mask", "parameters"}),
+    "anchor_point": ({"uid", "name"}, {"mask"}),
+    "color_selection": ({"uid", "resource"}, {"mask", "parameters"}),
+    "compare_mask": ({"uid"}, {"mask", "channel", "parameters"}),
+}
+LAYER_EDIT_DEFAULTS = {"roughness": 0.5, "metallic": 0.0}
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -308,41 +333,23 @@ async def layer_edit(
     lease_id: LeaseId = None,
 ) -> PainterLayerResult:
     """Edit a layer stack; failures roll back. delete needs confirm_name."""
+    arguments = {key: value for key, value in locals().items()
+                 if key not in ("action", "texture_set", "lease_id")}
+    accepted = checked(action, arguments, LAYER_EDIT_PARAMS, LAYER_EDIT_DEFAULTS)
     if action in LAYER_ACTIONS:
-        if source_manifest is not None or expected_sha256 is not None:
-            raise ValueError("source_manifest and expected_sha256 are only valid for sbsar_fill")
-        if action == "fill":
-            if base_color_texture is not None:
-                raise ValueError("base_color_texture is only valid for action=texture_fill")
-            extra = {"base_color": need(base_color, "base_color", action)}
-        else:
-            if base_color is not None:
-                raise ValueError("base_color is only valid for action=fill")
-            extra = {"base_color_texture": need(base_color_texture, "base_color_texture", action)}
-        return await painter(LAYER_ACTIONS[action], {
-            "texture_set": texture_set, "name": need(name, "name", action),
-            "roughness": roughness, "metallic": metallic, "values": values,
-            "parent_uid": parent_uid, "above_uid": above_uid, **extra,
-        }, lease_id=lease_id)
-    if action in {"paint", "group", "smart_material", "sbsar_fill", "anchor_point"}:
-        need(name, "name", action)
-    if action not in {"paint", "group", "smart_material", "sbsar_fill", "sbsar_update"}:
-        need(uid, "uid", action)
-    if action in {"smart_material", "smart_mask", "generator", "filter", "color_selection",
-                  "sbsar_update"}:
-        need(resource, "resource", action)
-    if action in {"sbsar_fill", "sbsar_update"}:
-        need(sbsar, "sbsar", action)
-    elif source_manifest is not None or expected_sha256 is not None:
-        raise ValueError("source_manifest and expected_sha256 are only valid with sbsar")
-    return await painter("layer_edit", {
-        "action": action, "texture_set": texture_set, "name": name, "uid": uid,
-        "parent_uid": parent_uid, "above_uid": above_uid, "mask": mask, "resource": resource,
-        "sbsar": sbsar, "source_manifest": source_manifest,
-        "expected_sha256": expected_sha256,
-        "parameters": parameters, "blend_mode": blend_mode, "opacity": opacity,
-        "channel": channel, "visible": visible, "confirm_name": confirm_name,
-    }, lease_id=lease_id)
+        return await painter(LAYER_ACTIONS[action], {"texture_set": texture_set, **accepted},
+                             lease_id=lease_id)
+    return await painter("layer_edit", {"action": action, "texture_set": texture_set, **accepted},
+                         lease_id=lease_id)
+
+
+_BRUSH = {"settings", "preset", "channel_values", "enabled_channels"}
+BRUSH_PARAMS = {
+    "settings": (set(), _BRUSH),
+    "prepare": ({"texture_set", "uid", "directory"}, {*_BRUSH, "target", "mode"}),
+    "stroke": ({"context_token", "points"}, set()),
+}
+BRUSH_DEFAULTS = {"target": "content", "mode": "paint"}
 
 
 class BrushSettings(BaseModel):
@@ -426,32 +433,12 @@ async def brush(
 ) -> PainterBrushResult:
     """macOS 2D painting. Inspect the prepared viewport, then stroke once within 60 s
     with no other input or edits. Verify the result; no save or retry."""
-    if action == 'settings':
-        if any(v is not None for v in (texture_set, uid, directory, context_token, points)):
-            raise ValueError('settings does not target a layer or stroke')
-        return await painter('brush', {'action': action, 'preset': preset,
-                             'channel_values': channel_values, 'enabled_channels': enabled_channels,
-                             'settings':
-                             settings.model_dump(exclude_none=True) if settings else {}},
-                             lease_id=lease_id)
-    if action == "prepare":
-        if context_token is not None or points is not None:
-            raise ValueError("prepare does not accept context_token or points")
-        params = {"action": action, "texture_set": need(texture_set, "texture_set", action),
-                  "uid": need(uid, "uid", action),
-                  "directory": need(directory, "directory", action), 'mode': mode,
-                  'target': target, 'settings':
-                  settings.model_dump(exclude_none=True) if settings else {}, 'preset': preset,
-                  'channel_values': channel_values, 'enabled_channels': enabled_channels}
-    else:
-        if (settings is not None or preset is not None or channel_values is not None
-                or enabled_channels is not None or target != 'content' or mode != 'paint'):
-            raise ValueError('stroke uses its prepared settings, target and mode')
-        if texture_set is not None or uid is not None or directory is not None:
-            raise ValueError("stroke targets its context; omit texture_set, uid, directory")
-        params = {"action": action, "context_token": need(context_token, "context_token", action),
-                  "points": need(points, "points", action)}
-    return await painter("brush", params, lease_id=lease_id)
+    arguments = {key: value for key, value in locals().items()
+                 if key not in ("action", "lease_id")}
+    accepted = checked(action, arguments, BRUSH_PARAMS, BRUSH_DEFAULTS)
+    if "settings" in accepted:
+        accepted["settings"] = settings.model_dump(exclude_none=True) if settings else {}
+    return await painter("brush", {"action": action, **accepted}, lease_id=lease_id)
 
 
 class OutputMap(BaseModel):

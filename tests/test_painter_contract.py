@@ -63,6 +63,30 @@ class BakeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [("bake_cancel", None, "abc")])
 
 
+class ForeignArgumentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_arguments_an_action_ignores_are_refused_before_painter(self):
+        cases = [
+            ("layer_edit", {"action": "delete", "uid": 3, "base_color": [0.1, 0.2, 0.3]},
+             "delete: base_color"),
+            ("layer_edit", {"action": "levels", "uid": 3, "resource": "Blur"},
+             "levels: resource"),
+            ("layer_edit", {"action": "fill", "name": "A", "base_color": [0, 0, 0], "uid": 3},
+             "fill: uid"),
+            ("layer_edit", {"action": "paint", "name": "A", "roughness": 0.2},
+             "paint: roughness"),
+            ("brush", {"action": "settings", "mode": "erase"}, "settings: mode"),
+        ]
+        reached = []
+        with patch.object(PainterClient, "call", lambda *a, **k: reached.append(a) or {"uid": 1}):
+            for name, arguments, foreign in cases:
+                if name == "layer_edit":
+                    arguments = {"texture_set": "Body", **arguments}
+                with self.subTest(foreign=foreign), self.assertRaisesRegex(
+                        ToolError, f"Not valid for action={foreign}$"):
+                    await server.mcp.call_tool(name, arguments)
+        self.assertEqual(reached, [])
+
+
 class ProjectRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_project_and_settings_actions_reach_their_painter_operations(self):
         calls = []
