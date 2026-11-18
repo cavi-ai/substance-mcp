@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from ..core import workspace
-from ..core.actions import checked
+from ..core.actions import action_schema, checked
 from ..core.contracts import (
     SamplerAssetResult,
     SamplerBuildResult,
@@ -41,14 +41,7 @@ class SamplerServer(Server):
             if tool.name != "sampler_inspect":
                 continue
             tools[index] = tool.model_copy(update={"input_schema": {
-                **tool.input_schema,
-                "if": {"properties": {"action": {"const": "catalog"}}},
-                "else": {
-                    "required": ["project"], "properties": {"project": {"type": "string"}},
-                    "if": {"properties": {"action": {"const": "asset"}}},
-                    "then": {"required": ["asset"], "properties": {"asset": {"type": "string"}}},
-                },
-            }})
+                **tool.input_schema, **action_schema(INSPECT_PARAMS)}})
         return tools
 
 
@@ -91,9 +84,9 @@ class AssetMetadata(BaseModel):
                                Field(max_length=64)] = None
 # action -> (required, optional) arguments besides action and timeout_seconds
 INSPECT_PARAMS = {
+    "catalog": (set(), {"query"}),
     "project": ({"project"}, set()),
     "asset": ({"project", "asset"}, set()),
-    "catalog": (set(), {"query"}),
 }
 PROJECT_PARAMS = {
     "create": ({"name"}, set()),
@@ -137,12 +130,9 @@ async def sampler_inspect(
         Literal["catalog", "project", "asset"],
         Field(description='Inspection'),
     ],
-    project: Annotated[
-        ProjectPath | None, Field(description='.ssa path')
-    ] = None,
-    asset: Annotated[
-        AssetName | None, Field(description='Asset name')
-    ] = None,
+    # Omitted, not null, when the action does not use them.
+    project: Annotated[str, Field(description='.ssa path')] = None,
+    asset: Annotated[AssetName, Field(description='Asset name')] = None,
     query: Annotated[Query, Field(description='Search')] = "",
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerInspection:
@@ -164,7 +154,7 @@ async def sampler_project(
         Field(description='New name'),
     ] = None,
     project: Annotated[
-        ProjectPath | None, Field(description='.ssa path')
+        str | None, Field(description='.ssa path')
     ] = None,
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerProjectResult:

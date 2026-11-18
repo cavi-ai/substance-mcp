@@ -38,6 +38,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - Painter removes failed outputs that contain read-only files.
 - The Designer authoring lock is released explicitly on Windows.
 - A Sampler progress line split across two writes is delivered once complete instead of dropped; progress reads only new bytes.
+- The `sampler_inspect` input schema refuses the arguments an action does not use, as the tool does; `project` and `asset` are omitted, never null.
 - Sampler export completeness matches maps at the end of file names, so `normal` is no longer satisfied by an asset named `NormalRock` and `metallic` by an ORM map.
 - Painter strokes keep sub-pixel positions instead of truncating to whole pixels.
 - Designer render keeps every output that shares a usage, records all outputs in the receipt and refuses to pack an ambiguous usage.
