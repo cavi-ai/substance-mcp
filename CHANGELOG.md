@@ -14,6 +14,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - Designer `material render` sets image inputs, boolean toggles and non-square sizes.
 - Designer `bake antialiasing` supersamples every projecting baker.
 - Designer `graph inspect` and `catalog` without `directory` write nothing; the catalog is cached per Designer version.
+- Painter `brush stroke` takes `uv: true` points in the UV tile; `prepare` reports the tile's viewport position as `viewport.uv`.
 
 ### Changed
 

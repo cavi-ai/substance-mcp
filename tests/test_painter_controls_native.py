@@ -32,6 +32,60 @@ class PainterControlsNativeTests(unittest.TestCase):
         with native_workspace() as folder:
             asyncio.run(self.exercise(Path(folder)))
 
+    def test_uv_stroke_points_land_at_their_texture_pixels(self):
+        with native_workspace() as folder:
+            asyncio.run(self.uv_stroke(Path(folder)))
+
+    async def uv_stroke(self, root):
+        (root / 'plane.obj').write_text(MESH)
+        parameters = StdioServerParameters(
+            command=sys.executable, args=['-m', 'cavi_substance_mcp.painter.server'],
+            env={**os.environ, 'CAVI_SUBSTANCE_WORKSPACE': str(root)})
+        async with stdio_client(parameters) as (reader, writer), ClientSession(
+                reader, writer, read_timeout_seconds=300) as session:
+            await session.initialize()
+
+            async def call(tool, args):
+                reply = await session.call_tool(tool, args)
+                self.assertFalse(reply.is_error, str(reply.content))
+                return reply.structured_content
+
+            self.assertFalse((await call('painter_status', {}))['open'],
+                             'Save and close the current project before this test')
+            ownership = await call('session_control', {'action': 'inspect'})
+            token = (await call('session_control', {
+                'action': 'claim', 'owner': 'native-uv-test',
+                'expected_project': ownership['project_id'], 'ttl_seconds': 600}))['lease_id']
+            try:
+                await call('project', {'action': 'create', 'mesh_path': 'plane.obj',
+                           'default_texture_resolution': 512, 'lease_id': token})
+                layer = await call('layer_edit', {'action': 'paint', 'texture_set': 'Surface',
+                                                 'name': 'UV paint', 'lease_id': token})
+                context = await call('brush', {
+                    'action': 'prepare', 'texture_set': 'Surface', 'uid': layer['uid'],
+                    'directory': 'uv-view', 'channel_values': {'BaseColor': [1, 0, 0]},
+                    'settings': {'size': 8, 'flow': 100, 'opacity': 100, 'spacing': 8},
+                    'lease_id': token})
+                # u .25 to .45 at v .75: texture columns 128 to 230, row 128 from the top.
+                await call('brush', {'action': 'stroke', 'context_token':
+                                     context['context_token'], 'uv': True,
+                                     'points': [[.25, .75, 1], [.45, .75, 1]],
+                                     'lease_id': token})
+                await call('export_textures', {
+                    'directory': 'uv-export', 'resolution': 512, 'texture_sets': ['Surface'],
+                    'maps': [{'name': 'Color', 'channels': {'RGB': 'baseColor'}}],
+                    'dry_run': False, 'lease_id': token})
+                color = pixels(root / 'uv-export/Color.png')
+                rows, columns = np.nonzero((color[:, :, 0] > 60000) & (color[:, :, 1] < 5000))
+                self.assertGreater(len(rows), 100, 'The stroke left no red texels')
+                self.assertAlmostEqual(float(np.median(rows)), 128, delta=4)
+                self.assertAlmostEqual(float(columns.min()), 128, delta=12)
+                self.assertAlmostEqual(float(columns.max()), 230, delta=12)
+            finally:
+                await call('project', {'action': 'close', 'expected_file': None,
+                                      'discard_unsaved': True, 'lease_id': token})
+                await call('session_control', {'action': 'release', 'lease_id': token})
+
     async def exercise(self, root):
         (root / 'plane.obj').write_text(MESH)
         parameters = StdioServerParameters(

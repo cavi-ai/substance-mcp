@@ -10,7 +10,7 @@
 | `project` | `open`, `create`, `close`, `save`, `save_copy`, `save_as`, `save_template`, `export_mesh`, `update_resources`, `display`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `source_precision` (`16` or explicit `template`), `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy, save_as, save_template, export_mesh), `mesh_format` (export_mesh), `display`, `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
 | `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `sbsar_update`, `set_properties`, `delete`, `levels`, `filter`, `anchor_point`, `color_selection`, `compare_mask` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
-| `brush` | `prepare`, `stroke`, `settings` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `settings`, `preset`, `channel_values`, `enabled_channels`, `mode`, `target`, `lease_id` |
+| `brush` | `prepare`, `stroke`, `settings` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `uv` (stroke), `settings`, `preset`, `channel_values`, `enabled_channels`, `mode`, `target`, `lease_id` |
 | `texture_set_settings` | — | `texture_set`, `channel_formats`, `resolution`, `mesh_maps`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
@@ -112,9 +112,16 @@ response includes the resulting `mesh_maps`.
 Pass the returned `context_token` to `brush(action="stroke", points=...,
 lease_id=...)`. Each point is `[x,y,pressure]`: x/y are strictly between 0 and 1,
 relative to the captured viewport with its origin at the top left; pressure is
-0 through 1. A gesture has 2–128 points. These are viewport coordinates, not UVs.
-Choose points over the visible UV islands. Native AppKit mouse events drive the
+0 through 1. A gesture has 2–128 points. Native AppKit mouse events drive the
 actual paint tool; fills or imported bitmaps are not substituted for strokes.
+
+With `uv=true`, each point is `[u,v,pressure]` in the texture set's UV tile, with v
+up: `[0.25,0.75,1]` lands on texture column 25% from the left and row 25% from the
+top of an exported map. `prepare` reads the tile's position from the 2D view capture
+and reports it as `viewport.uv` (`[left, top, right, bottom]` in viewport
+coordinates). It is `null` when the whole tile is not visible or the texture set has
+UDIM tiles or a non-square resolution; a `uv=true` stroke then refuses with the
+reason.
 
 A preparation lasts 60 seconds and permits one stroke. Intervening UI input,
 MCP edits, target, viewport, selection or focus changes require preparation again.
