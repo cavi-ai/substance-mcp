@@ -3,6 +3,7 @@
 import ctypes as C
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -61,6 +62,34 @@ class StrokeTests(unittest.TestCase):
                       lambda kind, point: events.append((kind, point)), lambda: None)
         self.assertEqual([kind for kind, _ in events], [2, 1, 6, 2])
         self.assertEqual(events[2][1][2], 0.7)
+
+
+class Reached(Exception):
+    pass
+
+
+@unittest.skipUnless(sys.platform == 'darwin', 'needs the macOS window server')
+class InputGuardTests(unittest.TestCase):
+    def brush(self, qt_buttons, modal=None):
+        C.CDLL('/System/Library/Frameworks/AppKit.framework/AppKit')
+        app = SimpleNamespace(activeModalWidget=lambda: modal, mouseButtons=lambda: qt_buttons)
+        qt = (SimpleNamespace(Qt=SimpleNamespace(NoButton=0)), None,
+              SimpleNamespace(QApplication=app), None)
+
+        def window():
+            raise Reached
+
+        with patch.object(brush, '_qt', return_value=qt):
+            brush.run({'action': 'settings'}, None, None, None, None, None,
+                      SimpleNamespace(get_main_window=window), lambda: None)
+
+    def test_a_button_qt_still_records_after_its_release_does_not_block_input(self):
+        with self.assertRaises(Reached):
+            self.brush(qt_buttons=1)
+
+    def test_an_open_modal_dialog_blocks_input(self):
+        with self.assertRaisesRegex(RuntimeError, 'modal dialog'):
+            self.brush(qt_buttons=0, modal=object())
 
 
 def capture(left, top, right, bottom):
