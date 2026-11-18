@@ -1,11 +1,11 @@
 """Operations and batch jobs that run inside Sampler's embedded Python.
 
-launch.py starts Sampler with a generated driver script that imports this module and
-calls ``execute_in_sampler``, ``execute_job`` or ``preflight_job``. Sampler's interpreter
-has no third-party packages and cannot see the host-side modules, so this module and
-everything it imports stay standard library only and never import launch, runner, lock,
-batch, job or anything under core except workspace. tests/test_import_closure.py
-enforces both.
+launch.py starts Sampler with the core/host_script.py driver, which calls ``run`` with
+the request. Sampler's interpreter has no third-party packages and cannot see the
+host-side modules, so this module and everything it imports stay standard library only
+and never import launch, runner, lock, batch, job or anything under core except
+workspace; the driver installs the mcp-core modules workspace needs.
+tests/test_import_closure.py enforces both.
 """
 
 import json
@@ -1721,3 +1721,13 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str,
     except KeyError:
         raise ValueError(f"Unknown operation: {operation}") from None
     return action(ssa, root, arguments)
+
+
+def run(request: dict):
+    """Answer one launch request: a preflight, a batch job or a single operation."""
+    if "preflight" in request:
+        return preflight_job(request["preflight"], request["workspace"], request["project"])
+    if "job" in request:
+        return execute_job(request["job"], request["workspace"], request.get("version"))
+    return execute_in_sampler(request["operation"], request.get("arguments") or {},
+                              request["workspace"], request.get("version"))

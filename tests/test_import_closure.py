@@ -15,11 +15,14 @@ import sys
 import unittest
 from pathlib import Path
 
+from cavi_substance_mcp.core import embedded
 from cavi_substance_mcp.painter import client
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = SRC / "cavi_substance_mcp"
 MINIMUM = (3, 11)  # Sampler 6 embeds Python 3.11; Painter 12 and Designer 16 embed 3.13.
+# The mcp-core modules core/embedded.py installs before in-app code runs.
+CORE = {"cavi_mcp_core", *(f"cavi_mcp_core.{name}" for name in embedded.MODULES)}
 
 # Entry module -> the package modules its import may load.
 IN_APP = {
@@ -56,8 +59,8 @@ APPLICATION_MODULES = {
     "designer/graph_native.py": {"sd"},
     "painter/native_brush.py": {"PySide6", "shiboken6", "substance_painter"},
     "painter/operations.py": {"substance_painter", "PySide6"},
-    "receipts.py": set(),
-    "core/workspace.py": set(),
+    "receipts.py": {"cavi_mcp_core"},
+    "core/workspace.py": {"cavi_mcp_core"},
     "sampler/names.py": set(),
     "sampler/targets.py": set(),
     "sampler/operations.py": {"substance_sampler"},
@@ -72,11 +75,16 @@ def report():
         "package": sorted(
             name for name in sys.modules if name.split(".")[0] == "cavi_substance_mcp"
         ),
-        "third_party": sorted(tops - set(sys.stdlib_module_names) - {{"cavi_substance_mcp"}}),
+        "core": sorted(name for name in sys.modules if name.split(".")[0] == "cavi_mcp_core"),
+        "third_party": sorted(
+            tops - set(sys.stdlib_module_names) - {{"cavi_substance_mcp", "cavi_mcp_core"}}
+        ),
     }}))
 """
+# The Sampler driver installs the mcp-core modules before it imports in-app code.
 IMPORT_PROBE = """
 import importlib, json, sys
+exec(compile({bootstrap!r}, "bootstrap", "exec"), {{}})
 sys.path.insert(0, {src!r})
 for name in {modules!r}:
     importlib.import_module(name)
@@ -123,14 +131,17 @@ class IsolationTests(unittest.TestCase):
 
 class ClosureTests(unittest.TestCase):
     def test_each_in_app_module_imports_with_the_standard_library_only(self):
+        bootstrap = embedded.bootstrap()
         for executable in interpreters():
             for module, allowed in IN_APP.items():
                 with self.subTest(executable=executable, module=module):
-                    result = run(executable, IMPORT_PROBE.format(src=str(SRC), modules=[module]))
+                    result = run(executable, IMPORT_PROBE.format(
+                        bootstrap=bootstrap, src=str(SRC), modules=[module]))
                     self.assertEqual(result.returncode, 0, result.stderr)
                     report = loaded(result)
                     self.assertEqual(report["third_party"], [])
                     self.assertEqual(sorted(set(report["package"]) - allowed), [])
+                    self.assertEqual(sorted(set(report["core"]) - CORE), [])
 
     def test_the_painter_payload_runs_as_client_builds_it(self):
         for executable in interpreters():
@@ -140,6 +151,7 @@ class ClosureTests(unittest.TestCase):
                 report = loaded(result)
                 self.assertEqual(report["third_party"], [])
                 self.assertEqual(report["package"], [])
+                self.assertEqual(sorted(set(report["core"]) - CORE), [])
 
 
 def imported_names(path):
@@ -173,14 +185,28 @@ class StaticImportTests(unittest.TestCase):
                     )
 
     def test_the_painter_payload_imports_nothing_from_the_package(self):
-        # Host fallbacks for the two modules bundled before the operations run.
+        # Host fallbacks for the three modules bundled before the operations run.
         for top, level, module in imported_names(PACKAGE / "painter/operations.py"):
             with self.subTest(module=module):
                 if level:
                     self.assertIn((level, module or "receipts"),
-                                  {(2, "receipts"), (1, "native_brush")})
+                                  {(2, "receipts"), (2, "core"), (1, "native_brush")})
                 else:
                     self.assertNotEqual(top, "cavi_substance_mcp")
+
+    def test_bundled_mcp_core_modules_import_only_the_standard_library(self):
+        for name, source in embedded.sources().items():
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Import):
+                    tops = [item.name.split(".")[0] for item in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    self.assertEqual(node.level, 0, f"cavi_mcp_core.{name} imports its package")
+                    tops = [(node.module or "").split(".")[0]]
+                else:
+                    continue
+                for top in tops:
+                    with self.subTest(module=name, imports=top):
+                        self.assertIn(top, sys.stdlib_module_names)
 
     def test_relative_imports_stay_inside_the_in_app_set(self):
         in_app = {"receipts", "core", "core.workspace", "sampler.names", "sampler.targets",
@@ -203,6 +229,11 @@ class SyntaxFloorTests(unittest.TestCase):
             with self.subTest(file=relative):
                 source = (PACKAGE / relative).read_text(encoding="utf-8")
                 ast.parse(source, relative, feature_version=MINIMUM)
+
+    def test_bundled_mcp_core_sources_parse_as_python_3_11(self):
+        for name, source in embedded.sources().items():
+            with self.subTest(module=name):
+                ast.parse(source, f"cavi_mcp_core/{name}.py", feature_version=MINIMUM)
 
     def test_the_payload_compiles_as_the_client_sends_it(self):
         ast.parse(client.SOURCE, "cavi_painter_operations", feature_version=MINIMUM)

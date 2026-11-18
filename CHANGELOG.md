@@ -10,6 +10,11 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ### Changed
 
+- `CAVI_SUBSTANCE_WORKSPACE` must be an absolute path; a relative value is refused.
+- Painter and Sampler in-app code uses MCP Core's workspace, file and journal modules; requires MCP Core 0.1.4.
+- Receipt manifests are written with MCP Core's durable JSON writer and readable by the owner only.
+- Receipts and job files containing NaN or Infinity are refused.
+- Designer graph errors raised inside Designer keep their exception type.
 - Designer bake `timeout_seconds` bounds all maps together (default 1800, at most 36000).
 - Designer bake `max_frontal` and `max_rear` accept 0 to 100, as in Painter.
 - 16-bit PNG output uses per-row PNG filters and is decoded without a per-row Python loop.
@@ -17,6 +22,9 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ### Fixed
 
+- Painter refuses a missing input file with the workspace input message instead of an OS error naming the absolute path.
+- Painter removes failed outputs that contain read-only files.
+- The Designer authoring lock is released explicitly on Windows.
 - A Sampler progress line split across two writes is delivered once complete instead of dropped; progress reads only new bytes.
 - Sampler export completeness matches maps at the end of file names, so `normal` is no longer satisfied by an asset named `NormalRock` and `metallic` by an ORM map.
 - Painter strokes keep sub-pixel positions instead of truncating to whole pixels.
