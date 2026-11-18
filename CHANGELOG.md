@@ -41,6 +41,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 - Sampler export completeness matches maps at the end of file names, so `normal` is no longer satisfied by an asset named `NormalRock` and `metallic` by an ORM map.
 - Painter strokes keep sub-pixel positions instead of truncating to whole pixels.
 - Designer render keeps every output that shares a usage, records all outputs in the receipt and refuses to pack an ambiguous usage.
+- Painter `brush` checks the mouse buttons macOS reports as held, so a button Qt still records after its release no longer blocks brush input.
 
 ## 0.13.0 - 2026-11-09
 

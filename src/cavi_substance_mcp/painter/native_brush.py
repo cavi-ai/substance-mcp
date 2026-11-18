@@ -350,6 +350,20 @@ class EventBlock(C.Structure):
                 ('invoke', C.c_void_p), ('descriptor', C.POINTER(BlockDescriptor))]
 
 
+def pressed_buttons() -> int:
+    """The mouse buttons held now, as macOS reports them. Qt's own record can stay set after
+    a release it never received; a stroke's leading release clears that record."""
+    lib = C.CDLL('/usr/lib/libobjc.A.dylib')
+    lib.objc_getClass.argtypes = lib.sel_registerName.argtypes = [C.c_char_p]
+    lib.objc_getClass.restype = lib.sel_registerName.restype = C.c_void_p
+    event = lib.objc_getClass(b'NSEvent')
+    if not event:
+        raise RuntimeError('AppKit is not loaded; native brush input is unavailable')
+    send = C.CFUNCTYPE(C.c_ulong, C.c_void_p, C.c_void_p)(
+        C.cast(lib.objc_msgSend, C.c_void_p).value)
+    return send(event, lib.sel_registerName(b'pressedMouseButtons'))
+
+
 class AppKit:
     def __init__(self, window):
         self.lib = C.CDLL('/usr/lib/libobjc.A.dylib')
@@ -501,7 +515,7 @@ def run(params, directory, module, layerstack, textureset, project, ui, require_
     qt = _qt()
     core, gui, widgets, _ = qt
     app = widgets.QApplication
-    if app.activeModalWidget() is not None or app.mouseButtons() != core.Qt.NoButton:
+    if app.activeModalWidget() is not None or pressed_buttons():
         raise RuntimeError('Close the modal dialog or release mouse buttons before brush input')
     window = ui.get_main_window()
     native = AppKit(window)
