@@ -63,6 +63,36 @@ class StrokeTests(unittest.TestCase):
         self.assertEqual(events[2][1][2], 0.7)
 
 
+def capture(left, top, right, bottom):
+    """A 1702x1640 2D-view capture: a checkered UV tile, a channel selector overlay at the
+    top right and a flat background."""
+    def pixel(x, y):
+        if left <= x < right and top <= y < bottom:
+            return (207,) * 3 if (x // 24 + y // 24) % 2 else (147,) * 3
+        if 1356 <= x < 1684 and 18 <= y < 70:
+            return (60,) * 3
+        return (35,) * 3
+    return pixel
+
+
+class UvTests(unittest.TestCase):
+    def test_the_uv_tile_is_read_from_the_2d_view_capture(self):
+        rect = brush.uv_rect(1702, 1640, capture(70, 40, 1632, 1600))
+        self.assertEqual(rect, [70 / 1702, 40 / 1640, 1632 / 1702, 1600 / 1640])
+
+    def test_uv_points_map_into_the_tile_with_v_up(self):
+        mapped = brush.uv_points([(0.25, 0.75, 1.0), (0.5, 0.5, 0.3)], [0.1, 0.2, 0.9, 0.6])
+        self.assertEqual([tuple(round(value, 12) for value in point) for point in mapped],
+                         [(0.3, 0.3, 1.0), (0.5, 0.4, 0.3)])
+
+    def test_a_tile_cut_by_the_view_or_not_square_is_refused(self):
+        for tile, message in (((-200, 40, 1632, 1600), 'whole UV tile'),
+                              ((70, 40, 1632, 1700), 'whole UV tile'),
+                              ((70, 40, 1632, 1200), 'one square UV tile')):
+            with self.assertRaisesRegex(RuntimeError, message):
+                brush.uv_rect(1702, 1640, capture(*tile))
+
+
 class ContextTests(unittest.TestCase):
     def setUp(self):
         self.context = {'token': 'ctx', 'expires': 100, 'lease_id': 'mine', 'input_serial': 3}
@@ -124,7 +154,7 @@ class BrushContractTests(unittest.IsolatedAsyncioTestCase):
                                               'points': [[.2, .3, .4], [.6, .7, 1.0]],
                                               'lease_id': 'mine'})
         args, kwargs = call.call_args
-        self.assertEqual(args, ('brush', {'action': 'stroke', 'context_token': 'ctx',
+        self.assertEqual(args, ('brush', {'action': 'stroke', 'context_token': 'ctx', 'uv': False,
                                         'points': [(0.2, 0.3, 0.4), (0.6, 0.7, 1.0)]}))
         self.assertEqual(kwargs['lease_id'], 'mine')
 

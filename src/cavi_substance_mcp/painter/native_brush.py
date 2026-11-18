@@ -41,6 +41,37 @@ def points(value):
     return result
 
 
+def uv_rect(width, height, pixel):
+    """The UV tile's viewport-normalized [left, top, right, bottom] in a 2D-view capture.
+
+    The tile edges are the outermost samples on the center row and column that differ
+    from the background at the capture's edge; ``pixel(x, y)`` returns (r, g, b).
+    """
+    def span(count, sample):
+        background = sample(0)
+        inside = [i for i in range(count)
+                  if max(abs(a - b) for a, b in zip(sample(i), background, strict=True)) > 24]
+        if not inside or inside[0] == 0 or inside[-1] == count - 1:
+            return None
+        return inside[0], inside[-1] + 1
+
+    across = span(width, lambda x: pixel(x, height // 2))
+    down = span(height, lambda y: pixel(width // 2, y))
+    if across is None or down is None:
+        raise RuntimeError('The 2D view does not show the whole UV tile')
+    size = across[1] - across[0], down[1] - down[0]
+    if min(size) < 64 or abs(size[0] - size[1]) > 0.01 * max(size):
+        raise RuntimeError('The 2D view does not show one square UV tile')
+    return [across[0] / width, down[0] / height, across[1] / width, down[1] / height]
+
+
+def uv_points(path, rect):
+    """Viewport-normalized stroke points for [u, v, pressure] points, v up, in ``rect``."""
+    left, top, right, bottom = rect
+    return [(left + u * (right - left), top + (1 - v) * (bottom - top), pressure)
+            for u, v, pressure in path]
+
+
 def gesture(path, send, guard):
     """One stroke, including cleanup after an uncertain partial mutation."""
     guard()
@@ -541,22 +572,36 @@ def run(params, directory, module, layerstack, textureset, project, ui, require_
                            int(viewer.width()*dpr), int(viewer.height()*dpr))
         if not crop.save(str(directory / 'viewport.png')):
             raise RuntimeError('Painter viewport capture failed')
+        texture = stack.material()
+        resolution = texture.get_resolution()
+        uv, uv_error = None, 'UV strokes need a square texture set without UDIM tiles'
+        if not texture.has_uv_tiles() and resolution.width == resolution.height:
+            image = crop.toImage()
+            try:
+                uv = uv_rect(image.width(), image.height(),
+                             lambda x, y: image.pixelColor(x, y).getRgb()[:3])
+            except RuntimeError as exc:
+                uv_error = f'{exc}; frame it and prepare again'
         token = secrets.token_urlsafe(24)
         state['context'] = {
             'token': token, 'expires': time.monotonic() + 60, 'snapshot': snapshot,
             'project': str(project.get_uuid()), 'file': project.file_path(),
             'texture_set': params['texture_set'], 'uid': params['uid'],
             'lease_id': params.get('lease_id'), 'input_serial': state['input_serial'],
-            'mode': mode, 'target': target,
+            'mode': mode, 'target': target, 'uv': uv, 'uv_error': uv_error,
         }
         return {'prepared': True, 'context_token': token, 'expires_in': 60,
                 'texture_set': params['texture_set'], 'uid': params['uid'],
-                'viewport': snapshot, 'preview': str(directory / 'viewport.png'),
+                'viewport': {**snapshot, 'uv': uv}, 'preview': str(directory / 'viewport.png'),
                 'window_preview': str(directory / 'painter.png'),
                 'brush_settings': brush_settings, 'mode': mode, 'target': target,
                 'preset': preset, 'channels': channels}
 
     context = take_context(state, params)
+    if params.get('uv'):
+        if context['uv'] is None:
+            raise RuntimeError(context['uv_error'])
+        path = uv_points(path, context['uv'])
     stack = textureset.Stack.from_name(context['texture_set'])
     viewer, combo = _widgets(qt, 'TextureViewer'), _channel_combo(qt)
 

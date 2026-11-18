@@ -347,9 +347,9 @@ _BRUSH = {"settings", "preset", "channel_values", "enabled_channels"}
 BRUSH_PARAMS = {
     "settings": (set(), _BRUSH),
     "prepare": ({"texture_set", "uid", "directory"}, {*_BRUSH, "target", "mode"}),
-    "stroke": ({"context_token", "points"}, set()),
+    "stroke": ({"context_token", "points"}, {"uv"}),
 }
-BRUSH_DEFAULTS = {"target": "content", "mode": "paint"}
+BRUSH_DEFAULTS = {"target": "content", "mode": "paint", "uv": False}
 
 
 class BrushSettings(BaseModel):
@@ -391,29 +391,26 @@ async def texture_set_settings(
 async def brush(
     action: Annotated[
         Literal["prepare", "stroke", "settings"],
-        Field(description="prepare a context, stroke it, or edit settings."),
+        Field(description="prepare, stroke or settings."),
     ],
     texture_set: Annotated[
-        TextureSetName | None, Field(description="prepare: target texture set.")
+        TextureSetName | None, Field(description="prepare: texture set.")
     ] = None,
-    uid: Annotated[Uid, Field(description="prepare: Paint layer UID.")] = None,
-    directory: Annotated[str | None, Field(description="prepare: new preview directory.")] = None,
+    uid: Annotated[Uid, Field(description="prepare: layer UID.")] = None,
+    directory: Annotated[str | None, Field(description="prepare: new directory.")] = None,
     context_token: Annotated[
         str | None, Field(max_length=128, description="stroke: prepared token.")
     ] = None,
     points: Annotated[
         list[tuple[UnitValue, UnitValue, UnitValue]] | None,
-        Field(
-            min_length=2,
-            max_length=128,
-            description="stroke: [x,y,pressure]; x/y inside 0..1, top-left origin.",
-        ),
+        Field(min_length=2, max_length=128, description="stroke: [x,y,pressure] in 0..1, y down."),
     ] = None,
+    uv: Annotated[StrictBool, Field(description="stroke: u,v points, v up.")] = False,
     settings: Annotated[
         BrushSettings | None, Field(description="Native brush units.")
     ] = None,
     preset: Annotated[
-        str | None, Field(max_length=512, description="Exact shelf brush URL.")
+        str | None, Field(max_length=512, description="Shelf brush URL.")
     ] = None,
     channel_values: Annotated[
         dict[str, PaintValue | tuple[PaintValue, PaintValue, PaintValue]] | None,
@@ -421,10 +418,10 @@ async def brush(
     ] = None,
     enabled_channels: Annotated[
         dict[str, StrictBool] | None,
-        Field(max_length=64, description="Channel enable flags."),
+        Field(max_length=64, description="Channel toggles."),
     ] = None,
     target: Annotated[
-        Literal["content", "mask"], Field(description="prepare: paint content or existing mask.")
+        Literal["content", "mask"], Field(description="prepare: content or mask.")
     ] = "content",
     mode: Annotated[
         Literal["paint", "erase"], Field(description="prepare: paint or erase.")
