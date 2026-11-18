@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from ..core import workspace
-from ..core.actions import checked
+from ..core.actions import action_schema, checked
 from ..core.contracts import (
     SamplerAssetResult,
     SamplerBuildResult,
@@ -41,14 +41,7 @@ class SamplerServer(Server):
             if tool.name != "sampler_inspect":
                 continue
             tools[index] = tool.model_copy(update={"input_schema": {
-                **tool.input_schema,
-                "if": {"properties": {"action": {"const": "catalog"}}},
-                "else": {
-                    "required": ["project"], "properties": {"project": {"type": "string"}},
-                    "if": {"properties": {"action": {"const": "asset"}}},
-                    "then": {"required": ["asset"], "properties": {"asset": {"type": "string"}}},
-                },
-            }})
+                **tool.input_schema, **action_schema(INSPECT_PARAMS)}})
         return tools
 
 
@@ -138,7 +131,7 @@ async def sampler_inspect(
         Field(description='Inspection'),
     ],
     project: Annotated[
-        ProjectPath | None, Field(description='.ssa path')
+        str | None, Field(description='.ssa path')
     ] = None,
     asset: Annotated[
         AssetName | None, Field(description='Asset name')
@@ -164,7 +157,7 @@ async def sampler_project(
         Field(description='New name'),
     ] = None,
     project: Annotated[
-        ProjectPath | None, Field(description='.ssa path')
+        str | None, Field(description='.ssa path')
     ] = None,
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerProjectResult:

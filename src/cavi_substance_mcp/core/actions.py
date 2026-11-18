@@ -17,3 +17,19 @@ def checked(action, arguments, table, defaults=None):
     for key in sorted(required):
         need(arguments[key], key, action)
     return {key: arguments[key] for key in required | optional}
+
+
+def action_schema(table) -> dict:
+    """JSON Schema conditions on ``action`` that require and forbid what ``checked`` does."""
+    names = set().union(*(required | optional for required, optional in table.values()))
+    rules = None
+    for action, (required, optional) in reversed(table.items()):
+        then = {}
+        if required:
+            then["required"] = sorted(required)
+        if names - required - optional:
+            then["properties"] = dict.fromkeys(sorted(names - required - optional), False)
+        # The last action is the only one left once every earlier test has failed.
+        rules = then if rules is None else {
+            "if": {"properties": {"action": {"const": action}}}, "then": then, "else": rules}
+    return rules

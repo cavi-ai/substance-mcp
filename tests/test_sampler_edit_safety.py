@@ -4,7 +4,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+from jsonschema import Draft202012Validator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
@@ -146,6 +148,30 @@ class EditSafetyTests(unittest.TestCase):
             self.assertFalse(tools[name].annotations.read_only_hint, name)
         for name in ("sampler_project", "sampler_export", "sampler_build", "sampler_pack"):
             self.assertFalse(tools[name].annotations.destructive_hint, name)
+
+
+class InspectSchemaTests(unittest.TestCase):
+    def test_the_advertised_schema_accepts_the_calls_the_tool_accepts(self):
+        schema = next(tool.input_schema for tool in asyncio.run(server.mcp.list_tools())
+                      if tool.name == "sampler_inspect")
+        project, asset = {"project": "projects/Rock.ssa"}, {"asset": "Rock"}
+        cases = [{"action": "catalog"}, {"action": "catalog", "query": "rock"},
+                 {"action": "catalog", **project}, {"action": "catalog", **asset},
+                 {"action": "project", **project}, {"action": "project"},
+                 {"action": "project", **project, **asset},
+                 {"action": "project", **project, "query": "rock"},
+                 {"action": "asset", **project, **asset}, {"action": "asset", **project},
+                 {"action": "asset", **asset},
+                 {"action": "asset", **project, **asset, "query": "x"}]
+        with patch.object(launch, "invoke", AsyncMock(return_value={})):
+            for case in cases:
+                try:
+                    asyncio.run(server.sampler_inspect(**case))
+                    accepted = True
+                except ValueError:
+                    accepted = False
+                with self.subTest(case=case):
+                    self.assertEqual(Draft202012Validator(schema).is_valid(case), accepted)
 
 
 if __name__ == "__main__":
