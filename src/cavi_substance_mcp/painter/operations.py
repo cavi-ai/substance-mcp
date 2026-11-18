@@ -5,7 +5,6 @@ import math
 import os
 import re
 import secrets
-import shutil
 import struct
 import tempfile
 import threading
@@ -23,6 +22,11 @@ try:
     native_brush  # noqa: B018 -- bundled before operations in Painter
 except NameError:
     from . import native_brush
+
+try:
+    workspace_paths  # noqa: B018 -- bundled before operations in Painter
+except NameError:
+    from ..core import workspace as workspace_paths
 
 # Bump when Lease state or methods change. The version is part of the attribute name, so a
 # payload never reuses an object built from other code; a lease held under an older version
@@ -212,32 +216,8 @@ def unit_value(value):
     return float(value)
 
 
-def export_destination(workspace: Path, name: str) -> Path:
-    root = workspace.expanduser().resolve(strict=True)
-    if "\x00" in str(name):
-        raise ValueError("Output must remain inside the workspace")
-    path = (root / name).resolve()
-    if path == root or not path.is_relative_to(root):
-        raise ValueError("Output must remain inside the workspace")
-    if path.exists():
-        raise FileExistsError("Output directory already exists; choose a new directory")
-    if not path.parent.is_dir():
-        raise ValueError("Output parent directory must exist")
-    return path
-
-
-def input_file(workspace: Path, name: str, extensions: set[str]) -> Path:
-    root = workspace.expanduser().resolve(strict=True)
-    if "\x00" in str(name):
-        raise ValueError("Input must be a supported file inside the workspace")
-    path = (root / name).resolve(strict=True)
-    if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in extensions:
-        raise ValueError("Input must be a supported file inside the workspace")
-    return path
-
-
 def color_texture(workspace, name):
-    path = input_file(workspace, name, {".png"})
+    path = workspace_paths.input_file(workspace, name, {".png"})
     with path.open("rb") as stream:
         data = stream.read(16 * 1024 * 1024 + 1)
     if len(data) > 16 * 1024 * 1024:
@@ -249,17 +229,6 @@ def color_texture(workspace, name):
         raise ValueError("PNG dimensions must be 1 to 4096 pixels")
     return {"path": str(path), "width": width, "height": height,
             "sha256": hashlib.sha256(data).hexdigest()}, data
-
-
-def remove_tree(path):
-    shutil.rmtree(path, ignore_errors=True)
-    if not path.exists():
-        return []
-    try:
-        left = sorted((str(item) for item in path.rglob("*")), reverse=True)
-    except OSError:
-        left = []
-    return [*left, str(path)]
 
 
 @contextmanager
@@ -276,7 +245,7 @@ def new_output_directory(folder):
     except BaseException as exc:
         if (folder / receipts.MANIFEST).exists():
             raise
-        left = remove_tree(folder)
+        left = workspace_paths.remove_tree(folder)
         if not isinstance(exc, Exception):
             raise
         note = (f"could not remove the incomplete output: {', '.join(left)}" if left
@@ -483,10 +452,10 @@ def _open_or_create(operation, params, workspace, root):
     # A mesh reload result describes the previous project.
     vars(substance_painter).pop(RELOAD_ATTR, None)
     if operation == "open_project":
-        path = input_file(root(), required(params, "path"), {".spp"})
+        path = workspace_paths.input_file(root(), required(params, "path"), {".spp"})
         project.open(str(path))
         return {"requested": operation, "path": str(path), "loading_may_be_pending": True}
-    path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
+    path = workspace_paths.input_file(root(), required(params, "path"), MESH_EXTENSIONS)
     normal = params.get("normal_map_format", "OpenGL")
     if normal not in NORMAL_MAP_FORMATS:
         raise ValueError("normal_map_format must be OpenGL or DirectX")
@@ -494,7 +463,8 @@ def _open_or_create(operation, params, workspace, root):
     udim = flag(params, "udim", False)
     per_fragment = flag(params, "tangent_space_per_fragment", False)
     template = params.get("template")
-    template = None if template is None else input_file(root(), template, {".spt"})
+    template = (None if template is None
+                else workspace_paths.input_file(root(), template, {".spt"}))
     settings = project.Settings(
         normal_map_format=getattr(project.NormalMapFormat, normal),
         default_texture_resolution=resolution,
@@ -533,7 +503,7 @@ def _reload_mesh(operation, params, workspace, root):
     import substance_painter
     from substance_painter import project
 
-    path = input_file(root(), required(params, "path"), MESH_EXTENSIONS)
+    path = workspace_paths.input_file(root(), required(params, "path"), MESH_EXTENSIONS)
     preserve = flag(params, "preserve_strokes", True)
     state = shared(substance_painter, RELOAD_ATTR)
 
@@ -634,7 +604,7 @@ def _save(operation, params, workspace, root):
 def _save_copy(operation, params, workspace, root):
     from substance_painter import project
 
-    folder = export_destination(root(), required(params, "directory"))
+    folder = workspace_paths.output_path(root(), required(params, "directory"))
     started = time.monotonic()
     with new_output_directory(folder):
         path = folder / "project.spp"
@@ -850,7 +820,7 @@ def _receipt_source(path: Path, root: Path, manifest_name, expected,
         expected = expected.lower()
     manifest_path = None
     if manifest_name is not None:
-        manifest_path = input_file(root, manifest_name, {".json"})
+        manifest_path = workspace_paths.input_file(root, manifest_name, {".json"})
     if entry is None:
         entry, _ = _sbsar_entry(path, root)
     if expected is not None and entry["sha256"] != expected:
@@ -874,7 +844,7 @@ def _receipt_provenance(manifest_name, file_name, root: Path) -> list[dict]:
         raise ValueError("source_manifest and source_file must be provided together")
     if manifest_name is None:
         return []
-    source = input_file(root, file_name, {".sbsar"})
+    source = workspace_paths.input_file(root, file_name, {".sbsar"})
     entry, manifest_path = _receipt_source(source, root, manifest_name, None)
     return [{"manifest": receipts.record(manifest_path, root), "file": entry}]
 
@@ -892,7 +862,7 @@ def _export(params, root):
     from substance_painter import export, project, textureset
 
     started = time.monotonic()
-    folder = export_destination(root(), required(params, "directory"))
+    folder = workspace_paths.output_path(root(), required(params, "directory"))
     provenance = _receipt_provenance(
         params.get("source_manifest"), params.get("source_file"), root()
     )
@@ -1285,12 +1255,12 @@ def _layers(operation, params, root):
                 str(snapshot), resource.Usage.TEXTURE, name="cavi_color_" + uuid.uuid4().hex
             ).identifier()
         except Exception as exc:
-            left = remove_tree(folder)
+            left = workspace_paths.remove_tree(folder)
             note = f"; could not remove: {', '.join(left)}" if left else ""
             raise RuntimeError(
                 f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
         # Painter embeds the bitmap on import.
-        leftovers = remove_tree(folder)
+        leftovers = workspace_paths.remove_tree(folder)
     node = None
     try:
         with layerstack.ScopedModification(f"Create fill layer {name}"):
@@ -1320,7 +1290,7 @@ def _layers(operation, params, root):
             except Exception as cleanup_error:  # noqa: BLE001 -- preserve native partial-effect details
                 cleanup = f"layer cleanup failed ({cleanup_error}); inspect the layer stack"
         if imported:
-            left = remove_tree(Path(leftovers[-1])) if leftovers else []
+            left = workspace_paths.remove_tree(Path(leftovers[-1])) if leftovers else []
             kept = [f"imported resource {imported.url()} (no Painter API removes it)", *left]
             raise RuntimeError(
                 f"Texture fill failed ({type(exc).__name__}: {exc}); {cleanup}; "
@@ -1366,7 +1336,7 @@ def _brush(params, root):
     if params.get("action") == "prepare":
         required(params, "texture_set")
         required(params, "uid", int)
-        folder = export_destination(root(), required(params, "directory"))
+        folder = workspace_paths.output_path(root(), required(params, "directory"))
         with new_output_directory(folder):
             return native_brush.run(params, folder, *args)
     return native_brush.run(params, None, *args)
@@ -1392,7 +1362,7 @@ def _layer_edit(params, root):
         elif action == "smart_material":
             item = find_resource(resource, params.get("resource"), "smart_material")
         else:
-            path = input_file(root(), required(params, "sbsar"), {".sbsar"})
+            path = workspace_paths.input_file(root(), required(params, "sbsar"), {".sbsar"})
             # Hash and import one private copy so the file cannot change in between.
             folder = Path(tempfile.mkdtemp(prefix=".cavi-sbsar-", dir=root()))
             try:
@@ -1406,12 +1376,12 @@ def _layer_edit(params, root):
                     str(copy), resource.Usage.BASE_MATERIAL,
                     name="cavi_sbsar_" + uuid.uuid4().hex)
             except Exception as exc:
-                left = remove_tree(folder)
+                left = workspace_paths.remove_tree(folder)
                 if left:
                     raise RuntimeError(f"{type(exc).__name__}: {exc}; could not remove "
                                        f"temporary files: {', '.join(left)}") from exc
                 raise
-            leftovers = remove_tree(folder)
+            leftovers = workspace_paths.remove_tree(folder)
             graphs = ([child for child in package.children()
                        if child.type() == resource.Type.SUBSTANCE]
                       if package.type() == resource.Type.SUBSTANCE_PACKAGE else [package])
@@ -1634,14 +1604,16 @@ def _bake(params, root):
     usages = None if maps is None else [getattr(baking.MeshMapUsage, BAKE_MAPS[m]) for m in maps]
     meshes = names_list(params, "high_poly_meshes", 16)
     meshes = None if meshes is None else [
-        file_url(input_file(root(), mesh, HIGH_POLY_EXTENSIONS)) for mesh in meshes]
+        file_url(workspace_paths.input_file(root(), mesh, HIGH_POLY_EXTENSIONS))
+        for mesh in meshes]
     use_cage = params.get("use_cage")
     if use_cage is not None and type(use_cage) is not bool:
         raise ValueError("use_cage must be a boolean")
     cage = params.get("cage_mesh")
     if (cage is not None) != bool(use_cage):
         raise ValueError("cage_mesh is required with use_cage=true and only then")
-    cage = None if cage is None else file_url(input_file(root(), cage, HIGH_POLY_EXTENSIONS))
+    cage = None if cage is None else file_url(
+        workspace_paths.input_file(root(), cage, HIGH_POLY_EXTENSIONS))
     distances = {}
     for key, name in (("max_frontal", "MaxHeight"), ("max_rear", "MaxDepth")):
         value = params.get(key)

@@ -1,12 +1,7 @@
-"""The workspace root and the path rules every host-side tool follows.
+"""The Substance workspace root and the directory helpers every tool shares.
 
-Standard library only: the Sampler operations that run inside Sampler's embedded Python
-import this module, and it must not import anything else from this package.
-
-Painter runs painter/operations.py as a self-contained payload and cannot import this
-package, so that file keeps its own copies of ``input_file``, ``remove_tree`` and the
-twin of ``output_path``, which it calls ``export_destination``. tests/test_workspace.py
-checks that the copies accept and refuse the same paths.
+The path rules are ``cavi_mcp_core.workspace``. Standard library otherwise: inside Painter
+and Sampler, ``core.embedded.bootstrap`` installs that module before this one is imported.
 """
 
 import os
@@ -17,9 +12,16 @@ import warnings
 from contextlib import contextmanager
 from pathlib import Path
 
+from cavi_mcp_core import workspace as shared
+from cavi_mcp_core.workspace import INPUT_MESSAGE as INPUT_MESSAGE
+from cavi_mcp_core.workspace import OUTPUT_MESSAGE as OUTPUT_MESSAGE
+from cavi_mcp_core.workspace import existing as existing
+from cavi_mcp_core.workspace import input_file as input_file
+from cavi_mcp_core.workspace import new_output_dir as new_output_dir
+from cavi_mcp_core.workspace import output_path as output_path
+from cavi_mcp_core.workspace import rel as rel
+
 ENV = "CAVI_SUBSTANCE_WORKSPACE"
-INPUT_MESSAGE = "Input must be a supported file inside the workspace"
-OUTPUT_MESSAGE = "Output must remain inside the workspace"
 
 
 def default_root() -> Path:
@@ -28,110 +30,13 @@ def default_root() -> Path:
 
 def root(explicit=None, *, create: bool = False) -> Path:
     """The resolved workspace root: ``explicit``, else ``$CAVI_SUBSTANCE_WORKSPACE``, else the
-    default.
-
-    Nothing is touched unless ``create`` is true, so read-only operations can report a
-    workspace that does not exist yet. With ``create`` the default is made on first use,
-    but a root chosen explicitly (argument or environment) must already be a directory:
-    a mistyped path is refused instead of silently becoming a new empty workspace.
-    """
-    if explicit is not None and str(explicit) != "":
-        path = Path(explicit).expanduser().resolve()
-        if create:
-            _require_directory(path, f"Workspace {path}", " Create it first.")
-        return path
-    if os.environ.get(ENV):
-        path = Path(os.environ[ENV]).expanduser().resolve()
-        if create:
-            _require_directory(
-                path, f"{ENV} points to {path}, which",
-                f" Create it, or unset {ENV} to use the default workspace {default_root()}.")
-        return path
-    path = default_root()
-    if create:
-        if path.exists() and not path.is_dir():
-            raise ValueError(f"Workspace {path} is not a directory.")
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise ValueError(f"Cannot create the default workspace {path}: {exc}") from None
-    return path.resolve()
-
-
-def _require_directory(path: Path, subject: str, hint: str = "") -> None:
-    if not path.is_dir():
-        state = "is not a directory" if path.exists() else "does not exist"
-        raise ValueError(f"{subject} {state}.{hint}")
-
-
-def existing(path) -> Path:
-    """Resolve a workspace root that must already be a directory; never creates it."""
-    try:
-        resolved = Path(path).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError):
-        raise ValueError(f"Workspace {path} does not exist.") from None
-    _require_directory(resolved, f"Workspace {resolved}")
-    return resolved
+    default. Only ``create`` makes anything, and only the default."""
+    return shared.root(ENV, explicit, default=default_root(), create=create)
 
 
 def existing_root(explicit=None) -> Path:
     """The configured root for an operation that reads from the workspace."""
-    return existing(root(explicit))
-
-
-def input_file(workspace, name, extensions) -> Path:
-    """Resolve ``name`` to an existing file inside the workspace with a supported suffix.
-
-    Symbolic links are followed before the containment check, so a link that points out
-    of the workspace is refused. ``extensions`` holds lower-case suffixes with the dot.
-    """
-    base = existing(workspace)
-    if not isinstance(name, str) or "\x00" in name:
-        raise ValueError(INPUT_MESSAGE)
-    try:
-        path = (base / name).resolve(strict=True)
-    except (OSError, RuntimeError, ValueError):
-        raise ValueError(INPUT_MESSAGE) from None
-    if not path.is_relative_to(base) or not path.is_file() or path.suffix.lower() not in extensions:
-        raise ValueError(INPUT_MESSAGE)
-    return path
-
-
-def output_path(workspace, name, *, parents: bool = False) -> Path:
-    """Validate a new output directory inside the workspace without creating it.
-
-    It may not be the workspace itself, leave it (including through links) or exist, and
-    its parent must exist unless ``parents`` is true, in which case the missing parents
-    are created.
-    """
-    base = existing(workspace)
-    if not isinstance(name, str) or "\x00" in name:
-        raise ValueError(OUTPUT_MESSAGE)
-    try:
-        path = (base / name).resolve()
-    except (OSError, RuntimeError, ValueError):
-        raise ValueError(OUTPUT_MESSAGE) from None
-    if path == base or not path.is_relative_to(base):
-        raise ValueError(OUTPUT_MESSAGE)
-    if parents:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        raise FileExistsError("Output directory already exists; choose a new directory")
-    if not path.parent.is_dir():
-        raise ValueError("Output parent directory must exist")
-    return path
-
-
-def new_output_dir(workspace, name, *, parents: bool = False) -> Path:
-    """Create the new output directory ``name``; ``mkdir`` itself refuses a concurrent creator."""
-    path = output_path(workspace, name, parents=parents)
-    path.mkdir()
-    return path
-
-
-def rel(workspace, path) -> str:
-    """``path`` relative to the workspace, with forward slashes."""
-    return Path(path).resolve().relative_to(existing(workspace)).as_posix()
+    return shared.existing_root(ENV, explicit, default=default_root())
 
 
 def _unlock(tree: Path):

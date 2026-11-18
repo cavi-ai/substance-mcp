@@ -17,11 +17,12 @@ accept both schemas.
 """
 
 import hashlib
-import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+from cavi_mcp_core import journal
+from cavi_mcp_core.files import parse_json
 
 SCHEMA = 1
 EXTERNAL_SCHEMA = 2
@@ -53,7 +54,8 @@ def read_json(path, limit: int | None = None):
     """Parse the JSON file ``path``, refusing one larger than ``limit`` (``MAX_JSON_BYTES``).
 
     The file is never read past the limit, so a huge or growing file costs at most that
-    much memory. Raises ValueError (including JSON and UTF-8 decoding errors) or OSError.
+    much memory. Raises ValueError (including JSON and UTF-8 decoding errors and NaN or
+    Infinity) or OSError.
     """
     limit = MAX_JSON_BYTES if limit is None else limit
     with Path(path).open("rb") as stream:
@@ -61,7 +63,7 @@ def read_json(path, limit: int | None = None):
     if len(data) > limit:
         size = f"{limit // 2**20} MiB" if limit % 2**20 == 0 else f"{limit} bytes"
         raise ValueError(f"file is larger than {size}")
-    return json.loads(data.decode("utf-8"))
+    return parse_json(data.decode("utf-8"))
 
 
 def _relative(value, label: str) -> str:
@@ -353,14 +355,5 @@ def write_manifest(directory: Path, app: str, operation: str, root: Path, **fiel
 
 def write(directory: Path, manifest: dict) -> Path:
     path = Path(directory) / MANIFEST
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as stream:
-            stream.write(json.dumps(manifest, indent=2) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink(missing_ok=True)
+    journal.write_json(path, manifest)
     return path

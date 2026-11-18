@@ -4,6 +4,20 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Changed
+
+- `CAVI_SUBSTANCE_WORKSPACE` must be an absolute path; a relative value is refused.
+- Painter and Sampler in-app code uses MCP Core's workspace, file and journal modules; requires MCP Core 0.1.4.
+- Receipt manifests are written with MCP Core's durable JSON writer and readable by the owner only.
+- Receipts and job files containing NaN or Infinity are refused.
+- Designer graph errors raised inside Designer keep their exception type.
+
+### Fixed
+
+- Painter refuses a missing input file with the workspace input message instead of an OS error naming the absolute path.
+- Painter removes failed outputs that contain read-only files.
+- The Designer authoring lock is released explicitly on Windows.
+
 ## 0.13.0 - 2026-11-09
 
 ### Changed

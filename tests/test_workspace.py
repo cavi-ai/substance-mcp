@@ -2,6 +2,8 @@ import asyncio
 import os
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 import warnings
@@ -11,7 +13,7 @@ from unittest.mock import patch
 from home import isolate_home
 
 from cavi_substance_mcp.core import workspace
-from cavi_substance_mcp.painter import operations as painter_operations
+from cavi_substance_mcp.painter import client
 
 
 def can_symlink() -> bool:
@@ -52,9 +54,10 @@ class RootTests(unittest.TestCase):
         with patch.dict(os.environ, {workspace.ENV: str(variable)}):
             self.assertEqual(workspace.root(argument), argument)
 
-    def test_a_relative_root_is_resolved(self):
-        with patch.dict(os.environ, {workspace.ENV: "relative"}):
-            self.assertEqual(workspace.root(), Path("relative").resolve())
+    def test_a_relative_environment_root_is_refused(self):
+        with patch.dict(os.environ, {workspace.ENV: "relative"}), \
+                self.assertRaisesRegex(ValueError, f"{workspace.ENV} must be an absolute path"):
+            workspace.root()
 
     def test_reading_never_creates_anything(self):
         workspace.root()
@@ -384,72 +387,30 @@ class RemoveScratchTests(unittest.TestCase):
         self.assertTrue(self.tree.exists())
 
 
-class PayloadParityTests(unittest.TestCase):
-    """painter/operations.py runs inside Painter and keeps its own copy of the path rules.
+PAYLOAD_INPUT_PROBE = """
+import sys
+from pathlib import Path
+namespace = {}
+exec(compile(sys.stdin.read(), "cavi_painter_operations", "exec"), namespace)
+try:
+    namespace["color_texture"](Path(sys.argv[1]), "maps/missing.png")
+except Exception as exc:
+    print(type(exc).__name__ + ": " + str(exc))
+"""
 
-    The two copies may raise different exception types, but they must accept and refuse
-    the same paths and resolve the accepted ones to the same place.
-    """
 
-    def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.base = Path(folder.name).resolve()
-        self.root = self.base / "ws"
-        (self.root / "maps").mkdir(parents=True)
-        (self.root / "used").mkdir()
-        (self.base / "outside").mkdir()
-        (self.root / "maps/a.png").write_bytes(b"png")
-        (self.root / "maps/b.TXT").write_bytes(b"txt")
-        (self.base / "outside/x.png").write_bytes(b"png")
-        if can_symlink():
-            (self.root / "escape.png").symlink_to(self.base / "outside/x.png")
-            (self.root / "via").symlink_to(self.base / "outside", target_is_directory=True)
-            (self.root / "inside.png").symlink_to(self.root / "maps/a.png")
+class PayloadPathRuleTests(unittest.TestCase):
+    """The Painter payload, run as the client sends it, applies the workspace path rules."""
 
-    @staticmethod
-    def outcome(function, *args):
-        try:
-            return ("ok", function(*args))
-        except (OSError, ValueError, RuntimeError):
-            return ("refused", None)
-
-    def test_input_rules_agree(self):
-        names = ["maps/a.png", "maps/b.TXT", "maps/missing.png", "maps", "../outside/x.png",
-                 str(self.base / "outside/x.png"), "", "maps/../maps/a.png"]
-        if can_symlink():
-            names += ["escape.png", "via/x.png", "inside.png"]
-        for name in names:
-            with self.subTest(name=name):
-                for extensions in ({".png"}, {".txt"}):
-                    self.assertEqual(
-                        self.outcome(workspace.input_file, self.root, name, extensions),
-                        self.outcome(painter_operations.input_file, self.root, name,
-                                     extensions))
-
-    def test_output_rules_agree(self):
-        names = ["new", "used", "maps", "", ".", "..", "../x", "a/b", "maps/new",
-                 str(self.base / "outside/new")]
-        if can_symlink():
-            names += ["via/new"]
-        for name in names:
-            with self.subTest(name=name):
-                self.assertEqual(
-                    self.outcome(workspace.output_path, self.root, name),
-                    self.outcome(painter_operations.export_destination, self.root, name))
-
-    def test_remove_tree_agrees(self):
-        for module in (workspace, painter_operations):
-            tree = self.base / f"tree-{module.__name__.rsplit('.', 1)[-1]}"
-            (tree / "sub").mkdir(parents=True)
-            (tree / "sub/f").write_text("x")
-            with self.subTest(module=module.__name__):
-                self.assertEqual(module.remove_tree(tree), [])
-                self.assertFalse(tree.exists())
-                with patch.object(shutil, "rmtree"):
-                    (tree / "sub").mkdir(parents=True)
-                    stuck = module.remove_tree(tree)
-                self.assertEqual(stuck, [str(tree / "sub"), str(tree)])
+    def test_a_missing_input_is_refused_with_the_workspace_message(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            (root / "maps").mkdir()
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-c", PAYLOAD_INPUT_PROBE, str(root)],
+                input=client.SOURCE, capture_output=True, text=True, timeout=120, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"ValueError: {workspace.INPUT_MESSAGE}")
 
 
 if __name__ == "__main__":
