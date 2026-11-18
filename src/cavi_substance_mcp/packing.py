@@ -16,8 +16,13 @@ _write_png16 = write_png16
 USAGE = r"[A-Za-z][A-Za-z0-9_]{0,63}"
 SOURCE = rf"^(?:1-)?{USAGE}$|^(?:0(?:\.[0-9]{{1,6}})?|1(?:\.0{{1,6}})?|\.[0-9]{{1,6}})$"
 NAME = r"^[A-Za-z0-9_-]{1,96}$"
-# Decoded sources are float32 RGBA at most; refuse a pack that would need more than this.
+# Refuse a pack whose peak working memory would exceed this.
 MAX_DECODED_BYTES = 2 * 1024**3
+# Peak bytes per pixel: every source stays decoded as float32 RGBA (16) while maps are
+# written; on top of that, decoding one source holds up to two more float32 RGBA copies
+# and writing one map holds its integer image, one float32 RGB plane and the encoder's
+# big-endian copy (at most 32 for either).
+SOURCE_BYTES, WORKING_BYTES = 16, 32
 READABLE = {".png", ".tga", ".tif", ".tiff", ".jpg", ".jpeg", ".exr"}
 
 Source = Annotated[str, StringConstraints(pattern=SOURCE)]
@@ -29,6 +34,10 @@ class PackMap(BaseModel):
     name: Annotated[str, StringConstraints(pattern=NAME)]
     format: Literal["png", "tga", "tif"] = "png"
     bit_depth: Annotated[Literal[8, 16], Field(description="16: png or tif.")] = 16
+    encode: Annotated[
+        Literal["linear", "srgb"],
+        Field(description="srgb: sRGB transfer on R, G, B before quantizing."),
+    ] = "linear"
     channels: Annotated[
         dict[Literal["R", "G", "B", "A", "RGB"], Source],
         Field(description="Source: usage, 1-usage, or constant 0..1."),
@@ -62,6 +71,18 @@ def _plane(data: np.ndarray, rgb: bool) -> np.ndarray:
     return data[:, :, :1]
 
 
+def _encode_srgb(plane: np.ndarray) -> None:
+    """Linear 0..1 samples to sRGB-encoded 0..1 in place (IEC 61966-2-1), in row blocks
+    so the temporaries stay small."""
+    for rows in np.array_split(plane, max(1, len(plane) // 256)):
+        dark = rows <= 0.0031308
+        linear_part = rows[dark] * np.float32(12.92)
+        np.power(rows, np.float32(1 / 2.4), out=rows)
+        rows *= np.float32(1.055)
+        rows -= np.float32(0.055)
+        rows[dark] = linear_part
+
+
 def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
     check_spec(spec)
     cache: dict[str, np.ndarray] = {}
@@ -78,10 +99,9 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
                     needed.add(usage)
     if not needed:
         raise ValueError("Packing needs at least one image source")
-    decoded = 0
-    for usage in sorted(needed):
-        width, height = dimensions(sources[usage])
-        decoded += width * height * 4 * 4
+    counts = [width * height for width, height in (dimensions(sources[usage])
+                                                   for usage in sorted(needed))]
+    decoded = SOURCE_BYTES * sum(counts) + WORKING_BYTES * max(counts)
     if decoded > MAX_DECODED_BYTES:
         raise ValueError(
             f"Sources need {decoded / 1024**3:.1f} GiB decoded; the limit is "
@@ -94,11 +114,8 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
     size = None
     for usage in sorted(needed):
         cache[usage] = load(sources[usage])
-        if (
-            not np.isfinite(cache[usage]).all()
-            or np.any(cache[usage] < 0)
-            or np.any(cache[usage] > 1)
-        ):
+        # NaN fails both comparisons; infinities fail one.
+        if not (cache[usage].min() >= 0 and cache[usage].max() <= 1):
             raise ValueError(
                 f"{usage}: integer channel packing requires finite normalized 0..1 samples; "
                 "remap HDR/signed values explicitly"
@@ -113,7 +130,7 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
             )
     height, width = size
 
-    def resolve(source: str, rgb: bool) -> np.ndarray:
+    def resolve(source: str, rgb: bool, out: np.ndarray) -> np.ndarray:
         invert = source.startswith("1-") and re.fullmatch(USAGE, source[2:])
         usage = source[2:] if invert else source
         if not re.fullmatch(USAGE, usage):
@@ -122,9 +139,14 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
             value = _plane(cache[usage], rgb)
         else:
             value = np.float32(spec.defaults[usage])
-        value = 1.0 - value if invert else value
-        return np.broadcast_to(value, (height, width, 3 if rgb else 1))
+        if invert:
+            np.subtract(np.float32(1), value, out=out)
+        else:
+            out[...] = value
+        return out
 
+    # One float32 plane reused for every channel group, quantized in place.
+    buffer = np.empty((height, width, 3), dtype=np.float32)
     written = []
     for index, item in enumerate(spec.maps):
         channels = item.channels
@@ -133,6 +155,7 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
             if "RGB" in channels
             else [(channels[key], False) for key in "RGB"]
         )
+        color = len(planes)
         if "A" in channels:
             planes.append((channels["A"], False))
         scale, dtype = (65535.0, np.uint16) if item.bit_depth == 16 else (255.0, np.uint8)
@@ -140,9 +163,13 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
         # float32 copy of the whole map.
         pixels = np.empty((height, width, 4 if "A" in channels else 3), dtype=dtype)
         offset = 0
-        for source, rgb in planes:
+        for number, (source, rgb) in enumerate(planes):
             depth = 3 if rgb else 1
-            pixels[:, :, offset : offset + depth] = np.rint(resolve(source, rgb) * scale)
+            plane = resolve(source, rgb, buffer[:, :, :depth])
+            if item.encode == "srgb" and number < color:
+                _encode_srgb(plane)
+            plane *= np.float32(scale)
+            pixels[:, :, offset : offset + depth] = np.rint(plane, out=plane)
             offset += depth
         for usage in [key for key, last in last_use.items() if last == index]:
             cache.pop(usage, None)
@@ -161,6 +188,7 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
                 "height": height,
                 "channels": "RGBA" if "A" in channels else "RGB",
                 "bit_depth": item.bit_depth,
+                "encode": item.encode,
             }
         )
     return {"maps": written, "sources": sorted(needed)}

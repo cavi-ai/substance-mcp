@@ -4,6 +4,24 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- Channel pack maps take `encode: linear | srgb`; results and receipts record it.
+
+### Changed
+
+- Designer bake `timeout_seconds` bounds all maps together (default 1800, at most 36000).
+- Designer bake `max_frontal` and `max_rear` accept 0 to 100, as in Painter.
+- 16-bit PNG output uses per-row PNG filters and is decoded without a per-row Python loop.
+- The pack memory limit counts working memory, not only decoded sources.
+
+### Fixed
+
+- A Sampler progress line split across two writes is delivered once complete instead of dropped; progress reads only new bytes.
+- Sampler export completeness matches maps at the end of file names, so `normal` is no longer satisfied by an asset named `NormalRock` and `metallic` by an ORM map.
+- Painter strokes keep sub-pixel positions instead of truncating to whole pixels.
+- Designer render keeps every output that shares a usage, records all outputs in the receipt and refuses to pack an ambiguous usage.
+
 ## 0.13.0 - 2026-11-09
 
 ### Changed

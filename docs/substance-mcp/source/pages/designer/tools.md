@@ -27,6 +27,9 @@ CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`) and native SDK graph author
 Position.Raytraced, `world_normal` Normal.TangentToWorld (low mesh only), `bent_normal`
 Normal.BentNormals, `id` Color.Raytraced, `height` Height.Raytraced, `opacity`
 Opacity.Raytraced. One baker run per map; each output file is verified.
+`timeout_seconds` (default 1800, at most 36000) bounds all maps of one bake together.
+`max_frontal` and `max_rear` are fractions of the mesh bounding box from 0 to 100, as in
+Painter's bake.
 
 `material pack` uses the shared [channel packing](../guides/packing.md) spec.
 

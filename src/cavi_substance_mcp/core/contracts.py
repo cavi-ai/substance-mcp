@@ -185,6 +185,7 @@ class PackedOutput(Result):
     height: int
     channels: Literal["RGB", "RGBA"]
     bit_depth: Literal[8, 16]
+    encode: Literal["linear", "srgb"]
 
 
 class DesignerMaterial(VariantResult):

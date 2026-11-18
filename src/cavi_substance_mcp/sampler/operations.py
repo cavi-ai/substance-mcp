@@ -58,9 +58,16 @@ def _squash(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
+def _map_names(stem: str) -> set[str]:
+    """Every trailing run of a file stem's words, joined: ``Rock_Base_Color`` gives
+    ``color``, ``basecolor`` and ``rockbasecolor``."""
+    words = [word for word in re.split(r"[^a-z0-9]+", stem.lower()) if word]
+    return {"".join(words[index:]) for index in range(len(words))}
+
+
 def _missing_maps(files: list[Path], expected) -> list[str]:
-    names = [_squash(item.stem) for item in files]
-    return [name for name in expected if not any(_squash(name) in item for item in names)]
+    names = set().union(*(_map_names(item.stem) for item in files))
+    return [name for name in expected if _squash(name) not in names]
 
 
 def _wait_files(directory: Path, timeout: float = 600, expected=(), poll: float = 0.2,

@@ -78,14 +78,15 @@ def load(path: Path) -> np.ndarray:
         header = stream.read(26)
         if header[:8] == b"\x89PNG\r\n\x1a\n" and len(header) == 26 and header[24] == 16:
             stream.seek(0)
-            width, height, rows, info = png.Reader(file=stream).read()
-            if width > MAX_EDGE or height > MAX_EDGE:
+            reader = png.Reader(file=stream)
+            reader.preamble()
+            if reader.width > MAX_EDGE or reader.height > MAX_EDGE:
                 raise ValueError(f"{path.name} exceeds {MAX_EDGE} px")
-            pixels = np.empty((height, width * info["planes"]), dtype=np.float32)
-            for index, row in enumerate(rows):
-                pixels[index] = row
+            width, height, flat, info = reader.read_flat()
             # Pillow decodes multichannel PNG16 as 8-bit. Keep every source sample.
-            return pixels.reshape(height, width, info["planes"]) / 65535.0
+            samples = np.frombuffer(flat, dtype=np.uint16)
+            return np.divide(samples, 65535.0, dtype=np.float32).reshape(
+                height, width, info["planes"])
     with Image.open(path) as image:
         width, height = image.size
         if width > MAX_EDGE or height > MAX_EDGE:
@@ -103,11 +104,40 @@ def load(path: Path) -> np.ndarray:
     return data[:, :, None] if data.ndim == 2 else data
 
 
+FILTER_ROWS = 64
+
+
+def _filter_rows(rows: np.ndarray, above: np.ndarray, step: int) -> np.ndarray:
+    """Each row as its PNG filter type byte and filtered bytes, using the filter with the
+    least sum of absolute signed bytes; ``above`` is the row before the first one and
+    ``step`` the bytes per pixel."""
+    rows = rows.astype(np.int16)
+    up = np.concatenate([above[None].astype(np.int16), rows[:-1]])
+    left, corner = np.zeros_like(rows), np.zeros_like(rows)
+    left[:, step:], corner[:, step:] = rows[:, :-step], up[:, :-step]
+    guess = left + up - corner
+    to_left, to_up, to_corner = (np.abs(guess - item) for item in (left, up, corner))
+    paeth = np.where((to_left <= to_up) & (to_left <= to_corner), left,
+                     np.where(to_up <= to_corner, up, corner))
+    candidates = (np.stack([rows, rows - left, rows - up, rows - ((left + up) >> 1),
+                            rows - paeth]) & 0xFF).astype(np.uint8)
+    cost = np.abs(candidates.view(np.int8).astype(np.int16)).sum(axis=2, dtype=np.int64)
+    choice = cost.argmin(axis=0)
+    chosen = candidates[choice, np.arange(len(rows))]
+    return np.concatenate([choice[:, None].astype(np.uint8), chosen], axis=1)
+
+
 def write_png16(path: Path, pixels: np.ndarray):
     height, width, channels = pixels.shape
     color = {1: 0, 2: 4, 3: 2, 4: 6}[channels]
-    rows = pixels.astype(">u2").reshape(height, width * channels)
-    raw = b"".join(b"\0" + row.tobytes() for row in rows)
+    samples = pixels.astype(">u2").reshape(height, width * channels).view(np.uint8)
+    compressor = zlib.compressobj(6)
+    parts, above = [], np.zeros(samples.shape[1], dtype=np.uint8)
+    for start in range(0, height, FILTER_ROWS):
+        rows = samples[start:start + FILTER_ROWS]
+        parts.append(compressor.compress(_filter_rows(rows, above, channels * 2).tobytes()))
+        above = rows[-1]
+    parts.append(compressor.flush())
 
     def chunk(kind, body):
         return (
@@ -121,36 +151,6 @@ def write_png16(path: Path, pixels: np.ndarray):
     path.write_bytes(
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IDAT", b"".join(parts))
         + chunk(b"IEND", b"")
     )
-
-
-def describe(path: Path) -> dict:
-    """Read original channel storage, without inferring color interpretation."""
-    width, height = dimensions(path)
-    suffix = path.suffix.lower()
-    if suffix == ".exr":
-        # Header-only File channels do not retain a usable pixel array for type().
-        # InputFile exposes the on-disk channel storage directly without decoding pixels.
-        image = OpenEXR.InputFile(str(path))
-        try:
-            channels = image.header()["channels"]
-            types = [channel.type.v for channel in channels.values()]
-            if any(value == 0 for value in types):
-                raise ValueError("Material EXR channels must use half or full float")
-            depth = 32 if any(value == 2 for value in types) else 16
-            return {"format": "exr", "bit_depth": depth, "sample_type": "float",
-                    "width": width, "height": height, "channels": len(channels)}
-        finally:
-            image.close()
-    if suffix in (".tif", ".tiff"):
-        with tifffile.TiffFile(path) as image:
-            page = image.pages[0]
-            return {"format": "tiff", "bit_depth": page.dtype.itemsize * 8,
-                    "sample_type": "float" if page.dtype.kind == "f" else "uint",
-                    "width": width, "height": height, "channels": page.samplesperpixel}
-    with path.open("rb") as stream:
-        width, height, _, info = png.Reader(file=stream).read()
-        return {"format": "png", "bit_depth": info["bitdepth"], "sample_type": "uint",
-                "width": width, "height": height, "channels": info["planes"]}

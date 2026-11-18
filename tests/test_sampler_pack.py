@@ -53,6 +53,17 @@ class PackTests(unittest.TestCase):
         self.assertEqual((receipt["app"], receipt["operation"]), ("sampler", "pack"))
         self.assertTrue(receipt["outputs"])
 
+    def test_srgb_encoding_applies_to_color_channels_only_and_is_recorded(self):
+        spec = packing.PackSpec.model_validate({"maps": [{
+            "name": "Srgb", "format": "png", "bit_depth": 8, "encode": "srgb",
+            "channels": {"R": "roughness", "G": "roughness", "B": "0", "A": "roughness"}}]})
+        result = pack.pack_sync("packed/srgb", self.sources, spec, self.workspace)
+        with Image.open(self.workspace / "packed/srgb/Srgb.png") as image:
+            self.assertEqual(image.getpixel((0, 0)), (137, 137, 0, 64))
+        receipt = json.loads((self.workspace / result["manifest"]).read_text())
+        self.assertEqual(receipt["parameters"]["pack"]["maps"][0]["encode"], "srgb")
+        self.assertEqual(result["maps"][0]["encode"], "srgb")
+
     def test_existing_directory(self):
         (self.workspace / "packed/existing").mkdir(parents=True)
         with self.assertRaises(FileExistsError):
@@ -105,3 +116,32 @@ class PackBudgetTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, "decoded; the limit"):
                 packing.pack(spec, {"roughness": source}, Path(folder))
             load.assert_not_called()
+
+    def test_the_limit_counts_working_memory_beyond_the_decoded_sources(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "r.png"
+            Image.new("L", (64, 64)).save(source)
+            spec = packing.PackSpec.model_validate(
+                {"maps": [{"name": "M", "channels": {"R": "roughness", "G": "0", "B": "0"}}]})
+            with patch.object(packing, "MAX_DECODED_BYTES", 64 * 64 * 16), \
+                    self.assertRaisesRegex(ValueError, "decoded; the limit"):
+                packing.pack(spec, {"roughness": source}, Path(folder))
+            self.assertFalse((Path(folder) / "M.png").exists())
+
+
+class Png16Tests(unittest.TestCase):
+    def test_a_smooth_16_bit_map_is_written_filtered_and_reads_back_exactly(self):
+        import numpy as np
+        import png
+
+        x, y = np.meshgrid(np.arange(256, dtype=np.uint16), np.arange(256, dtype=np.uint16))
+        pixels = np.stack([x * 256, y * 256, (x + y) * 128], axis=-1)
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "gradient.png"
+            packing.write_png16(target, pixels)
+            width, height, rows, _ = png.Reader(filename=str(target)).read()
+            decoded = np.array(list(rows), dtype=np.uint16).reshape(256, 256, 3)
+            self.assertTrue(np.array_equal(decoded, pixels))
+            self.assertLess(target.stat().st_size, 8192)

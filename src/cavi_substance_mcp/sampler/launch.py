@@ -97,24 +97,29 @@ def status() -> dict:
 
 
 async def _tail_progress(path: Path, callback, stop: asyncio.Event):
-    seen = 0
+    """Deliver each progress line once it is complete; reads only bytes not yet seen."""
+    offset, pending = 0, b""
     while True:
+        final = stop.is_set()
         if path.is_file():
             try:
-                lines = path.read_text(encoding="utf-8").splitlines()
+                with path.open("rb") as stream:
+                    stream.seek(offset)
+                    chunk = stream.read()
             except OSError:
-                lines = []
-            for line in lines[seen:]:
-                seen += 1
-                if not line.strip():
-                    continue
+                chunk = b""
+            offset += len(chunk)
+            *lines, pending = (pending + chunk).split(b"\n")
+            if final:
+                lines.append(pending)
+            for line in lines:
                 try:
-                    event = json.loads(line)
+                    event = json.loads(line.decode("utf-8"))
                 except ValueError:
                     continue
                 with contextlib.suppress(Exception):
                     callback(event)
-        if stop.is_set():
+        if final:
             return
         await asyncio.sleep(0.2)
 

@@ -288,6 +288,24 @@ class FakeCliTests(unittest.TestCase):
         image = Image.open(self.workspace / "r/packed/T_Rock_BaseColor.png")
         self.assertEqual((image.size, image.getpixel((0, 0))), ((64, 64), (204, 102, 51, 128)))
 
+    def test_two_outputs_with_one_usage_are_both_kept_and_never_packed_by_guess(self):
+        data = json.loads(sbsar(["pkg://g"]))
+        data["graphs"][0]["outputs"].append(["basecolor_alt", "baseColor"])
+        (self.workspace / "two.sbsar").write_text(json.dumps(data))
+        result = asyncio.run(operations.render("two.sbsar", None, "r", None, 64, None, None,
+                                               None, "png", "8", None, 30))
+        self.assertEqual(result["maps"]["basecolor"], "r/basecolor.png")
+        self.assertEqual(result["maps"]["basecolor_alt"], "r/basecolor_alt.png")
+        self.assertNotIn("baseColor", result["maps"])
+        manifest = json.loads((self.workspace / "r/manifest.json").read_text())
+        self.assertIn("r/basecolor_alt.png", json.dumps(manifest["outputs"]))
+        with self.assertRaisesRegex(ValueError, "baseColor comes from outputs basecolor, "
+                                                "basecolor_alt"):
+            asyncio.run(operations.render("two.sbsar", None, "p", None, 64, None, None, None,
+                                          "png", "8", spec(HDRP | {"defaults": {"opacity": 1}}),
+                                          30))
+        self.assertFalse((self.workspace / "p").exists())
+
     def test_render_failure_cleans_up(self):
         data = json.loads(sbsar(["pkg://g"]))
         (self.workspace / "bad.sbsar").write_text(json.dumps({**data, "mode": "render_fail"}))
@@ -332,6 +350,13 @@ class FakeCliTests(unittest.TestCase):
                                         OPTIONS, 1))
         self.assertFalse((self.workspace / "s").exists())
         self.assertFalse((self.workspace / "h").exists())
+
+    def test_the_bake_timeout_bounds_all_maps_together(self):
+        (self.workspace / "meshes/slow.fbx").write_text("fake-bake-slow")
+        with self.assertRaises(TimeoutError):
+            asyncio.run(operations.bake("meshes/slow.fbx", None, None,
+                                        ["normal", "curvature"], "slow", OPTIONS, 2))
+        self.assertFalse((self.workspace / "slow").exists())
 
 
 class TruncatedReportTests(unittest.TestCase):
@@ -385,6 +410,24 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(tools["designer_status"].annotations.read_only_hint)
         actions = tools["material"].input_schema["properties"]["action"]["enum"]
         self.assertEqual(actions, ["info", "cook", "render", "pack"])
+
+    def test_bake_ray_distances_share_painter_bounds(self):
+        from cavi_substance_mcp.designer.server import mcp as designer
+        from cavi_substance_mcp.painter.server import mcp as painter
+
+        def limits(node):
+            if isinstance(node, list):
+                return set().union(*map(limits, node))
+            if not isinstance(node, dict):
+                return set()
+            own = {(node["minimum"], node["maximum"])} if "maximum" in node else set()
+            return own.union(*map(limits, node.values()))
+
+        def bounds(app, tool):
+            schema = next(t for t in asyncio.run(app.list_tools()) if t.name == tool).input_schema
+            return {key: limits(schema["properties"][key]) for key in ("max_frontal", "max_rear")}
+
+        self.assertEqual(bounds(designer, "bake"), bounds(painter, "bake"))
 
 
 class StatusContractTests(unittest.IsolatedAsyncioTestCase):

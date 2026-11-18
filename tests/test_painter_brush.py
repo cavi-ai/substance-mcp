@@ -16,6 +16,12 @@ class StrokeTests(unittest.TestCase):
         self.assertEqual(brush.points([[0.2, 0.3, 0.4], [0.7, 0.8, 1.0]]),
                          [(0.2, 0.3, 0.4), (0.7, 0.8, 1.0)])
 
+    def test_a_viewport_point_keeps_its_sub_pixel_position_in_the_window(self):
+        flipped = brush._window_point(10, 20, 101, 101, 500, True, (0.5, 0.5, 1.0))
+        unflipped = brush._window_point(10, 20, 101, 101, 500, False, (0.5, 0.5, 1.0))
+        self.assertEqual((flipped.x, flipped.y), (60.5, 70.5))
+        self.assertEqual((unflipped.x, unflipped.y), (60.5, 429.5))
+
     def test_invalid_paths_are_refused_before_input(self):
         for value in (None, [], [[0.5, 0.5, 1]], [[0, 0.5, 1]] * 2,
                       [[1, 0.5, 1]] * 2, [[0.5, 0.5, float('nan')]] * 2,

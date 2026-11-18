@@ -15,6 +15,11 @@ share one channel packing spec:
 - Sources: usage, `1-<usage>`, or a constant `0..1`. Missing usages need `defaults`.
 - No `A` key writes RGB. All sources share one resolution. Gray from RGB uses R.
 - Packing defaults to 16-bit PNG. Formats are `png`, `tga`, `tif`; 16-bit packing supports PNG and TIFF. Choose 8-bit output explicitly for a runtime texture that requires it.
+- `encode` per map: `linear` (default) writes samples as they are; `srgb` applies the
+  sRGB transfer function to R, G and B before quantizing, never to A. Results and
+  receipts record it.
+- Two Designer render outputs with the same usage are listed by output identifier;
+  packing that usage is refused until `outputs` selects one of them.
 - Choose output bit depth to preserve the contributing sources. A 16-bit PNG pack
   retains 16-bit RGB/RGBA source samples, including interlaced sources; writing
   16-bit output from an 8-bit source does not restore missing precision.
