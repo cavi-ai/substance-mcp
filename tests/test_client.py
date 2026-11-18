@@ -136,16 +136,24 @@ class RemoteTests(unittest.TestCase):
         compile(full_expression("open_project", {"path": malicious}, Path("/tmp/w")), "x", "eval")
 
     def test_export_folder_must_be_new_and_inside_workspace(self):
-        from cavi_substance_mcp.painter.operations import export_destination
+        from evals.painter_simulator import PainterSimulator
 
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            with self.assertRaisesRegex(ValueError, "workspace"):
-                export_destination(root, "../escape")
-            (root / "used").mkdir()
-            with self.assertRaises(FileExistsError):
-                export_destination(root, "used")
-            self.assertEqual(export_destination(root, "new"), root.resolve() / "new")
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder).resolve()
+            (workspace / "used").mkdir()
+            with PainterSimulator(workspace) as simulator:
+                simulator.setup("open")
+                client = OwnedPainterClient(port=simulator.port, workspace=workspace)
+
+                def export(directory):
+                    return client.call("export_textures", {
+                        "directory": directory, "preset": "resource://eval-preset"})
+
+                with self.assertRaisesRegex(RuntimeError, "ValueError: .*inside the workspace"):
+                    export("../escape")
+                with self.assertRaisesRegex(RuntimeError, "FileExistsError: .*already exists"):
+                    export("used")
+                self.assertEqual(export("new")["files"], [str(workspace / "new/Body.png")])
 
 
 class WorkspaceRootTests(unittest.TestCase):
