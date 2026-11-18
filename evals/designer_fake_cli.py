@@ -13,7 +13,7 @@ COMMON = ("--inputs", "--output_path", "--output_name", "--output_size", "--outp
           "--udim", "--name_suffix_low", "--name_suffix_high")
 PROJECTION = ("--high_scene_paths", "--use_lowdef_as_highdef", "--use_cage", "--cage_scene_path",
               "--projection.max_height", "--projection.max_depth",
-              "--projection.mesh_match_mode")
+              "--projection.mesh_match_mode", "--projection.sampling_rate")
 ORIENTED = ("--output_texture_orientation",)
 BAKERS = {
     "AmbientOcclusion.Raytraced": PROJECTION, "Color.Raytraced": PROJECTION,
@@ -95,7 +95,7 @@ def image(path, size, value):
         path.write_bytes(b"v/1\x01fake-exr")
         return
     mode = "RGB" if isinstance(value, tuple) else "L"
-    Image.new(mode, (size, size), value).save(path)
+    Image.new(mode, size if isinstance(size, tuple) else (size, size), value).save(path)
 
 
 def cooker(argv):
@@ -142,8 +142,12 @@ def render(argv):
         fail("Engine failure", 3)
     if data.get("mode") == "render_hang":
         time.sleep(60)
-    size = 256
+    size = (256, 256)
     for key, value in pairs:
+        if key == "--set-entry":
+            ident, _, file = value.partition("@")
+            if not Path(file).is_file():
+                fail(f"Cannot load image {file} for input {ident}", 1)
         if key == "--set-value":
             ident, _, raw = value.partition("@")
             try:
@@ -151,7 +155,7 @@ def render(argv):
             except ValueError:
                 raise SystemExit(47) from None
             if ident == "$outputsize":
-                size = 2 ** int(numbers[0])
+                size = (2 ** int(numbers[0]), 2 ** int(numbers[-1]))
     graphs = data["graphs"]
     if "--input-graph" in args:
         graphs = [g for g in graphs if g["url"] == args["--input-graph"]]
@@ -212,7 +216,12 @@ def graph_authoring(argv):
     script = Path(argv[argv.index('--startup-script') + 1])
     request = json.loads((script.parent / '.graph-request.json').read_text())
     if request['action'] == 'catalog':
-        value = {'definitions': ['sbs::compositing::uniform'], 'total': 1, 'offset': 0}
+        known = ['sbs::compositing::blend', 'sbs::compositing::uniform']
+        found = [item for item in known if request['query'].lower() in item.lower()]
+        value = {'definitions': found[request['offset']:request['offset'] + request['limit']],
+                 'total': len(found), 'offset': request['offset']}
+        if request['query'] in known:
+            value['node_schema'] = {'input': {'opacitymult': {'type': 'float'}}, 'output': {}}
     else:
         recipe = request['recipe']
         value = {'graphs': [{'identifier': recipe.get('identifier', 'material'),

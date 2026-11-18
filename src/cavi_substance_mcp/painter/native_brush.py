@@ -328,8 +328,11 @@ class AppKit:
         self.lib.sel_registerName.restype = C.c_void_p
         self.address = C.cast(self.lib.objc_msgSend, C.c_void_p).value
         self.app = self.send(self.lib.objc_getClass(b'NSApplication'), 'sharedApplication')
+        # Qt's Cocoa platform returns the window's NSView pointer as winId.
         self.view = int(window.winId())
-        if self.view <= 2**32:
+        if sys.platform != 'darwin' or not self.view or not self.send(
+                self.view, 'isKindOfClass:', C.c_bool, (C.c_void_p,),
+                (self.lib.objc_getClass(b'NSView'),)):
             raise RuntimeError('Painter did not expose a native macOS window view')
         self.window = self.send(self.view, 'window')
         if not self.window:

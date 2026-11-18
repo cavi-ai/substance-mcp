@@ -17,6 +17,8 @@ class BlendModeTests(Fixture):
                     RuntimeError, "Unknown blend_mode"):
                 self.edit("set_properties", uid=group["uid"], blend_mode=mode)
             self.assertEqual(node.modes, {})
+        with self.assertRaisesRegex(RuntimeError, "use " + ", ".join(BlendingMode.__members__)):
+            self.edit("set_properties", uid=group["uid"], blend_mode="Bogus")
 
     def test_real_members_still_apply(self):
         group = self.edit("group", name="Wear")

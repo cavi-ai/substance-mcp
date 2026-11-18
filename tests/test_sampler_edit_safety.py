@@ -113,6 +113,32 @@ class EditSafetyTests(unittest.TestCase):
         removed = asyncio.run(server.sampler_asset(**arguments, confirm=True))
         self.assertEqual(removed["deleted"], "Rock")
 
+    def test_arguments_an_action_ignores_are_refused_before_sampler(self):
+        cases = [
+            (server.sampler_asset, {"action": "delete", "asset": "Rock", "confirm": True,
+                                    "model": "openpbr"}, "delete: model"),
+            (server.sampler_asset, {"action": "create", "name": "Other",
+                                    "import_option": "image_to_material_B2M"},
+                                   "create: import_option"),
+            (server.sampler_asset, {"action": "insert_filter", "asset": "Rock",
+                                    "filter": "Tiling", "confirm": True},
+                                   "insert_filter: confirm"),
+            (server.sampler_layer, {"action": "remove", "asset": "Rock", "layer": "Fill",
+                                    "confirm": True, "preset": "Soft"}, "remove: preset"),
+            (server.sampler_layer, {"action": "apply_preset", "asset": "Rock", "layer": "Fill",
+                                    "preset": "Soft", "parameters": {"x": 1}},
+                                   "apply_preset: parameters"),
+            (server.sampler_project, {"action": "create", "name": "Other", "directory": "copy"},
+             "create: project"),
+            (server.sampler_inspect, {"action": "catalog"}, "catalog: project"),
+        ]
+        with patch.object(launch, "invoke") as invoke:
+            for tool, arguments, foreign in cases:
+                with self.subTest(foreign=foreign), self.assertRaisesRegex(
+                        ValueError, f"^Not valid for action={foreign}$"):
+                    asyncio.run(tool(project="projects/Rock.ssa", **arguments))
+            invoke.assert_not_called()
+
     def test_destructive_tools_are_annotated(self):
         tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
         for name in ("sampler_asset", "sampler_layer"):

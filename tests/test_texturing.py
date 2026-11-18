@@ -1,3 +1,4 @@
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,7 +7,15 @@ from owned_client import OwnedPainterClient, wait_ready
 
 from cavi_substance_mcp.painter import operations as ops
 from cavi_substance_mcp.painter.client import PainterClient
-from evals.painter_simulator import BakingStatus, BlendingMode, MeshMapUsage, PainterSimulator
+from evals.painter_simulator import (
+    BakingStatus,
+    BlendingMode,
+    MeshMapUsage,
+    PainterSimulator,
+    ResourceID,
+)
+
+PNG_HEADER = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR" + struct.pack(">II", 64, 64) + bytes(5)
 
 MASK_MAP = {"name": "T_$textureSet_MaskMap", "format": "png", "bit_depth": 8,
             "channels": {"R": "metallic", "G": "ambientOcclusion", "B": "0", "A": "1-roughness"}}
@@ -186,6 +195,66 @@ class LayerTests(Fixture):
         self.assertIsNone(layer.mask)
         self.assertEqual(layer.masks, [])
 
+    def test_effects_reach_content_or_mask_with_their_settings(self):
+        fill = self.client.call("create_fill_layer", {"texture_set": "Body", "name": "Base",
+                                                      "base_color": [0.5, 0.5, 0.5]})
+        uid = fill["uid"]
+        levels = self.edit("levels", uid=uid, parameters={"gamma": [1.2, 1.0, 0.8], "clamp": True})
+        blur = self.edit("filter", uid=uid, resource="Blur", parameters={"wear": 0.25})
+        anchor = self.edit("anchor_point", uid=uid, name="Wear anchor")
+        masked = self.edit("levels", uid=uid, mask="white", parameters={"output_max": 0.5})
+        select = self.edit("color_selection", uid=uid, resource="Grunge Map 001",
+                           parameters={"colors": "#ff0000,#00ff80", "tolerance": 0.2})
+        compare = self.edit("compare_mask", uid=uid, parameters={
+            "operation": "WithinTolerance", "left_operand": "ThisMask", "constant": 0.25})
+        layer = self.sim.layers[0]
+        content = {type(node).__name__: node for node in layer.content}
+        mask = {type(node).__name__: node for node in layer.masks}
+        self.assertEqual(set(content),
+                         {"LevelsEffectNode", "FilterEffectNode", "AnchorPointEffectNode"})
+        self.assertEqual(set(mask), {"LevelsEffectNode", "ColorSelectionEffectNode",
+                                     "CompareMaskEffectNode"})
+        self.assertEqual((levels["stack"], masked["stack"], masked["mask_added"]),
+                         ("content", "mask", True))
+        self.assertEqual(content["LevelsEffectNode"].params.gamma, (1.2, 1.0, 0.8))
+        self.assertTrue(content["LevelsEffectNode"].params.clamp)
+        self.assertEqual(mask["LevelsEffectNode"].params.output_max, 0.5)
+        self.assertEqual(content["FilterEffectNode"].source.values["wear"], 0.25)
+        self.assertEqual(blur["resource_url"], content["FilterEffectNode"].source.resource_id.url())
+        self.assertEqual(content["AnchorPointEffectNode"].get_name(), "Wear anchor")
+        self.assertEqual(anchor["effects"][0]["name"], "Wear anchor")
+        selection = mask["ColorSelectionEffectNode"].params
+        self.assertEqual([color.value for color in selection.colors],
+                         [(1.0, 0.0, 0.0), (0.0, 1.0, 128 / 255)])
+        self.assertEqual((selection.tolerance, select["mask_added"]), (0.2, False))
+        compared = mask["CompareMaskEffectNode"].params
+        self.assertEqual((compared.operation.name, compared.left_operand.name, compared.constant),
+                         ("WithinTolerance", "ThisMask", 0.25))
+        self.assertEqual(compare["parameters"], ["constant", "left_operand", "operation"])
+        with self.assertRaisesRegex(RuntimeError, "Unknown levels parameters: hue"):
+            self.edit("levels", uid=uid, parameters={"hue": 0.5})
+        self.assertEqual(len(layer.content), 3)
+
+    def test_sbsar_update_swaps_the_graph_and_outdated_resources_refresh(self):
+        first = self.edit("sbsar_fill", name="Rock", sbsar="material.sbsar",
+                          parameters={"wear": 0.25})
+        (self.root / "material.sbsar").write_bytes(b"recooked")
+        updated = self.edit("sbsar_update", sbsar="material.sbsar", resource=first["resource_url"])
+        material = self.sim.layers[0].material
+        self.assertNotEqual(updated["resource_url"], first["resource_url"])
+        self.assertEqual((updated["replaced"], material.resource_id.url(), material.values["wear"]),
+                         (first["resource_url"], updated["resource_url"], 0.25))
+        self.assertEqual(self.sim.imports[-1]["bytes"], b"recooked")
+        with self.assertRaisesRegex(RuntimeError, "not used in the project"):
+            self.edit("sbsar_update", sbsar="material.sbsar", resource=first["resource_url"])
+        self.sim.outdated = {ResourceID.from_url(updated["resource_url"]):
+                             ResourceID.from_url(first["resource_url"])}
+        refreshed = self.client.call("update_resources", {})
+        self.assertEqual(refreshed["updated"],
+                         [{"old": updated["resource_url"], "new": first["resource_url"]}])
+        self.assertEqual(material.resource_id.url(), first["resource_url"])
+        self.assertEqual(self.client.call("update_resources", {})["updated"], [])
+
     def test_set_properties_restores_on_failure(self):
         group = self.edit("group", name="Wear")
         self.sim.state = "blend-failure"
@@ -239,6 +308,67 @@ class ProjectTests(Fixture):
         self.sim.state = "open"
         self.client.call("close_project", {"expected_file": "simulated-original.spp"})
         self.assertIsNone(self.waiter().call("status")["mesh_reload"])
+
+
+    def test_save_as_template_and_mesh_export_write_receipted_directories(self):
+        saved = self.client.call("save_as", {"directory": "saved"})
+        template = self.client.call("save_template", {"directory": "templates"})
+        mesh = self.client.call("export_mesh", {"directory": "mesh", "format": "obj"})
+        self.assertEqual([saved["path"], template["path"], mesh["path"]],
+                         [str(self.root / "saved/project.spp"),
+                          str(self.root / "templates/Body.spt"), str(self.root / "mesh/mesh.obj")])
+        self.assertEqual(self.waiter().call("status")["file"], saved["path"])
+        self.assertEqual(template["texture_set"], "Body")
+        self.assertEqual(self.sim.mesh_exports, [(mesh["path"], "BaseMesh")])
+        for result in (saved, template, mesh):
+            self.assertTrue(Path(result["manifest"]).is_file())
+            self.assertEqual(result["bytes"], Path(result["path"]).stat().st_size)
+        with self.assertRaisesRegex(RuntimeError, "already exists"):
+            self.client.call("export_mesh", {"directory": "mesh", "format": "obj"})
+        with self.assertRaisesRegex(RuntimeError, "format must be one of"):
+            self.client.call("export_mesh", {"directory": "other", "format": "stl"})
+        self.assertFalse((self.root / "other").exists())
+
+    def test_display_sets_environment_lut_and_tone_mapping_and_restores_on_failure(self):
+        before = self.client.call("display", {})
+        self.assertEqual(before, {"environment": "resource://starter_assets/Panorama",
+                                  "color_lut": None, "tone_mapping": "Linear"})
+        after = self.client.call("display", {"display": {
+            "environment": "Studio", "color_lut": "Film LUT", "tone_mapping": "ACES"}})
+        self.assertEqual(after, {"environment": "resource://starter_assets/Studio",
+                                 "color_lut": "resource://starter_assets/Film LUT",
+                                 "tone_mapping": "ACES"})
+        with self.assertRaisesRegex(RuntimeError, "tone_mapping must be one of Linear, ACES"):
+            self.client.call("display", {"display": {"tone_mapping": "Filmic"}})
+        with self.assertRaisesRegex(RuntimeError, "No environment named Grunge Map 001"):
+            self.client.call("display", {"display": {"environment": "Grunge Map 001"}})
+        self.sim.state = "display-failure"
+        with self.assertRaisesRegex(RuntimeError, "previous display restored"):
+            self.client.call("display", {"display": {"environment": "Panorama",
+                                                     "tone_mapping": "Linear"}})
+        self.sim.state = "open"
+        self.assertEqual(self.client.call("display", {}), after)
+
+    def test_mesh_maps_take_workspace_images_and_restore_on_failure(self):
+        (self.root / "normal.png").write_bytes(PNG_HEADER)
+        (self.root / "ao.png").write_bytes(PNG_HEADER)
+        result = self.client.call("texture_set_settings", {
+            "texture_set": "Body", "mesh_maps": {"normal": "normal.png", "ao": "ao.png"}})
+        self.assertEqual({key: result["mesh_maps"][key] for key in ("normal", "ao")},
+                         {"normal": self.sim.mesh_maps[MeshMapUsage.Normal].url(),
+                          "ao": self.sim.mesh_maps[MeshMapUsage.AO].url()})
+        self.assertTrue(all(item["usage"].name == "TEXTURE" and Path(item["path"]).parent
+                            != self.root for item in self.sim.imports))
+        assigned = dict(self.sim.mesh_maps)
+        self.sim.state = "mesh-map-failure"
+        with self.assertRaisesRegex(RuntimeError, "previous mesh maps restored.*kept"):
+            self.client.call("texture_set_settings", {
+                "texture_set": "Body", "mesh_maps": {"normal": "ao.png", "ao": "normal.png"}})
+        self.assertEqual(self.sim.mesh_maps, assigned)
+        self.sim.state = "open"
+        with self.assertRaisesRegex(RuntimeError, "Unknown mesh map world; use normal, "):
+            self.client.call("texture_set_settings", {
+                "texture_set": "Body", "mesh_maps": {"world": "ao.png"}})
 
 
 class ShelfTests(Fixture):

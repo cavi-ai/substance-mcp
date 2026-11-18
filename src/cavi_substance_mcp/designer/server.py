@@ -9,6 +9,7 @@ from ..core.contracts import BakeResult, DesignerGraphResult, DesignerMaterial, 
 from ..packing import USAGE, PackSpec
 from . import operations
 from .graph import invoke as graph_invoke
+from .graph import query as graph_query
 from .graph_models import GraphRecipe
 
 mcp = Server(
@@ -29,7 +30,7 @@ MapName = Literal["normal", "ambient_occlusion", "curvature", "thickness", "posi
 ACTION_PARAMS = {
     "info": {"path"},
     "cook": {"path", "builtin", "directory", "expose_output_size", "expose_random_seed"},
-    "render": {"path", "graph", "directory", "values", "resolution", "seed", "preset",
+    "render": {"path", "graph", "directory", "values", "images", "resolution", "seed", "preset",
                "outputs", "format", "bit_depth", "pack"},
     "pack": {"directory", "pack", "sources"},
 }
@@ -55,12 +56,19 @@ async def material(
     directory: Annotated[str | None, Field(description="New directory.")] = None,
     graph: Annotated[str | None, Field(description="pkg://name; needed if several.")] = None,
     values: Annotated[
-        dict[Identifier, Number | Annotated[list[Number], Field(min_length=1, max_length=4)]]
+        dict[Identifier, StrictBool | Number
+             | Annotated[list[Number], Field(min_length=1, max_length=4)]]
         | None,
-        Field(max_length=64, description="render: input values."),
+        Field(max_length=64, description="render: input values; toggles take booleans."),
+    ] = None,
+    images: Annotated[
+        dict[Identifier, Annotated[str, StringConstraints(min_length=1, max_length=1024)]]
+        | None,
+        Field(max_length=16, description="render: image input -> workspace image."),
     ] = None,
     resolution: Annotated[
-        Resolution | None, Field(description="render: output texture size.")
+        Resolution | Annotated[list[Resolution], Field(min_length=2, max_length=2)] | None,
+        Field(description="render: size, or [width, height]."),
     ] = None,
     seed: Annotated[
         StrictInt | None, Field(ge=0, le=2147483647, description="render: random seed.")
@@ -103,7 +111,8 @@ async def material(
     if action == "render":
         return await operations.render(
             need(path, "path", action), graph, need(directory, "directory", action), values,
-            resolution, seed, preset, outputs, format, bit_depth, pack, timeout_seconds)
+            resolution, seed, preset, outputs, format, bit_depth, pack, timeout_seconds,
+            images=images)
     return await operations.pack(need(sources, "sources", action), need(pack, "pack", action),
                                  need(directory, "directory", action))
 
@@ -119,6 +128,10 @@ async def bake(
     cage: Annotated[str | None, Field(description="Cage mesh; needs use_cage.")] = None,
     use_cage: Annotated[StrictBool, Field(description="Use the supplied cage mesh.")] = False,
     resolution: Annotated[Resolution, Field(description="Texture size.")] = 2048,
+    antialiasing: Annotated[
+        Literal["none", "2x2", "4x4", "8x8"],
+        Field(description="Supersampling; world_normal has none."),
+    ] = "none",
     normal_format: Annotated[
         Literal["OpenGL", "DirectX"], Field(description="Normal map orientation.")
     ] = "OpenGL",
@@ -146,7 +159,8 @@ async def bake(
     ] = 1800,
 ) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""
-    options = {"resolution": resolution, "normal_format": normal_format, "use_cage": use_cage,
+    options = {"resolution": resolution, "antialiasing": antialiasing,
+               "normal_format": normal_format, "use_cage": use_cage,
                "max_frontal": max_frontal, "max_rear": max_rear, "udim": udim,
                "match_by_name": match_by_name, "suffix_low": suffix_low,
                "suffix_high": suffix_high, "format": format}
@@ -158,7 +172,10 @@ async def graph(
     action: Annotated[
         Literal["create", "edit", "inspect", "catalog"], Field(description="Graph operation.")
     ],
-    directory: Annotated[str, Field(description="New output directory.")],
+    directory: Annotated[
+        str | None,
+        Field(description="New output directory; inspect/catalog: omit to write nothing."),
+    ] = None,
     path: Annotated[str | None, Field(description="Workspace .sbs for edit/inspect.")] = None,
     recipe: Annotated[
         GraphRecipe | None, Field(description="create/edit: operations.")
@@ -172,8 +189,10 @@ async def graph(
 ) -> DesignerGraphResult:
     """Author SBS graphs in a dedicated native batch. Edits copy the source and preserve
     unspecified settings. Refuses running Designer; cook/render the saved package with material."""
-    return await graph_invoke(action, directory, path, recipe, query, offset, limit,
-                              timeout_seconds)
+    if directory is None and action in ("inspect", "catalog"):
+        return await graph_query(action, path, query, offset, limit, timeout_seconds)
+    return await graph_invoke(action, need(directory, "directory", action), path, recipe, query,
+                              offset, limit, timeout_seconds)
 
 
 def main():

@@ -1663,7 +1663,7 @@
    "protocol",
    "simulated"
   ],
-  "error": "only valid"
+  "error": "Not valid for action=fill: base_color_texture"
  },
  {
   "id": "layer-edit-texture-missing",

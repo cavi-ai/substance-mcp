@@ -40,6 +40,11 @@ OPERATIONS = frozenset(
         "bake_settings",
         "shelf",
         "reload_mesh",
+        "save_as",
+        "save_template",
+        "export_mesh",
+        "update_resources",
+        "display",
     }
 )
 READ_ONLY_OPERATIONS = frozenset(
@@ -48,7 +53,8 @@ READ_ONLY_OPERATIONS = frozenset(
 )
 DEFAULT_TIMEOUT = 60.0
 SLOW_TIMEOUT = 600.0
-SLOW_OPERATIONS = frozenset({"save", "save_copy", "export_textures"})
+SLOW_OPERATIONS = frozenset({"save", "save_copy", "save_as", "save_template", "export_mesh",
+                             "update_resources", "export_textures"})
 OPERATION_TIMEOUTS = {"layer_edit": 120.0, **dict.fromkeys(SLOW_OPERATIONS, SLOW_TIMEOUT)}
 # How long status waits for a request already in flight before reporting it instead.
 STATUS_QUEUE_SECONDS = 0.5

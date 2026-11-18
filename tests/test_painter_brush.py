@@ -1,5 +1,7 @@
 """Brush input validation and partial-gesture cleanup."""
 
+import ctypes as C
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -125,6 +127,27 @@ class BrushContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args, ('brush', {'action': 'stroke', 'context_token': 'ctx',
                                         'points': [(0.2, 0.3, 0.4), (0.6, 0.7, 1.0)]}))
         self.assertEqual(kwargs['lease_id'], 'mine')
+
+
+@unittest.skipUnless(sys.platform == 'darwin', 'needs the Objective-C runtime')
+class NativeViewTests(unittest.TestCase):
+    def window_with(self, class_name):
+        objc = C.CDLL('/usr/lib/libobjc.A.dylib')
+        C.CDLL('/System/Library/Frameworks/AppKit.framework/AppKit')
+        objc.objc_getClass.restype = objc.sel_registerName.restype = C.c_void_p
+        objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [C.c_char_p]
+        send = C.CFUNCTYPE(C.c_void_p, C.c_void_p, C.c_void_p)(
+            C.cast(objc.objc_msgSend, C.c_void_p).value)
+        made = send(send(objc.objc_getClass(class_name), objc.sel_registerName(b'alloc')),
+                    objc.sel_registerName(b'init'))
+        return type('Window', (), {'winId': lambda self: made})()
+
+    def test_only_an_nsview_is_messaged_as_the_painter_view(self):
+        with self.assertRaisesRegex(RuntimeError, 'did not expose a native macOS window view'):
+            brush.AppKit(self.window_with(b'NSObject'))
+        # A detached NSView passes the view check and has no window yet.
+        with self.assertRaisesRegex(RuntimeError, 'native window is unavailable'):
+            brush.AppKit(self.window_with(b'NSView'))
 
 
 if __name__ == '__main__':

@@ -16,9 +16,9 @@ CLIs (`sbscooker`, `sbsrender`, `substance3d_baker`) and native SDK graph author
 | Tool | Actions / inputs |
 | --- | --- |
 | `designer_status` | binaries, versions, packages dir, templates, workspace |
-| `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values`, `resolution`, `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
-| `graph` | `create`, `edit`, `inspect`, `catalog`; new output `directory`, optional source `path`, structured `recipe` |
-| `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `normal_format`, distances, `udim`, name matching |
+| `material` | `info` sbsar graphs; `cook` `.sbs` or `builtin` (`templates/<name>`, `packages/<name>`); `render` graph + `values` (numbers, 1–4 component lists, booleans for toggles), `images` (image input → workspace image), `resolution` (size or `[width, height]`), `seed`, `preset`, `outputs`, `format`, `bit_depth`, optional `pack`; `pack` `sources` + `pack` |
+| `graph` | `create`, `edit`, `inspect`, `catalog`; new output `directory` (optional for `inspect`/`catalog`), optional source `path`, structured `recipe` |
+| `bake` | `low`, optional `high`/`cage`, `maps`, `resolution`, `antialiasing` (`none`, `2x2`, `4x4`, `8x8`), `normal_format`, distances, `udim`, name matching |
 
 ## Bake maps
 
@@ -65,6 +65,10 @@ precision, size and seed unless the recipe explicitly changes them. Operations
 include `add_node`, `instance`, `set`, `connect`, `disconnect`, `remove_node`,
 `expose`, `set_input` and `output`. Property values use their native SDK types;
 texture inputs are connected through their ports.
+
+Without `directory`, `inspect` and `catalog` write nothing to the workspace:
+`inspect` checks the source package is unchanged afterward, and `catalog` results are
+cached per Designer version, so later queries do not relaunch Designer.
 
 Use `catalog` to discover native definition IDs. An exact definition query also
 returns input/output property types, defaults and connectability. `path` may name

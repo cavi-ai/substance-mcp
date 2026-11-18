@@ -1,10 +1,11 @@
 import base64
+import struct
 import tempfile
 import unittest
 from pathlib import Path
 
 from cavi_substance_mcp.painter.client import PainterClient
-from evals.painter_simulator import PainterSimulator
+from evals.painter_simulator import ChannelType, PainterSimulator
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0p0AAAAASUVORK5CYII="
@@ -73,3 +74,49 @@ class TextureFillTests(unittest.TestCase):
                     "texture_set": "Body", "name": "Invalid", "base_color_texture": "color.png",
                 }, lease_id=token)
             self.assertEqual(simulator.layers, [])
+
+    def test_exr_and_tiff_fills_reach_8192_and_bind_float_data_linear(self):
+        def tiff(order, kind, width, height, sample_format):
+            entries = [(256, kind, width), (257, kind, height), (339, 3, sample_format)]
+            packed = b"".join(
+                struct.pack(order + "HHI", tag, kind, 1)
+                + struct.pack(order + ("HH" if kind == 3 else "I"), value, *([0] * (kind == 3)))
+                for tag, kind, value in entries)
+            magic = b"II*\0" if order == "<" else b"MM\0*"
+            return magic + struct.pack(order + "IH", 8, len(entries)) + packed + b"\0" * 4
+
+        exr = (b"\x76\x2f\x31\x01\x02\0\0\0" + b"compression\0compression\0"
+               + struct.pack("<i", 1) + b"\x03" + b"dataWindow\0box2i\0"
+               + struct.pack("<i4i", 16, 0, 0, 8191, 4095) + b"\0")
+        wide = bytearray(PNG)
+        wide[16:20] = struct.pack(">I", 8193)
+        files = {"color.exr": exr, "float.tif": tiff("<", 4, 5000, 3000, 3),
+                 "ldr.tiff": tiff(">", 3, 640, 480, 1), "wide.png": bytes(wide)}
+        with tempfile.TemporaryDirectory() as folder, PainterSimulator(Path(folder)) as simulator:
+            root = Path(folder)
+            for name, data in files.items():
+                (root / name).write_bytes(data)
+            client = PainterClient(port=simulator.port, workspace=root)
+            state = client.call("session_control", {"action": "inspect"})
+            token = client.call("session_control", {"action": "claim", "owner": "texture-fixture",
+                                "expected_project": state["project_id"]})["lease_id"]
+
+            def fill(name, texture):
+                return client.call("create_texture_fill", {
+                    "texture_set": "Body", "name": name, "base_color_texture": texture,
+                }, lease_id=token)
+
+            with self.assertRaisesRegex(RuntimeError, "1 to 8192 pixels"):
+                fill("Wide", "wide.png")
+            self.assertEqual((simulator.layers, simulator.resources), ([], []))
+            found = {name: fill(name, name) for name in ("color.exr", "float.tif", "ldr.tiff")}
+            self.assertEqual(
+                {name: (result["color_space"], result["base_color_texture"]["width"],
+                        result["base_color_texture"]["height"])
+                 for name, result in found.items()},
+                {"color.exr": ("Working", 8192, 4096), "float.tif": ("Working", 5000, 3000),
+                 "ldr.tiff": ("sRGB", 640, 480)})
+            bound = {layer.get_name(): layer.sources[ChannelType.BaseColor].color_space
+                     for layer in simulator.layers}
+            self.assertEqual(bound, {"color.exr": "Working", "float.tif": "Working",
+                                     "ldr.tiff": "sRGB"})
