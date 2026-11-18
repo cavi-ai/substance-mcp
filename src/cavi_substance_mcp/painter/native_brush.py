@@ -303,6 +303,13 @@ class Point(C.Structure):
     _fields_ = [('x', C.c_double), ('y', C.c_double)]
 
 
+def _window_point(left, top, width, height, window_height, flipped, point):
+    """Window position of a viewport-normalized point, unrounded, in the window's own
+    vertical orientation; ``left``/``top`` are the viewport's offset in the window."""
+    x, y = left + width*point[0], top + height*point[1]
+    return Point(x, y if flipped else window_height-y)
+
+
 class BlockDescriptor(C.Structure):
     _fields_ = [('reserved', C.c_ulong), ('size', C.c_ulong), ('signature', C.c_char_p)]
 
@@ -562,10 +569,9 @@ def run(params, directory, module, layerstack, textureset, project, ui, require_
             raise RuntimeError('Painter project, target, viewport or focus changed; prepare again')
 
     def send(kind, point):
-        position = viewer.mapTo(window, core.QPoint(int(viewer.width()*point[0]),
-                                                   int(viewer.height()*point[1])))
-        local = Point(position.x(), position.y() if native.flipped
-                      else window.height()-position.y())
+        offset = viewer.mapTo(window, core.QPoint(0, 0))
+        local = _window_point(offset.x(), offset.y(), viewer.width(), viewer.height(),
+                              window.height(), native.flipped, point)
         native_position = native.send(native.view, 'convertPoint:toView:', Point,
                                       (Point, C.c_void_p), (local, None))
         native.event(kind, native_position, point[2])

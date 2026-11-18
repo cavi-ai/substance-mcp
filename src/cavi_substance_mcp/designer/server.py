@@ -136,11 +136,12 @@ async def bake(
         Literal["OpenGL", "DirectX"], Field(description="Normal map orientation.")
     ] = "OpenGL",
     max_frontal: Annotated[
-        StrictFloat | StrictInt | None, Field(ge=0, le=10, description="Fraction of bbox.")
+        float | None,
+        Field(ge=0, le=100, allow_inf_nan=False, description="Front ray distance / bbox."),
     ] = None,
     max_rear: Annotated[
-        StrictFloat | StrictInt | None,
-        Field(ge=0, le=10, description="Rear distance / bounds."),
+        float | None,
+        Field(ge=0, le=100, allow_inf_nan=False, description="Rear ray distance / bbox."),
     ] = None,
     udim: Annotated[
         StrictInt | None, Field(ge=1001, le=1999, description="UDIM tile to bake.")
@@ -153,7 +154,9 @@ async def bake(
     format: Annotated[
         Literal["png", "tga", "tif", "exr"], Field(description="Image format.")
     ] = "exr",
-    timeout_seconds: Annotated[Timeout, Field(description="Per map.")] = 600,
+    timeout_seconds: Annotated[
+        StrictInt, Field(ge=1, le=36000, description="All maps together.")
+    ] = 1800,
 ) -> BakeResult:
     """Bake mesh maps sequentially; each output is verified."""
     options = {"resolution": resolution, "antialiasing": antialiasing,

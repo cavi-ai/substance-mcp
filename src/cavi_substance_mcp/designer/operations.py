@@ -230,7 +230,7 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
         if result.returncode:
             raise RuntimeError(runner.failure(result, "sbsrender render"))
         report = runner.parse_report(runner.parsed_stdout(result, "sbsrender render"))
-        produced, maps = [], {}
+        produced, files, claims = [], [], {}
         for entry in report:
             for output in entry.get("outputs", []) if isinstance(entry, dict) else []:
                 file = Path(str(output.get("value", ""))).resolve()
@@ -239,10 +239,26 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
                 usages = [u for u in output.get("usages", []) if isinstance(u, str) and u]
                 produced.append({"id": output.get("identifier"), "label": output.get("label"),
                                  "usages": usages, "file": rel(file)})
+                files.append(file)
                 for key in usages or [output.get("identifier")]:
-                    maps.setdefault(key, file)
+                    claims.setdefault(key, []).append((output.get("identifier"), file))
         if not produced:
             raise RuntimeError("sbsrender reported no outputs")
+        # A usage several outputs carry is listed by each output's identifier instead.
+        maps, shared = {}, {}
+        for key, claimants in claims.items():
+            if len(claimants) == 1:
+                maps[key] = claimants[0][1]
+            else:
+                shared[key] = [ident for ident, _ in claimants]
+                maps.update((str(ident), file) for ident, file in claimants)
+        if spec is not None:
+            for item in spec.maps:
+                for channel in item.channels.values():
+                    usage = channel.removeprefix("1-")
+                    if usage in shared:
+                        raise ValueError(f"{usage} comes from outputs {', '.join(shared[usage])};"
+                                         " render one of them with outputs to pack it")
         reply = {"directory": rel(dest), "graph": selected["url"],
                  "maps": {key: rel(file) for key, file in maps.items()}, "outputs": produced,
                  "report": report}
@@ -254,10 +270,11 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
             reply["packed"] = _packed(packed)
         manifest_path = receipts.write_manifest(
             dest, "designer", "render", workspace.root(), inputs=[path, *entries],
-            outputs=[*maps.values(), *packed_paths],
+            outputs=[*files, *maps.values(), *packed_paths],
             parameters={"graph": selected["url"], "values": values,
                         "resolution": resolution, "seed": seed, "preset": preset,
-                        "outputs": outputs, "format": fmt, "bit_depth": bit_depth},
+                        "outputs": outputs, "format": fmt, "bit_depth": bit_depth,
+                        "pack": None if spec is None else spec.model_dump(mode="json")},
             seconds=time.monotonic() - started, version=await runner.version(tool),
         )
         reply["manifest"] = rel(manifest_path)
@@ -332,10 +349,13 @@ async def bake(low, high, cage, maps, directory, options, timeout):
     files, timings = {}, {}
     with new_directory(directory) as dest:
         started_at = time.monotonic()
+        deadline = started_at + timeout
         for name in maps:
             started = time.monotonic()
+            if started >= deadline:
+                raise TimeoutError(f"Bake used its {timeout} s before {BAKERS[name]} started")
             args = bake_args(name, low_path, high_path, cage_path, dest, options)
-            result = await proc.run([tool, *args], timeout, cwd=dest)
+            result = await proc.run([tool, *args], deadline - started, cwd=dest)
             if result.returncode:
                 raise RuntimeError(runner.failure(result, f"{BAKERS[name]}"))
             target = dest / f"{name}.{options['format']}"

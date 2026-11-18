@@ -204,7 +204,9 @@ def baker(argv):
         return
     if "fake-bake-hang" in text:
         time.sleep(60)
-    width = int(args.get("--output_size", "2048,2048").split(",")[0])
+    if "fake-bake-slow" in text:
+        time.sleep(1.5)
+    width =int(args.get("--output_size", "2048,2048").split(",")[0])
     target = Path(args["--output_path"]) / f"{args['--output_name']}.{args['--output_format']}"
     image(target, width, 230 if command in GRAY_BAKERS else (128, 128, 255))
 

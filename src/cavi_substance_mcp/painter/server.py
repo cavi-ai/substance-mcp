@@ -544,11 +544,11 @@ async def bake(
     ] = None,
     max_frontal: Annotated[
         float | None,
-        Field(ge=0, le=100, allow_inf_nan=False, description="start: front ray distance."),
+        Field(ge=0, le=100, allow_inf_nan=False, description="start: front ray distance / bbox."),
     ] = None,
     max_rear: Annotated[
         float | None,
-        Field(ge=0, le=100, allow_inf_nan=False, description="start: rear ray distance."),
+        Field(ge=0, le=100, allow_inf_nan=False, description="start: rear ray distance / bbox."),
     ] = None,
     use_cage: Annotated[StrictBool | None, Field(description="Use cage_mesh.")] = None,
     cage_mesh: WorkspaceFile = None,
