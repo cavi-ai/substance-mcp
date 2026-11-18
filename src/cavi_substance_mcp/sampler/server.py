@@ -84,9 +84,9 @@ class AssetMetadata(BaseModel):
                                Field(max_length=64)] = None
 # action -> (required, optional) arguments besides action and timeout_seconds
 INSPECT_PARAMS = {
+    "catalog": (set(), {"query"}),
     "project": ({"project"}, set()),
     "asset": ({"project", "asset"}, set()),
-    "catalog": (set(), {"query"}),
 }
 PROJECT_PARAMS = {
     "create": ({"name"}, set()),
@@ -130,12 +130,9 @@ async def sampler_inspect(
         Literal["catalog", "project", "asset"],
         Field(description='Inspection'),
     ],
-    project: Annotated[
-        str | None, Field(description='.ssa path')
-    ] = None,
-    asset: Annotated[
-        AssetName | None, Field(description='Asset name')
-    ] = None,
+    # Omitted, not null, when the action does not use them.
+    project: Annotated[str, Field(description='.ssa path')] = None,
+    asset: Annotated[AssetName, Field(description='Asset name')] = None,
     query: Annotated[Query, Field(description='Search')] = "",
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerInspection:
