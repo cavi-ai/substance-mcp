@@ -31,7 +31,6 @@ PACKED = {
     "height": 8,
     "channels": "RGB",
     "bit_depth": 8,
-    "encode": "linear",
 }
 
 

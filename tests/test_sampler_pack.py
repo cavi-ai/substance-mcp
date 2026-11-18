@@ -53,16 +53,31 @@ class PackTests(unittest.TestCase):
         self.assertEqual((receipt["app"], receipt["operation"]), ("sampler", "pack"))
         self.assertTrue(receipt["outputs"])
 
+    def test_channel_sources_are_usages_inversions_or_constants_in_0_to_1(self):
+        def valid(source):
+            try:
+                packing.PackSpec.model_validate({"maps": [{"name": "M",
+                                                           "channels": {"R": source}}]})
+            except ValueError:
+                return False
+            return True
+
+        for source in ("0", "1", ".5", "0.25", "1.0", "1.000000", "0.123456", "roughness",
+                       "1-roughness", "ao_2"):
+            self.assertTrue(valid(source), source)
+        for source in ("1.5", "1.01", "2", "01", "0.", "1.", "-0.5", "0.1234567", "1-",
+                       "1-1", "_ao", ""):
+            self.assertFalse(valid(source), source)
+
     def test_srgb_encoding_applies_to_color_channels_only_and_is_recorded(self):
         spec = packing.PackSpec.model_validate({"maps": [{
-            "name": "Srgb", "format": "png", "bit_depth": 8, "encode": "srgb",
+            "name": "Srgb", "format": "png", "bit_depth": 8, "srgb": True,
             "channels": {"R": "roughness", "G": "roughness", "B": "0", "A": "roughness"}}]})
         result = pack.pack_sync("packed/srgb", self.sources, spec, self.workspace)
         with Image.open(self.workspace / "packed/srgb/Srgb.png") as image:
             self.assertEqual(image.getpixel((0, 0)), (137, 137, 0, 64))
         receipt = json.loads((self.workspace / result["manifest"]).read_text())
-        self.assertEqual(receipt["parameters"]["pack"]["maps"][0]["encode"], "srgb")
-        self.assertEqual(result["maps"][0]["encode"], "srgb")
+        self.assertEqual(receipt["parameters"]["pack"]["maps"][0]["srgb"], True)
 
     def test_existing_directory(self):
         (self.workspace / "packed/existing").mkdir(parents=True)

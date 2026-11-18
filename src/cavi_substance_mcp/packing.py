@@ -7,14 +7,14 @@ from typing import Annotated, Literal
 import numpy as np
 import tifffile
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 
 from .texture_io import dimensions, load, write_png16
 
 _write_png16 = write_png16
 
 USAGE = r"[A-Za-z][A-Za-z0-9_]{0,63}"
-SOURCE = rf"^(?:1-)?{USAGE}$|^(?:0(?:\.[0-9]{{1,6}})?|1(?:\.0{{1,6}})?|\.[0-9]{{1,6}})$"
+SOURCE = rf"^(?:(?:1-)?{USAGE}|[01]|0?\.[0-9]{{1,6}}|1\.0{{1,6}})$"
 NAME = r"^[A-Za-z0-9_-]{1,96}$"
 # Refuse a pack whose peak working memory would exceed this.
 MAX_DECODED_BYTES = 2 * 1024**3
@@ -33,14 +33,11 @@ class PackMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Annotated[str, StringConstraints(pattern=NAME)]
     format: Literal["png", "tga", "tif"] = "png"
-    bit_depth: Annotated[Literal[8, 16], Field(description="16: png or tif.")] = 16
-    encode: Annotated[
-        Literal["linear", "srgb"],
-        Field(description="srgb: sRGB transfer on R, G, B before quantizing."),
-    ] = "linear"
+    bit_depth: Annotated[Literal[8, 16], Field(description="16: png/tif")] = 16
+    srgb: StrictBool = False
     channels: Annotated[
         dict[Literal["R", "G", "B", "A", "RGB"], Source],
-        Field(description="Source: usage, 1-usage, or constant 0..1."),
+        Field(description="usage, 1-usage or 0..1"),
     ]
 
 
@@ -166,7 +163,7 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
         for number, (source, rgb) in enumerate(planes):
             depth = 3 if rgb else 1
             plane = resolve(source, rgb, buffer[:, :, :depth])
-            if item.encode == "srgb" and number < color:
+            if item.srgb and number < color:
                 _encode_srgb(plane)
             plane *= np.float32(scale)
             pixels[:, :, offset : offset + depth] = np.rint(plane, out=plane)
@@ -188,7 +185,6 @@ def pack(spec: PackSpec, sources: dict[str, Path], directory: Path) -> dict:
                 "height": height,
                 "channels": "RGBA" if "A" in channels else "RGB",
                 "bit_depth": item.bit_depth,
-                "encode": item.encode,
             }
         )
     return {"maps": written, "sources": sorted(needed)}

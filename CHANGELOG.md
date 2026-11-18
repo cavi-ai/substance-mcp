@@ -6,7 +6,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ### Added
 
-- Channel pack maps take `encode: linear | srgb`; results and receipts record it.
+- Channel pack maps take `srgb: true` to sRGB-encode R, G and B; receipts record it.
 
 ### Changed
 
