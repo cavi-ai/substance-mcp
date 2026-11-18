@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -103,6 +104,84 @@ def libraries(operations, root):
     return result
 
 
+# Node definition IDs and schemas per (Designer executable, version); filled on first use.
+CATALOG = {}
+
+
+async def _native(app, folder, request, timeout_seconds):
+    """Run one request in a fresh Designer whose files live in ``folder``; its result."""
+    request_path = folder / '.graph-request.json'
+    response = folder / '.graph-response.json'
+    script = folder / '.graph-driver.py'
+    request_path.write_text(json.dumps(request, allow_nan=False), encoding='utf-8')
+    script.write_text(DRIVER.format(package_root=str(Path(__file__).parents[2]),
+                                    request=str(request_path), response=str(response)),
+                      encoding='utf-8')
+    result = await proc.run([app, '--startup-script', script, '--quit'], timeout_seconds)
+    if result.returncode != 0:
+        raise RuntimeError(runner.failure(result, 'Designer graph authoring'))
+    if not response.is_file() or response.stat().st_size > 8 * 1024**2:
+        raise RuntimeError('Designer did not produce a complete graph response')
+    reply = json.loads(response.read_text(encoding='utf-8'))
+    if not reply.get('ok'):
+        raise RuntimeError('Designer graph authoring failed: ' + str(reply.get('error')))
+    for private in (request_path, response, script):
+        private.unlink()
+    return reply['result']
+
+
+def _idle(app):
+    if apps.running(app) is not False:
+        raise RuntimeError('Designer is running or its state is unknown; nothing launched. '
+                           'Save and close that instance before batch authoring.')
+
+
+def _request(action, source=None, output=None, query='', offset=0, limit=100):
+    return {'action': action, 'recipe': recipe_data(GraphRecipe()),
+            'path': str(source) if source else None, 'output': output, 'libraries': {},
+            'query': query, 'offset': offset, 'limit': limit}
+
+
+async def query(action, path=None, query='', offset=0, limit=100, timeout_seconds=300):
+    """Inspect a package or search node definitions; writes nothing but the app lock.
+
+    The catalog without a package is read once per Designer version and searched here."""
+    if action not in ('inspect', 'catalog'):
+        raise ValueError('Unknown graph query')
+    if action == 'inspect' and path is None:
+        raise ValueError('inspect needs path')
+    root = workspace.root(create=True)
+    source = (package_source(path, root) if action == 'catalog' and path else
+              workspace.input_file(root, path, {'.sbs'}) if path else None)
+    app = executable()
+
+    async def run(request):
+        with AppLock(root), tempfile.TemporaryDirectory(prefix='cavi-designer-') as temp:
+            _idle(app)
+            return await _native(app, Path(temp), request, timeout_seconds)
+
+    if source is not None:
+        digest = receipts.sha256_file(source)
+        value = await run(_request(action, source, None, query, offset, limit))
+        if receipts.sha256_file(source) != digest:
+            raise RuntimeError('Source package changed during the query; query again')
+        return {**value, 'action': action}
+    key = (str(app), await runner.version(runner.installation().require('sbsrender')))
+    if key not in CATALOG:
+        value = await run(_request('catalog', limit=10**9))
+        CATALOG[key] = {'definitions': value['definitions'], 'schemas': {}}
+    known = CATALOG[key]
+    found = [item for item in known['definitions'] if query.lower() in item.lower()]
+    result = {'action': action, 'definitions': found[offset:offset + limit],
+              'total': len(found), 'offset': offset}
+    if query in known['definitions']:
+        if query not in known['schemas']:
+            value = await run(_request('catalog', query=query, limit=1))
+            known['schemas'][query] = value.get('node_schema')
+        result['node_schema'] = known['schemas'][query]
+    return result
+
+
 async def invoke(action, directory, path=None, recipe=None, query='', offset=0, limit=100,
                  timeout_seconds=300):
     root = workspace.root(create=True)
@@ -121,34 +200,16 @@ async def invoke(action, directory, path=None, recipe=None, query='', offset=0, 
     app = executable()
     started = time.monotonic()
     with AppLock(root):
-        running = apps.running(app)
-        if running is not False:
-            raise RuntimeError('Designer is running or its state is unknown; nothing launched. '
-                               'Save and close that instance before batch authoring.')
+        _idle(app)
         with workspace.new_output_directory(root, directory) as folder:
             output = folder / 'material.sbs'
-            request = folder / '.graph-request.json'
-            response = folder / '.graph-response.json'
-            script = folder / '.graph-driver.py'
-            request.write_text(json.dumps({
+            value = await _native(app, folder, {
                 'action': action, 'recipe': data, 'path': str(source) if source else None,
                 'output': str(output), 'libraries': dependencies, 'query': query,
                 'offset': offset, 'limit': limit,
-            }, allow_nan=False), encoding='utf-8')
-            script.write_text(DRIVER.format(package_root=str(Path(__file__).parents[2]),
-                                            request=str(request), response=str(response)),
-                              encoding='utf-8')
-            result = await proc.run([app, '--startup-script', script, '--quit'], timeout_seconds)
-            if result.returncode != 0:
-                raise RuntimeError(runner.failure(result, 'Designer graph authoring'))
-            if not response.is_file() or response.stat().st_size > 8 * 1024**2:
-                raise RuntimeError('Designer did not produce a complete graph response')
-            reply = json.loads(response.read_text(encoding='utf-8'))
-            if not reply.get('ok'):
-                raise RuntimeError('Designer graph authoring failed: ' + str(reply.get('error')))
+            }, timeout_seconds)
             if source and hashlib.sha256(source.read_bytes()).hexdigest() != source_hash:
                 raise RuntimeError('Source package changed during authoring; inspect the source')
-            value = reply['result']
             report = folder / 'graph.json'
             report.write_text(json.dumps(value, allow_nan=False, indent=2), encoding='utf-8')
             files = [report]
@@ -163,8 +224,6 @@ async def invoke(action, directory, path=None, recipe=None, query='', offset=0, 
                 external=[receipts.app_resource(name, Path(p))
                           for name, p in all_sources.items() if not Path(p).is_relative_to(root)],
                 outputs=files, parameters={'recipe': data}, seconds=time.monotonic()-started)
-            for private in (request, response, script):
-                private.unlink()
             return {**value, 'action': action, 'directory': workspace.rel(root, folder),
                     'package': workspace.rel(root, output) if output in files else None,
                     'manifest': workspace.rel(root, manifest),

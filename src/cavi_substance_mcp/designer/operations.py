@@ -136,6 +136,9 @@ async def cook(path, builtin, directory, expose_output_size, expose_random_seed,
 
 def _number(value, integer: bool) -> str:
     if integer:
+        if type(value) is bool:
+            # A toggle is an integer input that takes 0 or 1.
+            return str(int(value))
         if type(value) is not int:
             raise ValueError("Integer input expects integers")
         return str(value)
@@ -171,7 +174,7 @@ def pick_graph(graphs: list[dict], graph: str | None) -> dict:
 
 
 async def render(sbsar, graph, directory, values, resolution, seed, preset, outputs, fmt,
-                 bit_depth, spec, timeout):
+                 bit_depth, spec, timeout, images=None):
     path = source(sbsar, {".sbsar"})
     if bit_depth not in RENDER_DEPTHS[fmt]:
         raise ValueError(f"bit_depth {bit_depth} unsupported for {fmt}")
@@ -193,12 +196,22 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
         if key not in inputs:
             raise ValueError(f"Unknown input {key}; graph inputs: "
                              + ", ".join(sorted(set(inputs) - RESERVED)[:64]))
+        if inputs[key]["type"] == "IMAGE":
+            raise ValueError(f"Input {key} is an image; pass it in images")
         args += ["--set-value", value_arg(inputs[key], value)]
+    entries = []
+    for key, value in (images or {}).items():
+        if inputs.get(key, {}).get("type") != "IMAGE":
+            raise ValueError(f"{key} is not an image input; image inputs: " + ", ".join(
+                sorted(name for name, item in inputs.items() if item["type"] == "IMAGE")[:64]))
+        entries.append(source(value, packing.READABLE))
+        args += ["--set-entry", f"{key}@{entries[-1]}"]
     if resolution is not None:
         if "$outputsize" not in inputs:
             raise ValueError("Graph does not expose $outputsize")
-        exponent = resolution.bit_length() - 1
-        args += ["--set-value", f"$outputsize@{exponent},{exponent}"]
+        width, height = resolution if isinstance(resolution, list) else (resolution,) * 2
+        args += ["--set-value",
+                 f"$outputsize@{width.bit_length() - 1},{height.bit_length() - 1}"]
     if seed is not None:
         if "$randomseed" not in inputs:
             raise ValueError("Graph does not expose $randomseed")
@@ -240,7 +253,7 @@ async def render(sbsar, graph, directory, values, resolution, seed, preset, outp
             packed_paths = [item["path"] for item in packed["maps"]]
             reply["packed"] = _packed(packed)
         manifest_path = receipts.write_manifest(
-            dest, "designer", "render", workspace.root(), inputs=[path],
+            dest, "designer", "render", workspace.root(), inputs=[path, *entries],
             outputs=[*maps.values(), *packed_paths],
             parameters={"graph": selected["url"], "values": values,
                         "resolution": resolution, "seed": seed, "preset": preset,
@@ -294,6 +307,8 @@ def bake_args(name, low, high, cage, dest, options) -> list:
                 args += ["--projection.max_height", repr(float(options["max_frontal"]))]
             if options.get("max_rear") is not None:
                 args += ["--projection.max_depth", repr(float(options["max_rear"]))]
+        if options.get("antialiasing", "none") != "none":
+            args += ["--projection.sampling_rate", options["antialiasing"]]
         if options.get("match_by_name"):
             args += ["--projection.mesh_match_mode", "match_mesh_name",
                      "--name_suffix_low", options["suffix_low"],

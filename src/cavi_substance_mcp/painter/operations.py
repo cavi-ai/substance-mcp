@@ -51,7 +51,22 @@ BAKE_MAPS = {"normal": "Normal", "world_space_normal": "WorldSpaceNormal", "id":
              "bent_normals": "BentNormals"}
 SHELF_USAGES = {"smart_material": "SMART_MATERIAL", "smart_mask": "SMART_MASK",
                 "material": "BASE_MATERIAL", "generator": "GENERATOR", "texture": "TEXTURE",
-                "environment": "ENVIRONMENT", "brush": "BRUSH"}
+                "environment": "ENVIRONMENT", "brush": "BRUSH", "filter": "FILTER",
+                "color_lut": "COLOR_LUT"}
+MESH_FORMATS = ("fbx", "obj", "gltf", "usd", "dae", "ply")
+EFFECTS = ("levels", "filter", "anchor_point", "color_selection", "compare_mask")
+MASK_ONLY = {"smart_mask", "generator", "color_selection", "compare_mask"}
+EFFECT_KEYS = {
+    "levels": {"input_min", "input_max", "gamma", "output_min", "output_max", "clamp"},
+    "color_selection": {"colors", "tolerance", "hardness", "output_value", "background"},
+    "compare_mask": {"left_operand", "right_operand", "operation", "constant", "tolerance",
+                     "hardness"},
+}
+# parameters key -> (params field, layerstack enum)
+EFFECT_ENUMS = {"background": ("background_color", "ColorSelectionBackgroundColor"),
+                "left_operand": ("left_operand", "CompareMaskEffectOperand"),
+                "right_operand": ("right_operand", "CompareMaskEffectOperand"),
+                "operation": ("operation", "CompareMaskEffectOperation")}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
@@ -236,19 +251,60 @@ def input_file(workspace: Path, name: str, extensions: set[str]) -> Path:
     return path
 
 
-def color_texture(workspace, name):
-    path = input_file(workspace, name, {".png"})
-    with path.open("rb") as stream:
-        data = stream.read(16 * 1024 * 1024 + 1)
-    if len(data) > 16 * 1024 * 1024:
-        raise ValueError("PNG exceeds 16 MiB")
-    if len(data) < 29 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[8:16] != b"\0\0\0\rIHDR":
-        raise ValueError("Expected a PNG color texture")
-    width, height = struct.unpack(">II", data[16:24])
-    if not 1 <= width <= 4096 or not 1 <= height <= 4096:
-        raise ValueError("PNG dimensions must be 1 to 4096 pixels")
-    return {"path": str(path), "width": width, "height": height,
-            "sha256": hashlib.sha256(data).hexdigest()}, data
+TEXTURE_KINDS = {".png": "PNG", ".exr": "EXR", ".tif": "TIFF", ".tiff": "TIFF"}
+TEXTURE_LIMIT = 1024 ** 3
+
+
+def color_texture(workspace, name, folder):
+    """Copy a PNG, EXR or TIFF into folder; return its receipt, the copy and whether it is float."""
+    path = input_file(workspace, name, set(TEXTURE_KINDS))
+    kind = TEXTURE_KINDS[path.suffix.lower()]
+    copy = folder / ("color" + path.suffix.lower())
+    digest, size = hashlib.sha256(), 0
+    with path.open("rb") as source, copy.open("xb") as target:
+        while chunk := source.read(1 << 20):
+            size += len(chunk)
+            if size > TEXTURE_LIMIT:
+                raise ValueError(f"{kind} exceeds 1 GiB")
+            digest.update(chunk)
+            target.write(chunk)
+    # Read the private copy so the header matches the bytes Painter imports.
+    with copy.open("rb") as stream:
+        try:
+            width, height, linear = image_header(stream, kind)
+        except (KeyError, IndexError, ValueError, struct.error):
+            raise ValueError(f"Expected a {kind} color texture") from None
+    if not 1 <= width <= 8192 or not 1 <= height <= 8192:
+        raise ValueError(f"{kind} dimensions must be 1 to 8192 pixels")
+    return ({"path": str(path), "width": width, "height": height,
+             "sha256": digest.hexdigest()}, copy, linear)
+
+
+def image_header(stream, kind):
+    """Width, height and float samples from a PNG IHDR, EXR dataWindow or TIFF first IFD."""
+    head = stream.read(1 << 16)
+    if kind == "PNG" and head[:16] == b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR":
+        return (*struct.unpack(">II", head[16:24]), False)
+    if kind == "EXR" and head[:4] == b"\x76\x2f\x31\x01":
+        at = 8
+        while head[at]:
+            name_end = head.index(b"\0", at)
+            value = head.index(b"\0", name_end + 1) + 5
+            size = struct.unpack_from("<i", head, value - 4)[0]
+            if head[at:name_end] == b"dataWindow" and size == 16:
+                x0, y0, x1, y1 = struct.unpack_from("<4i", head, value)
+                return x1 - x0 + 1, y1 - y0 + 1, True
+            at = value + size
+    if kind == "TIFF" and head[:4] in (b"II*\0", b"MM\0*"):
+        order = "<" if head[:2] == b"II" else ">"
+        stream.seek(struct.unpack_from(order + "I", head, 4)[0])
+        tags = {}
+        for _ in range(min(struct.unpack(order + "H", stream.read(2))[0], 1024)):
+            tag, field, _count, value = struct.unpack(order + "HHI4s", stream.read(12))
+            tags[tag] = struct.unpack_from(order + ("H" if field == 3 else "I"), value)[0]
+        # 256 ImageWidth, 257 ImageLength, 339 SampleFormat (3 = IEEE float).
+        return tags[256], tags[257], tags.get(339) == 3
+    raise ValueError(kind)
 
 
 def remove_tree(path):
@@ -589,6 +645,12 @@ def _texture_set_settings(operation, params, workspace, root):
             raise ValueError(f'Format does not match channel components: {name}={value}')
         resolved.append((channels[channel_type], channel_format))
     resolution = texture_resolution(params.get('resolution'))
+    maps = params.get('mesh_maps') or {}
+    if not isinstance(maps, dict):
+        raise ValueError('mesh_maps must be a mesh-map to workspace-image map')
+    for label in maps:
+        if label not in BAKE_MAPS:
+            raise ValueError(f"Unknown mesh map {label}; use {', '.join(BAKE_MAPS)}")
     before = _texture_sets(operation, params, workspace, root)
     try:
         for channel, channel_format in resolved:
@@ -598,7 +660,46 @@ def _texture_set_settings(operation, params, workspace, root):
     except Exception as exc:
         raise RuntimeError(f'Texture settings may be partially applied: {exc}; '
                            'inspect before retry') from exc
-    return {**_texture_sets(operation, params, workspace, root), 'before': before['texture_sets']}
+    if maps:
+        assign_mesh_maps(stack.material(), maps, root)
+    name = stack.material().name()
+    return {**_texture_sets(operation, params, workspace, root), 'before': before['texture_sets'],
+            'mesh_maps': mesh_maps(textureset, {name})[name]}
+
+
+def assign_mesh_maps(texture_set, maps, root):
+    """Import workspace images (e.g. Designer bakes) and bind them as mesh maps, all or none."""
+    from substance_painter import resource, textureset
+
+    folder = Path(tempfile.mkdtemp(prefix=".cavi-meshmap-", dir=root()))
+    imported, previous = [], {}
+    try:
+        try:
+            for label, name in maps.items():
+                (folder / label).mkdir()
+                copy = color_texture(root(), name, folder / label)[1]
+                imported.append((label, resource.import_project_resource(
+                    str(copy), resource.Usage.TEXTURE, name=f"cavi_{label}_{uuid.uuid4().hex}"
+                ).identifier()))
+        finally:
+            left = remove_tree(folder)
+        for label, identifier in imported:
+            usage = getattr(textureset.MeshMapUsage, BAKE_MAPS[label])
+            old = texture_set.get_mesh_map_resource(usage)
+            texture_set.set_mesh_map_resource(usage, identifier)
+            previous[usage] = old
+    except Exception as exc:
+        restored = "previous mesh maps restored"
+        for usage, old in reversed(previous.items()):
+            try:
+                texture_set.set_mesh_map_resource(usage, old)
+            except Exception as restore_error:  # noqa: BLE001 -- report native partial effects
+                restored = f"restoring {usage.name} failed ({restore_error}); inspect mesh maps"
+        kept = ", ".join(identifier.url() for _, identifier in imported)
+        raise RuntimeError(
+            f"Mesh maps failed ({type(exc).__name__}: {exc}); {restored}"
+            + (f"; imported resources {kept} kept (no Painter API removes them)" if kept else "")
+            + (f"; could not remove {', '.join(left)}" if left else "")) from exc
 
 
 def _initialize_channels(operation, params, workspace, root):
@@ -631,23 +732,129 @@ def _save(operation, params, workspace, root):
     return {"saved": True, "file": project.file_path(), "needs_saving": project.needs_saving()}
 
 
-def _save_copy(operation, params, workspace, root):
-    from substance_painter import project
-
+def _receipted(operation, params, root, filename, write, extra=None):
+    """Have Painter write one file into a new workspace directory beside a receipt."""
     folder = export_destination(root(), required(params, "directory"))
     started = time.monotonic()
     with new_output_directory(folder):
-        path = folder / "project.spp"
-        project.save_as_copy(str(path), project.ProjectSaveMode.Full)
+        path = folder / filename
+        write(path)
         if not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError("Painter did not produce a saved project copy")
+            raise RuntimeError(f"Painter did not produce {filename}")
         manifest = receipts.build(
-            "painter", "save_copy", root(), outputs=[path],
-            parameters={"directory": required(params, "directory")},
+            "painter", operation, root(), outputs=[path],
+            parameters={"directory": params["directory"], **(extra or {})},
             seconds=time.monotonic() - started, version=_painter_version(),
         )
         manifest_path = receipts.write(folder, manifest)
     return {"path": str(path), "bytes": path.stat().st_size, "manifest": str(manifest_path)}
+
+
+def _save_copy(operation, params, workspace, root):
+    from substance_painter import project
+
+    return _receipted(operation, params, root, "project.spp", lambda path: project.save_as_copy(
+        str(path), project.ProjectSaveMode.Full))
+
+
+def _save_as(operation, params, workspace, root):
+    from substance_painter import project
+
+    return _receipted(operation, params, root, "project.spp", lambda path: project.save_as(
+        str(path), project.ProjectSaveMode.Full))
+
+
+def _save_template(operation, params, workspace, root):
+    from substance_painter import project, textureset
+
+    name = textureset.get_active_stack().material().name()
+    filename = re.sub(r"[^A-Za-z0-9_.-]", "_", name).lstrip(".") or "template"
+    result = _receipted(operation, params, root, filename + ".spt",
+                        lambda path: project.save_as_template(str(path), name),
+                        {"texture_set": name})
+    return {**result, "texture_set": name}
+
+
+def _export_mesh(operation, params, workspace, root):
+    from substance_painter import export
+
+    kind = params.get("format", "fbx")
+    if kind not in MESH_FORMATS:
+        raise ValueError(f"format must be one of {', '.join(MESH_FORMATS)}")
+
+    def write(path):
+        result = export.export_mesh(str(path), export.MeshExportOption.BaseMesh)
+        if result.status != export.ExportStatus.Success:
+            raise RuntimeError(f"Mesh export failed: {result.message}")
+
+    return _receipted(operation, params, root, f"mesh.{kind}", write, {"format": kind})
+
+
+def _update_resources(operation, params, workspace, root):
+    from substance_painter import resource
+
+    outdated = resource.list_project_outdated_resources()
+    replace_resources(resource, outdated)
+    return {"updated": [{"old": old.url(), "new": new.url()} for old, new in outdated.items()]}
+
+
+def replace_resources(resource, pairs):
+    """Swap resources project-wide in one native operation; nothing changes on error."""
+    if not pairs:
+        return
+    result = resource.replace_project_resources(pairs)
+    if result.status != resource.UpdateProjectStatus.SUCCESS:
+        raise RuntimeError("Nothing replaced: " + "; ".join(
+            f"{error.old_resource_id.url()}: {', '.join(error.details)}"
+            for error in result.errors))
+
+
+def _display(operation, params, workspace, root):
+    from substance_painter import display, resource
+
+    changes = params.get("display") or {}
+    if not isinstance(changes, dict) or set(changes) - {"environment", "color_lut",
+                                                         "tone_mapping"}:
+        raise ValueError("display takes environment, color_lut and tone_mapping")
+    plan = [(key, find_resource(resource, changes[key], key).identifier())
+            for key in ("environment", "color_lut") if key in changes]
+    if "tone_mapping" in changes:
+        members = display.ToneMappingFunction.__members__
+        if not isinstance(changes["tone_mapping"], str) or changes["tone_mapping"] not in members:
+            raise ValueError(f"tone_mapping must be one of {', '.join(members)}")
+        plan.append(("tone_mapping", members[changes["tone_mapping"]]))
+    before = display_state(display)
+    done = []
+    try:
+        for key, value in plan:
+            getattr(display, DISPLAY_SETTERS[key])(value)
+            done.append(key)
+    except Exception as exc:
+        restored = "previous display restored"
+        for key in reversed(done):
+            try:
+                if before[key] is not None:
+                    getattr(display, DISPLAY_SETTERS[key])(before[key])
+            except Exception as restore_error:  # noqa: BLE001 -- report native partial effects
+                restored = f"restoring {key} failed ({restore_error}); inspect display settings"
+        raise RuntimeError(f"display failed ({type(exc).__name__}: {exc}); {restored}") from exc
+    after = display_state(display)
+    return {"environment": after["environment"] and after["environment"].url(),
+            "color_lut": after["color_lut"] and after["color_lut"].url(),
+            "tone_mapping": after["tone_mapping"] and after["tone_mapping"].name}
+
+
+DISPLAY_SETTERS = {"environment": "set_environment_resource",
+                   "color_lut": "set_color_lut_resource", "tone_mapping": "set_tone_mapping"}
+
+
+def display_state(display):
+    try:
+        tone = display.get_tone_mapping()
+    except RuntimeError:  # color-managed projects have no tone mapping
+        tone = None
+    return {"environment": display.get_environment_resource(),
+            "color_lut": display.get_color_lut_resource(), "tone_mapping": tone}
 
 
 def _cancel_bake(operation, params, workspace, root):
@@ -682,6 +889,11 @@ _OPEN_AND_IDLE = {
     "export_presets": _export_presets,
     "save": _save,
     "save_copy": _save_copy,
+    "save_as": _save_as,
+    "save_template": _save_template,
+    "export_mesh": _export_mesh,
+    "update_resources": _update_resources,
+    "display": _display,
     "export_textures": lambda op, params, ws, root: _export(params, root),
 }
 
@@ -1272,20 +1484,21 @@ def _layers(operation, params, root):
     extra = {channel_type(textureset, stack, label): value for label, value in values.items()}
     extra = {channel: uniform_color(colormanagement, stack, channel, value)
              for channel, value in extra.items()}
-    bitmap, imported, leftovers = None, None, []
+    bitmap, imported, leftovers, linear = None, None, [], False
     if operation == "create_texture_fill":
         from substance_painter import resource
 
-        bitmap, payload = color_texture(root(), required(params, "base_color_texture"))
+        texture = required(params, "base_color_texture")
         folder = Path(tempfile.mkdtemp(prefix=".cavi-bitmap-", dir=root()))
         try:
-            snapshot = folder / "color.png"
-            snapshot.write_bytes(payload)
+            bitmap, snapshot, linear = color_texture(root(), texture, folder)
             imported = resource.import_project_resource(
                 str(snapshot), resource.Usage.TEXTURE, name="cavi_color_" + uuid.uuid4().hex
             ).identifier()
         except Exception as exc:
             left = remove_tree(folder)
+            if bitmap is None and not left:
+                raise
             note = f"; could not remove: {', '.join(left)}" if left else ""
             raise RuntimeError(
                 f"Texture import failed ({type(exc).__name__}: {exc}){note}") from exc
@@ -1306,7 +1519,9 @@ def _layers(operation, params, root):
             # scalar channel's data color spaces for the bitmap source.
             if imported:
                 bound = node.set_source(channels.BaseColor, imported)
-                bound.set_color_space(colormanagement.GenericColorSpace.sRGB)
+                # Float EXR/TIFF data is linear; 8/16-bit integer images are sRGB-encoded.
+                bound.set_color_space(colormanagement.GenericColorSpace.Working if linear
+                                      else colormanagement.GenericColorSpace.sRGB)
             else:
                 node.set_source(channels.BaseColor, colormanagement.Color(
                     *color, colormanagement.GenericColorSpace.sRGB))
@@ -1336,7 +1551,8 @@ def _layers(operation, params, root):
     if bitmap:
         result = {"name": node.get_name(), "uid": node.uid(), "texture_set": params["texture_set"],
                   "base_color_texture": bitmap, "resource_url": imported.url(),
-                  "color_space": "sRGB", "roughness": roughness, "metallic": metallic}
+                  "color_space": "Working" if linear else "sRGB", "roughness": roughness,
+                  "metallic": metallic}
         if extras:
             result["values"] = extras
         if leftovers:
@@ -1372,6 +1588,65 @@ def _brush(params, root):
     return native_brush.run(params, None, *args)
 
 
+def _import_sbsar(params, root, resource):
+    """Hash and import one private copy of a workspace .sbsar; return its graphs and receipt."""
+    path = input_file(root(), required(params, "sbsar"), {".sbsar"})
+    # Hash and import one private copy so the file cannot change in between.
+    folder = Path(tempfile.mkdtemp(prefix=".cavi-sbsar-", dir=root()))
+    try:
+        entry, copy = _sbsar_entry(path, root(), folder)
+        source, manifest_path = _receipt_source(
+            path, root(), params.get("source_manifest"), params.get("expected_sha256"), entry)
+        package = resource.import_project_resource(
+            str(copy), resource.Usage.BASE_MATERIAL, name="cavi_sbsar_" + uuid.uuid4().hex)
+    except Exception as exc:
+        left = remove_tree(folder)
+        if left:
+            raise RuntimeError(f"{type(exc).__name__}: {exc}; could not remove "
+                               f"temporary files: {', '.join(left)}") from exc
+        raise
+    leftovers = remove_tree(folder)
+    graphs = ([child for child in package.children() if child.type() == resource.Type.SUBSTANCE]
+              if package.type() == resource.Type.SUBSTANCE_PACKAGE else [package])
+    if not graphs:
+        raise RuntimeError(
+            f"No material graph in {path.name}; imported resource "
+            f"{package.identifier().url()} kept (no Painter API removes it)"
+            + (f"; could not remove {', '.join(leftovers)}" if leftovers else ""))
+    verified = (params.get("source_manifest") is not None
+                or params.get("expected_sha256") is not None)
+    return graphs, source, manifest_path, verified, leftovers
+
+
+def _sbsar_update(params, root, resource):
+    """Replace a graph that sbsar_fill imported with the same graph from a re-cooked .sbsar."""
+    spec = required(params, "resource")
+    if not spec.startswith("resource://"):
+        raise ValueError("resource must be the resource:// URL that sbsar_fill returned")
+    old = resource.ResourceID.from_url(spec)
+    found = resource.Resource.retrieve(old)
+    if not found:
+        raise ValueError(f"Resource not found: {spec}")
+    graphs, source, manifest_path, verified, leftovers = _import_sbsar(params, root, resource)
+    new = graphs[0] if len(graphs) == 1 else next(
+        (graph for graph in graphs if graph.gui_name() == found[0].gui_name()), None)
+    kept = "; imported resource {} kept (no Painter API removes it)"
+    if new is None:
+        raise RuntimeError(f"No graph named {found[0].gui_name()} in the new package"
+                           + kept.format(graphs[0].identifier().url()))
+    try:
+        replace_resources(resource, {old: new.identifier()})
+    except RuntimeError as exc:
+        raise RuntimeError(f"{exc}{kept.format(new.identifier().url())}") from exc
+    result = {"replaced": spec, "resource_url": new.identifier().url(), "graphs": len(graphs),
+              "source": source, "verified": verified}
+    if manifest_path is not None:
+        result["source_manifest"] = manifest_path.relative_to(root()).as_posix()
+    if leftovers:
+        result["cleanup_failed"] = leftovers
+    return result
+
+
 def _layer_edit(params, root):
     import substance_painter
     from substance_painter import layerstack, resource, textureset
@@ -1379,12 +1654,14 @@ def _layer_edit(params, root):
     action = required(params, "action")
     texture_set = required(params, "texture_set")
     stack = textureset.Stack.from_name(texture_set)
+    if action == "sbsar_update":
+        return _sbsar_update(params, root, resource)
     if action in {"paint", "group", "smart_material", "sbsar_fill"}:
         position, siblings = insert_position(layerstack, stack, params)
         name = new_name(params, siblings)
         values = check_parameters(params.get("parameters"))
         if action != "sbsar_fill" and values:
-            raise ValueError("parameters apply to sbsar_fill and generator only")
+            raise ValueError(f"parameters do not apply to {action}")
         graphs = []
         source = None
         if action in {"paint", "group"}:
@@ -1392,34 +1669,8 @@ def _layer_edit(params, root):
         elif action == "smart_material":
             item = find_resource(resource, params.get("resource"), "smart_material")
         else:
-            path = input_file(root(), required(params, "sbsar"), {".sbsar"})
-            # Hash and import one private copy so the file cannot change in between.
-            folder = Path(tempfile.mkdtemp(prefix=".cavi-sbsar-", dir=root()))
-            try:
-                entry, copy = _sbsar_entry(path, root(), folder)
-                source, manifest_path = _receipt_source(
-                    path, root(), params.get("source_manifest"), params.get("expected_sha256"),
-                    entry)
-                verified = (params.get("source_manifest") is not None
-                            or params.get("expected_sha256") is not None)
-                package = resource.import_project_resource(
-                    str(copy), resource.Usage.BASE_MATERIAL,
-                    name="cavi_sbsar_" + uuid.uuid4().hex)
-            except Exception as exc:
-                left = remove_tree(folder)
-                if left:
-                    raise RuntimeError(f"{type(exc).__name__}: {exc}; could not remove "
-                                       f"temporary files: {', '.join(left)}") from exc
-                raise
-            leftovers = remove_tree(folder)
-            graphs = ([child for child in package.children()
-                       if child.type() == resource.Type.SUBSTANCE]
-                      if package.type() == resource.Type.SUBSTANCE_PACKAGE else [package])
-            if not graphs:
-                raise RuntimeError(
-                    f"No material graph in {path.name}; imported resource "
-                    f"{package.identifier().url()} kept (no Painter API removes it)"
-                    + (f"; could not remove {', '.join(leftovers)}" if leftovers else ""))
+            graphs, source, manifest_path, verified, leftovers = _import_sbsar(
+                params, root, resource)
             item = graphs[0]
         node, applied = None, []
         try:
@@ -1489,24 +1740,37 @@ def _layer_edit(params, root):
         with layerstack.ScopedModification(f"Add mask to {node.get_name()}"):
             node.add_mask(getattr(layerstack.MaskBackground, background.title()))
         return {"uid": node.uid(), "mask": background}
-    if action not in {"smart_mask", "generator"}:
+    if action not in {"smart_mask", "generator", *EFFECTS}:
         raise ValueError(f"Unknown layer action: {action}")
-    item = find_resource(resource, params.get("resource"), action)
     values = check_parameters(params.get("parameters"))
-    if action == "smart_mask" and values:
-        raise ValueError("parameters apply to sbsar_fill and generator only")
-    added_mask, effects, applied = False, [], []
+    if action in EFFECT_KEYS and set(values) - EFFECT_KEYS[action]:
+        raise ValueError(f"Unknown {action} parameters: "
+                         f"{', '.join(sorted(set(values) - EFFECT_KEYS[action]))}; "
+                         f"use {', '.join(sorted(EFFECT_KEYS[action]))}")
+    if action in {"smart_mask", "anchor_point"} and values:
+        raise ValueError(f"parameters do not apply to {action}")
+    in_mask = action in MASK_ONLY or background is not None
+    channel = params.get("channel")
+    if channel is not None and action != "compare_mask" and (action != "levels" or in_mask):
+        raise ValueError("channel applies to compare_mask and content levels only")
+    item = None
+    if action in {"smart_mask", "generator", "filter", "color_selection"}:
+        item = find_resource(resource, params.get("resource"),
+                             "texture" if action == "color_selection" else action)
+    name = params.get("name")
+    if action == "anchor_point" and (
+            not isinstance(name, str) or not name.strip() or len(name) > 63):
+        raise ValueError("anchor_point needs a name of 1 to 63 characters")
+    added_mask, effects = False, []
     try:
         with layerstack.ScopedModification(f"Add {action} to {node.get_name()}"):
-            if not node.has_mask():
+            if in_mask and not node.has_mask():
                 node.add_mask(getattr(layerstack.MaskBackground, (background or "black").title()))
                 added_mask = True
-            position = layerstack.InsertPosition.inside_node(node, layerstack.NodeStack.Mask)
-            if action == "smart_mask":
-                effects = list(layerstack.insert_smart_mask(position, item.identifier()))
-            else:
-                effects = [layerstack.insert_generator_effect(position, item.identifier())]
-                applied = apply_parameters(effects[0].get_source(), values)
+            where = layerstack.NodeStack.Mask if in_mask else layerstack.NodeStack.Content
+            position = layerstack.InsertPosition.inside_node(node, where)
+            applied = _insert_effect(action, position, effects, item, values, name, channel,
+                                     stack)
     except Exception as exc:
         cleanup = discard(layerstack, effects, "Remove failed effects")
         if added_mask:
@@ -1518,10 +1782,86 @@ def _layer_edit(params, root):
                 cleanup += f"; mask removal failed ({mask_error})"
         raise RuntimeError(f"{action} failed ({type(exc).__name__}: {exc}); {cleanup}") from exc
     remember(substance_painter, params, [effect.uid() for effect in effects])
-    return {"uid": node.uid(), "mask_added": added_mask, "resource_url": item.identifier().url(),
-            "parameters": applied,
-            "effects": [{"uid": e.uid(), "name": e.get_name(), "type": type(e).__name__}
-                        for e in effects]}
+    result = {"uid": node.uid(), "mask_added": added_mask,
+              "stack": "mask" if in_mask else "content", "parameters": applied,
+              "effects": [{"uid": e.uid(), "name": e.get_name(), "type": type(e).__name__}
+                          for e in effects]}
+    if item is not None:
+        result["resource_url"] = item.identifier().url()
+    return result
+
+
+def _insert_effect(action, position, effects, item, values, name, channel, stack):
+    """Insert one effect (a smart mask inserts several) and apply its parameters."""
+    import dataclasses
+
+    from substance_painter import colormanagement, layerstack, levels, textureset
+
+    if action == "smart_mask":
+        effects.extend(layerstack.insert_smart_mask(position, item.identifier()))
+        return []
+    if action == "anchor_point":
+        effects.append(layerstack.insert_anchor_point_effect(position, name))
+        return []
+    if action in {"generator", "filter"}:
+        effects.append(getattr(layerstack, f"insert_{action}_effect")(position, item.identifier()))
+        return apply_parameters(effects[0].get_source(), values)
+    effect = getattr(layerstack, f"insert_{action}_effect")(position)
+    effects.append(effect)
+    if action == "levels" and channel is not None:
+        effect.affected_channel = channel_type(textureset, stack, channel)
+    current = effect.get_parameters()
+    if action == "levels":
+        rgb = isinstance(current, levels.LevelsParamsRGB)
+        changes = {key: levels_value(key, value, rgb) for key, value in values.items()}
+    else:
+        changes = effect_changes(layerstack, colormanagement, values)
+        if action == "color_selection":
+            changes["id_mask"] = item.identifier()
+        elif channel is not None:
+            changes["channel"] = channel_type(textureset, stack, channel)
+    effect.set_parameters(dataclasses.replace(current, **changes))
+    return sorted(values)
+
+
+def levels_value(key, value, rgb):
+    if key == "clamp":
+        if value not in (0, 1) or type(value) is not int:
+            raise ValueError("levels clamp must be a boolean")
+        return bool(value)
+    numbers = value if isinstance(value, tuple) else (value,) * (3 if rgb else 1)
+    valid = (lambda x: x > 0) if key == "gamma" else (lambda x: 0 <= x <= 1)
+    if len(numbers) != (3 if rgb else 1) or any(
+            type(x) not in (int, float) or not valid(x) for x in numbers):
+        raise ValueError(f"levels {key} takes {'one or three' if rgb else 'one'} "
+                         f"{'positive numbers' if key == 'gamma' else 'numbers in 0..1'}")
+    numbers = tuple(float(x) for x in numbers)
+    return numbers if rgb else numbers[0]
+
+
+def effect_changes(layerstack, colormanagement, values):
+    changes = {}
+    for key, value in values.items():
+        if key == "colors":
+            parts = value.split(",") if isinstance(value, str) else []
+            if not 1 <= len(parts) <= 64 or not all(
+                    re.fullmatch(r"#[0-9A-Fa-f]{6}", part.strip()) for part in parts):
+                raise ValueError("colors must be 1 to 64 '#RRGGBB' values joined by commas")
+            changes[key] = [colormanagement.Color(
+                *(int(part.strip()[i:i + 2], 16) / 255 for i in (1, 3, 5)),
+                colormanagement.GenericColorSpace.sRGB) for part in parts]
+        elif key in EFFECT_ENUMS:
+            field, enum = EFFECT_ENUMS[key]
+            members = getattr(layerstack, enum).__members__
+            if not isinstance(value, str) or value not in members:
+                raise ValueError(f"{key} must be one of {', '.join(members)}")
+            changes[field] = members[value]
+        else:
+            try:
+                changes[key] = unit_value(value)
+            except ValueError:
+                raise ValueError(f"{key} must be a number between 0 and 1") from None
+    return changes
 
 
 def _set_properties(params, node, stack, layerstack, textureset):
@@ -1546,7 +1886,7 @@ def _set_properties(params, node, stack, layerstack, textureset):
         mode = changes["blend_mode"]
         members = layerstack.BlendingMode.__members__
         if not isinstance(mode, str) or mode not in members:
-            raise ValueError("Unknown blend_mode; e.g. Normal, Multiply, Overlay, Screen")
+            raise ValueError(f"Unknown blend_mode; use {', '.join(members)}")
         changes["blend_mode"] = members[mode]
     channels = [None]
     if {"blend_mode", "opacity"} & set(changes):

@@ -63,5 +63,38 @@ class BakeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [("bake_cancel", None, "abc")])
 
 
+class ProjectRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_project_and_settings_actions_reach_their_painter_operations(self):
+        calls = []
+        replies = {"display": {"environment": None, "color_lut": None, "tone_mapping": "ACES"},
+                   "update_resources": {"updated": []},
+                   "texture_set_settings": {"texture_sets": []}}
+
+        def spy(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
+            calls.append((operation, params))
+            return replies.get(operation, {"path": "p", "bytes": 1, "manifest": "m"})
+
+        requests = [
+            ("project", {"action": "save_as", "directory": "saved"}),
+            ("project", {"action": "save_template", "directory": "templates"}),
+            ("project", {"action": "export_mesh", "directory": "mesh", "mesh_format": "gltf"}),
+            ("project", {"action": "update_resources"}),
+            ("project", {"action": "display", "display": {"tone_mapping": "ACES"}}),
+            ("texture_set_settings", {"texture_set": "Body", "mesh_maps": {"ao": "ao.png"}}),
+        ]
+        with patch.object(PainterClient, "call", spy):
+            for name, arguments in requests:
+                await server.mcp.call_tool(name, {**arguments, "lease_id": "abc"})
+        self.assertEqual(calls, [
+            ("save_as", {"directory": "saved"}),
+            ("save_template", {"directory": "templates"}),
+            ("export_mesh", {"directory": "mesh", "format": "gltf"}),
+            ("update_resources", None),
+            ("display", {"display": {"tone_mapping": "ACES"}}),
+            ("texture_set_settings", {"texture_set": "Body", "channel_formats": None,
+                                      "resolution": None, "mesh_maps": {"ao": "ao.png"}}),
+        ])
+
+
 if __name__ == "__main__":
     unittest.main()

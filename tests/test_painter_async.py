@@ -137,7 +137,8 @@ class TimeoutTests(unittest.TestCase):
         self.assertEqual(self.timeout_of("layer_edit"), 120.0)
 
     def test_save_and_export_keep_the_long_timeout(self):
-        for operation in ("save", "save_copy", "export_textures"):
+        for operation in ("save", "save_copy", "save_as", "save_template", "export_mesh",
+                          "update_resources", "export_textures"):
             self.assertEqual(self.timeout_of(operation), 600.0, operation)
 
     def test_other_calls_use_the_default_timeout(self):

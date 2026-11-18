@@ -4,6 +4,21 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- Painter `layer_edit` effects `levels`, `filter`, `anchor_point`, `color_selection` and `compare_mask` in a layer's content or mask.
+- Painter `layer_edit sbsar_update` replaces a project graph with the same graph from a re-cooked `.sbsar`; `project update_resources` applies Painter's reloaded resources.
+- Painter `texture_set_settings mesh_maps` binds workspace images, such as Designer bakes, as mesh maps.
+- Painter `project` actions `save_as`, `save_template`, `export_mesh` and `display` (environment, color LUT, tone mapping).
+- Designer `material render` sets image inputs, boolean toggles and non-square sizes.
+- Designer `bake antialiasing` supersamples every projecting baker.
+- Designer `graph inspect` and `catalog` without `directory` write nothing; the catalog is cached per Designer version.
+
+### Changed
+
+- Painter `texture_fill` accepts PNG, EXR and TIFF up to 8192 px; float images bind in the working color space.
+- An unknown Painter blend mode lists every valid name.
+
 ## 0.13.0 - 2026-11-09
 
 ### Changed

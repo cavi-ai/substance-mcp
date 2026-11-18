@@ -7,11 +7,11 @@
 |---|---|---|
 | `painter_status` | — | none; returns `connected`, `open`, `file`, `needs_saving`, `busy`, `edition_state`, `baking`, `mesh_reload`, `workspace`, `workspace_exists` |
 | `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
-| `project` | `open`, `create`, `close`, `save`, `save_copy`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `source_precision` (`16` or explicit `template`), `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy), `timeout_seconds` (wait_ready), `lease_id` |
+| `project` | `open`, `create`, `close`, `save`, `save_copy`, `save_as`, `save_template`, `export_mesh`, `update_resources`, `display`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `source_precision` (`16` or explicit `template`), `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy, save_as, save_template, export_mesh), `mesh_format` (export_mesh), `display`, `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
-| `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `set_properties`, `delete` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
+| `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `sbsar_update`, `set_properties`, `delete`, `levels`, `filter`, `anchor_point`, `color_selection`, `compare_mask` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
 | `brush` | `prepare`, `stroke`, `settings` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `settings`, `preset`, `channel_values`, `enabled_channels`, `mode`, `target`, `lease_id` |
-| `texture_set_settings` | — | `texture_set`, `channel_formats`, `resolution`, `lease_id` |
+| `texture_set_settings` | — | `texture_set`, `channel_formats`, `resolution`, `mesh_maps`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
 | `bake` | `start`, `status` | `texture_sets`, `maps`, `high_poly_meshes`, `resolution`, `antialiasing`, `max_frontal`, `max_rear`, `use_cage`, `cage_mesh`, `match`, `low_poly_suffix`, `high_poly_suffix`, `lease_id` |
 
@@ -21,21 +21,26 @@
 - `reload_mesh` is asynchronous: `wait_ready`, then read `painter_status.mesh_reload.status` (`SUCCESS`/`ERROR`).
 - `close` targets the inspected `expected_file` (null for unsaved) and refuses unsaved edits unless `discard_unsaved=true`.
 - `save` overwrites the project's existing workspace file; never-saved or out-of-workspace projects are refused.
-- `save_copy` writes `project.spp` into a new directory without moving the open project.
+- `save_copy` writes `project.spp` into a new directory without moving the open project. `save_as` does the same and moves the open project there.
+- `save_template` writes the active Texture Set as `<name>.spt` into a new directory. `export_mesh` writes `mesh.<mesh_format>` (`fbx`, `obj`, `gltf`, `usd`, `dae`, `ply`; base mesh, no tessellation). Each writes a receipt manifest.
+- `update_resources` applies resources Painter has reloaded but the project still references (`list_project_outdated_resources`) in one native replacement; on error nothing changes.
+- `display` reads, or with `display` sets, `environment` and `color_lut` (shelf name or `resource://` URL) and `tone_mapping` (`Linear`, `ACES`; null on color-managed projects). A failure restores the previous settings.
 - `wait_ready` polls status until `open && !busy && edition_state` or the timeout; read-only.
 
 ## Inspection
 
 - `texture_sets` includes resolution, UV tiles and channel formats. `layer_stack` walks groups (depth ≤ 8, ≤ 512 nodes, `truncated` flags the cut) with masks, effects, visibility, per-channel blend mode and opacity, and every channel source.
-- `shelf` searches resources (≤ 100) optionally filtered by `smart_material`, `smart_mask`, `material`, `generator`, `texture`, `environment`, `brush`. `bake_settings` lists per-set baking parameters and baked mesh maps.
+- `shelf` searches resources (≤ 100) optionally filtered by `smart_material`, `smart_mask`, `material`, `generator`, `texture`, `environment`, `brush`; unfiltered results also label `filter` and `color_lut` resources. `bake_settings` lists per-set baking parameters and baked mesh maps.
 
 ## Layers
 
-- `fill` adds a uniquely named fill (sRGB color, raw roughness/metallic); `values` sets `normal`, `height`, `emissive`, `opacity`, `ao`, `user0`–`user7` when the Texture Set has them and refuses otherwise. `texture_fill` embeds a workspace PNG (≤16 MiB, ≤4096 px) as sRGB base color; the imported resource stays on failure (Painter has no removal API).
+- `fill` adds a uniquely named fill (sRGB color, raw roughness/metallic); `values` sets `normal`, `height`, `emissive`, `opacity`, `ao`, `user0`–`user7` when the Texture Set has them and refuses otherwise. `texture_fill` embeds a workspace PNG, EXR or TIFF (≤1 GiB, ≤8192 px) as base color: float EXR/TIFF in the working (linear) color space, integer images as sRGB; the imported resource stays on failure (Painter has no removal API).
 - New layers go on top, inside `parent_uid` (a group) or above `above_uid`. `group`, `smart_material` and `sbsar_fill` need a unique `name`.
 - `fill_mask` adds a `black`/`white` mask. `smart_mask` and `generator` insert a shelf resource (name or `resource://` URL; ambiguous names are refused) into a layer's mask, adding a black mask when missing.
 - `sbsar_fill` imports a workspace `.sbsar` as a project resource and makes it the fill's material source; `parameters` sets substance inputs (color inputs refused). `source_manifest` verifies the `.sbsar` against a receipt before importing; `expected_sha256` verifies the file directly. Both refuse before any resource is imported. Generators accept `parameters` too.
-- `set_properties` changes `name`, `visible`, `blend_mode` (Painter `BlendingMode` name) and `opacity` for one `channel` or all; failures restore previous values.
+- `sbsar_update` imports a re-cooked `.sbsar` (same verification) and replaces the graph at `resource` (the URL `sbsar_fill` returned) everywhere in the project; parameter values are kept. A mismatch changes nothing and reports the kept import.
+- Effects go into layer `uid`'s content, or its mask when `mask` is given (a mask of that color is added when missing). `color_selection` and `compare_mask` always go in the mask. `levels` takes `input_min`, `input_max`, `gamma`, `output_min`, `output_max` (one number, or three for a color channel in content) and `clamp`; `channel` picks the affected channel. `filter` inserts a shelf filter `resource` and sets its substance `parameters`. `anchor_point` needs `name`. `color_selection` takes the ID map texture as `resource` and `colors` (`"#RRGGBB,..."`), `tolerance`, `hardness`, `output_value`, `background` (`Transparent`, `Black`, `White`, `Gray`). `compare_mask` takes `left_operand`/`right_operand` (`LayersBelow`, `ThisLayer`, `ThisMask`, `Constant`), `operation` (`LesserThan`, `WithinTolerance`, `GreaterThan`), `constant`, `tolerance`, `hardness` and `channel`.
+- `set_properties` changes `name`, `visible`, `blend_mode` (Painter `BlendingMode` name; an unknown name lists them all) and `opacity` for one `channel` or all; failures restore previous values.
 - `delete` removes nodes this lease created; other nodes need `confirm_name` equal to the current name.
 - Failed layer actions remove the nodes they created and report anything left.
 
@@ -96,6 +101,13 @@ formats. Set `channel_formats={"BaseColor":"RGB16","Height":"L16F"}` or explicit
 32-bit floating-point formats when needed. Unspecified channels stay unchanged;
 explicit 8-bit formats remain available. Export precision cannot reconstruct
 detail already lost in the source. `prepare` reports the resulting source formats.
+
+`mesh_maps` binds workspace images (PNG, EXR or TIFF, such as Designer `bake`
+outputs) as mesh maps: `{"normal":"bakes/normal.exr","ao":"bakes/ao.exr"}` with keys
+`normal`, `world_space_normal`, `id`, `ao`, `curvature`, `position`, `thickness`,
+`height`, `opacity`, `bent_normals`. Each image is imported from a private copy; a
+failure restores the previous maps and names the imported resources it kept. The
+response includes the resulting `mesh_maps`.
 
 Pass the returned `context_token` to `brush(action="stroke", points=...,
 lease_id=...)`. Each point is `[x,y,pressure]`: x/y are strictly between 0 and 1,
