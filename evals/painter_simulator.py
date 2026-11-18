@@ -38,6 +38,17 @@ BlendingMode = Enum("BlendingMode", [
     "Screen", "SignedAddition", "SoftLight", "Subtract", "Tint", "Value", "VividLight"])
 MaskBackground = Enum("MaskBackground", ["Black", "White"])
 NodeStack = Enum("NodeStack", ["Substack", "Content", "Mask"])
+CompareMaskEffectOperand = Enum("CompareMaskEffectOperand",
+                                ["LayersBelow", "ThisLayer", "ThisMask", "Constant"])
+CompareMaskEffectOperation = Enum("CompareMaskEffectOperation",
+                                  ["LesserThan", "WithinTolerance", "GreaterThan"])
+ColorSelectionBackgroundColor = Enum("ColorSelectionBackgroundColor",
+                                     ["Transparent", "Black", "White", "Gray"])
+ToneMappingFunction = Enum("ToneMappingFunction", ["Linear", "ACES"])
+UpdateProjectStatus = Enum("UpdateProjectStatus", ["SUCCESS", "ERROR"])
+MeshExportOption = Enum("MeshExportOption", ["BaseMesh", "TriangulatedMesh",
+                                             "TessellationNormalsBaseMesh",
+                                             "TessellationRecomputeNormals"])
 BakingStatus = Enum("BakingStatus", ["Success", "Cancel", "Fail"])
 CurvatureMethod = Enum("CurvatureMethod", ["FromMesh", "FromNormalMap"])
 ProjectWorkflow = Enum("ProjectWorkflow", ["Default", "TextureSetPerUVTile", "UVTile"])
@@ -298,6 +309,11 @@ class PainterSimulator:
         self.bake_running = False
         self.bake_calls = 0
         self.mesh_maps = {}
+        self.outdated = {}  # old ResourceID -> reloaded ResourceID
+        self.mesh_exports = []
+        self.saved_path = None
+        self.display = {"environment": ResourceID("starter_assets", "Panorama"),
+                        "color_lut": None, "tone_mapping": "Linear"}
         self.last_channel = None
         self.modifying = False
         self.delay = 0.0  # seconds every scripting request takes, like a long Painter operation
@@ -395,7 +411,10 @@ class PainterSimulator:
             Resource("starter_assets", "Concrete Asphalt", [Usage.BASE_MATERIAL],
                      ResourceType.SUBSTANCE, "concrete"),
             Resource("starter_assets", "Grunge Map 001", [Usage.TEXTURE], ResourceType.IMAGE),
+            Resource("starter_assets", "Blur", [Usage.FILTER], ResourceType.SUBSTANCE),
             Resource("starter_assets", "Panorama", [Usage.ENVIRONMENT], ResourceType.IMAGE),
+            Resource("starter_assets", "Studio", [Usage.ENVIRONMENT], ResourceType.IMAGE),
+            Resource("starter_assets", "Film LUT", [Usage.COLOR_LUT], ResourceType.IMAGE),
         ]
 
         def everything():
@@ -432,9 +451,58 @@ class PainterSimulator:
             self.resources.append(item)
             return item
 
+        def materials():
+            return [node.material for node in self.nodes.values()
+                    if getattr(node, "material", None) is not None]
+
+        def replace_project_resources(ids, allow_parameters_mismatch=False):
+            errors = []
+            for old, new in ids.items():
+                found, used = retrieve(new), [m for m in materials() if m.resource_id == old]
+                if not used:
+                    errors.append(SimpleNamespace(old_resource_id=old, new_resource_id=new,
+                                                  details=["Resource not used in the project"]))
+                elif not found or found[0].type() != ResourceType.SUBSTANCE:
+                    errors.append(SimpleNamespace(old_resource_id=old, new_resource_id=new,
+                                                  details=["Incompatible resource"]))
+            if errors:
+                return SimpleNamespace(status=UpdateProjectStatus.ERROR, errors=errors)
+            for old, new in ids.items():
+                for material in materials():
+                    if material.resource_id == old:
+                        material.resource_id = new
+                self.outdated.pop(old, None)
+            return SimpleNamespace(status=UpdateProjectStatus.SUCCESS, errors=[])
+
         module.resource = SimpleNamespace(
             import_project_resource=import_resource, Usage=Usage, Type=ResourceType,
             ResourceID=ResourceID, Resource=SimpleNamespace(retrieve=retrieve), search=search,
+            list_project_outdated_resources=lambda: dict(self.outdated),
+            replace_project_resources=replace_project_resources,
+            UpdateProjectStatus=UpdateProjectStatus,
+        )
+
+        def display_resource(key, usage):
+            def assign(identifier):
+                found = retrieve(identifier)
+                if not found or usage not in found[0].usages():
+                    raise ValueError(f"Resource is not a {usage.name}")
+                self.display[key] = identifier
+            return assign
+
+        def set_tone_mapping(function):
+            if sim.state == "display-failure":
+                raise RuntimeError("simulated display failure")
+            self.display["tone_mapping"] = function.name
+
+        module.display = SimpleNamespace(
+            get_environment_resource=lambda: self.display["environment"],
+            set_environment_resource=display_resource("environment", Usage.ENVIRONMENT),
+            get_color_lut_resource=lambda: self.display["color_lut"],
+            set_color_lut_resource=display_resource("color_lut", Usage.COLOR_LUT),
+            get_tone_mapping=lambda: ToneMappingFunction[self.display["tone_mapping"]],
+            set_tone_mapping=set_tone_mapping,
+            ToneMappingFunction=ToneMappingFunction,
         )
 
         class Bitmap:
@@ -448,7 +516,8 @@ class PainterSimulator:
                 self.color_space = value
 
             def list_available_color_spaces(self):
-                return ["sRGB"] if self_simulator.last_channel == ChannelType.BaseColor else ["Raw"]
+                return (["sRGB", "Working"] if self_simulator.last_channel == ChannelType.BaseColor
+                        else ["Raw"])
 
             def get_color_space(self):
                 return self.color_space
@@ -528,6 +597,20 @@ class PainterSimulator:
             def get_mesh_map_resource(self, usage):
                 return sim.mesh_maps.get(usage)
 
+            def set_mesh_map_resource(self, usage, identifier):
+                if sim.state == "mesh-map-failure" and usage == MeshMapUsage.AO:
+                    raise RuntimeError("simulated mesh map failure")
+                if identifier is None:
+                    sim.mesh_maps.pop(usage, None)
+                    return
+                found = retrieve(identifier)
+                if not found or found[0].type() != ResourceType.IMAGE:
+                    raise ValueError("Mesh map must be an image resource")
+                if any(other != usage and rid == identifier
+                       for other, rid in sim.mesh_maps.items()):
+                    raise ValueError("Resource already used for another mesh map")
+                sim.mesh_maps[usage] = identifier
+
         texture_set = TextureSet()
         channels = {channel: Channel(fmt) for channel, fmt in STACK_CHANNELS.items()}
         stack = SimpleNamespace(stack_id=7, all_channels=lambda: channels,
@@ -544,6 +627,7 @@ class PainterSimulator:
 
         module.textureset = SimpleNamespace(
             all_texture_sets=lambda: [texture_set],
+            get_active_stack=lambda: stack,
             Stack=SimpleNamespace(from_name=from_name),
             TextureSet=SimpleNamespace(from_name=texture_set_named),
             ChannelType=ChannelType, MeshMapUsage=MeshMapUsage,
@@ -753,6 +837,119 @@ class PainterSimulator:
                 self.source = Substance(identifier)
                 return self.source
 
+        @dataclasses.dataclass
+        class LevelsParamsMono:
+            input_min: float = 0.0
+            input_max: float = 1.0
+            gamma: float = 1.0
+            output_min: float = 0.0
+            output_max: float = 1.0
+            clamp: bool = False
+
+        @dataclasses.dataclass
+        class LevelsParamsRGB:
+            input_min: tuple = (0.0, 0.0, 0.0)
+            input_max: tuple = (1.0, 1.0, 1.0)
+            gamma: tuple = (1.0, 1.0, 1.0)
+            output_min: tuple = (0.0, 0.0, 0.0)
+            output_max: tuple = (1.0, 1.0, 1.0)
+            clamp: bool = False
+
+        @dataclasses.dataclass
+        class CompareMaskEffectParams:
+            channel: object
+            left_operand: object
+            right_operand: object
+            operation: object
+            constant: float
+            tolerance: float
+            hardness: float
+
+        @dataclasses.dataclass
+        class ColorSelectionEffectParams:
+            id_mask: object
+            output_value: float
+            hardness: float
+            tolerance: float
+            background_color: object
+            colors: list
+
+        class LevelsEffectNode(Node):
+            def __init__(self):
+                super().__init__("Levels")
+                self.affected_channel = ChannelType.BaseColor
+                self.params = None
+
+            def kind(self):
+                # Painter returns RGB parameters for a color channel outside a mask.
+                color = not self.in_mask and self.affected_channel == ChannelType.BaseColor
+                return LevelsParamsRGB if color else LevelsParamsMono
+
+            def get_parameters(self):
+                return self.params or self.kind()()
+
+            def set_parameters(self, params):
+                if not isinstance(params, self.kind()):
+                    raise TypeError("Levels parameters do not match the affected channel")
+                self.params = params
+
+        class FilterEffectNode(Node):
+            def __init__(self, item):
+                super().__init__(item.gui_name() if item else "Filter")
+                self.source = Substance(item.identifier()) if item else None
+
+            def get_source(self):
+                return self.source
+
+        class CompareMaskEffectNode(Node):
+            def __init__(self):
+                super().__init__("Compare Mask")
+                self.params = CompareMaskEffectParams(
+                    next(iter(ChannelType)), CompareMaskEffectOperand.ThisLayer,
+                    CompareMaskEffectOperand.LayersBelow, CompareMaskEffectOperation.GreaterThan,
+                    0.5, 0.1, 0.5)
+
+            def get_parameters(self):
+                return self.params
+
+            def set_parameters(self, params):
+                for value in (params.constant, params.tolerance, params.hardness):
+                    if not 0 <= value <= 1:
+                        raise ValueError("Compare mask values are 0..1")
+                self.params = params
+
+        class ColorSelectionEffectNode(Node):
+            def __init__(self):
+                super().__init__("Color Selection")
+                self.params = ColorSelectionEffectParams(
+                    None, 1.0, 0.5, 0.1, ColorSelectionBackgroundColor.Transparent, [])
+
+            def get_parameters(self):
+                return self.params
+
+            def set_parameters(self, params):
+                found = retrieve(params.id_mask) if params.id_mask else []
+                if params.id_mask and (not found or found[0].type() != ResourceType.IMAGE):
+                    raise ValueError("id_mask must be an image resource")
+                self.params = params
+
+        class AnchorPointEffectNode(Node):
+            pass
+
+        def effect(factory, mask_only=False):
+            def insert(position, *args):
+                if mask_only and not (
+                        (position.kind == "inside" and position.where == NodeStack.Mask)
+                        or (position.kind == "above" and position.node.in_mask)):
+                    raise ValueError("Invalid insert position")
+
+                def make(layer):
+                    if layer:
+                        raise ValueError("Effects are not layers")
+                    return factory(*args)
+                return place(position, make)
+            return insert
+
         def target(position, layer):
             node = position.node
             if position.kind == "stack":
@@ -857,7 +1054,7 @@ class PainterSimulator:
         module.colormanagement = SimpleNamespace(
             Color=lambda r, g, b, color_space=None: SimpleNamespace(
                 value=(r, g, b), value_raw=(r, g, b), color_space=color_space),
-            GenericColorSpace=SimpleNamespace(sRGB="sRGB", Raw="Raw"),
+            GenericColorSpace=SimpleNamespace(sRGB="sRGB", Raw="Raw", Working="Working"),
             LegacyColorSpace=SimpleNamespace(sRGB="srgb"),
         )
 
@@ -883,9 +1080,24 @@ class PainterSimulator:
             insert_fill=insert_fill, insert_group=insert_group, insert_paint=insert_paint,
             insert_smart_material=insert_smart_material, insert_smart_mask=insert_smart_mask,
             insert_generator_effect=insert_generator_effect,
+            insert_levels_effect=effect(LevelsEffectNode),
+            insert_filter_effect=effect(lambda identifier=None: FilterEffectNode(
+                resolved(identifier, Usage.FILTER) if identifier else None)),
+            insert_anchor_point_effect=effect(lambda name: AnchorPointEffectNode(name)),
+            insert_color_selection_effect=effect(ColorSelectionEffectNode, mask_only=True),
+            insert_compare_mask_effect=effect(CompareMaskEffectNode, mask_only=True),
+            LevelsEffectNode=LevelsEffectNode, FilterEffectNode=FilterEffectNode,
+            CompareMaskEffectNode=CompareMaskEffectNode,
+            ColorSelectionEffectNode=ColorSelectionEffectNode,
+            AnchorPointEffectNode=AnchorPointEffectNode,
+            CompareMaskEffectOperand=CompareMaskEffectOperand,
+            CompareMaskEffectOperation=CompareMaskEffectOperation,
+            ColorSelectionBackgroundColor=ColorSelectionBackgroundColor,
             delete_node=delete_node,
             ScopedModification=modification,
         )
+        module.levels = SimpleNamespace(LevelsParamsMono=LevelsParamsMono,
+                                        LevelsParamsRGB=LevelsParamsRGB)
 
         def open_project(*args, **kwargs):
             self.opened = True
@@ -909,7 +1121,18 @@ class PainterSimulator:
                 raise RuntimeError("simulated save failure")
             Path(path).write_bytes(b"simulated-spp")
 
+        def save_as(path, mode):
+            Path(path).write_bytes(b"simulated-spp")
+            self.saved_path = str(path)
+
+        def save_as_template(path, texture_set_name):
+            if texture_set_name != "Body":
+                raise ValueError("Texture Set not found")
+            Path(path).write_bytes(b"simulated-spt")
+
         def file_path():
+            if self.saved_path:
+                return self.saved_path
             if self.state == "dirty-unsaved":
                 return None
             if self.state.startswith("workspace"):
@@ -967,6 +1190,8 @@ class PainterSimulator:
             close=close_project,
             save=save,
             save_as_copy=save_copy,
+            save_as=save_as,
+            save_as_template=save_as_template,
             reload_mesh=reload_mesh,
             Settings=Settings,
             MeshReloadingSettings=MeshReloadingSettings,
@@ -1152,12 +1377,21 @@ class PainterSimulator:
             self.planned_config = config
             return plan(config)
 
+        def export_mesh(path, option):
+            if Path(path).suffix not in {".usd", ".obj", ".fbx", ".dae", ".ply", ".gltf"}:
+                raise ValueError("Unsupported mesh format")
+            Path(path).write_bytes(b"simulated-mesh")
+            self.mesh_exports.append((str(path), option.name))
+            return SimpleNamespace(status=success, message="simulated mesh export")
+
         module.export = SimpleNamespace(
             list_predefined_export_presets=lambda: [
                 SimpleNamespace(name="Eval", url="resource://eval-preset")
             ],
             list_project_textures=listed,
             export_project_textures=export,
+            export_mesh=export_mesh,
+            MeshExportOption=MeshExportOption,
             ExportStatus=SimpleNamespace(Success=success),
         )
 

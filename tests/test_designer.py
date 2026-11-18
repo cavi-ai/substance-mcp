@@ -288,6 +288,31 @@ class FakeCliTests(unittest.TestCase):
         image = Image.open(self.workspace / "r/packed/T_Rock_BaseColor.png")
         self.assertEqual((image.size, image.getpixel((0, 0))), ((64, 64), (204, 102, 51, 128)))
 
+    def test_render_sets_image_and_toggle_inputs_and_a_non_square_size(self):
+        data = json.loads(sbsar(["pkg://g"]))
+        data["graphs"][0]["inputs"] += [["mask", "IMAGE"], ["enabled", "INTEGER1"]]
+        (self.workspace / "img.sbsar").write_text(json.dumps(data))
+        (self.workspace / "maps").mkdir()
+        Image.new("L", (8, 8), 7).save(self.workspace / "maps/m.png")
+        result = asyncio.run(operations.render(
+            "img.sbsar", None, "r", {"enabled": True}, [64, 32], None, None, None, "png", "8",
+            None, 30, images={"mask": "maps/m.png"}))
+        command = self.calls()[-1]
+        entries = [command[i + 1] for i, item in enumerate(command) if item == "--set-entry"]
+        values = [command[i + 1] for i, item in enumerate(command) if item == "--set-value"]
+        self.assertEqual(entries, [f"mask@{(self.workspace / 'maps/m.png').resolve()}"])
+        self.assertEqual(values, ["enabled@1", "$outputsize@6,5"])
+        with Image.open(self.workspace / result["maps"]["baseColor"]) as image:
+            self.assertEqual(image.size, (64, 32))
+        manifest = json.loads((self.workspace / "r/manifest.json").read_text())
+        self.assertIn("maps/m.png", json.dumps(manifest["inputs"]))
+        with self.assertRaisesRegex(ValueError, "mask is an image; pass it in images"):
+            asyncio.run(operations.render("img.sbsar", None, "s", {"mask": 1}, None, None,
+                                          None, None, "png", "8", None, 30))
+        with self.assertRaisesRegex(ValueError, "enabled is not an image input"):
+            asyncio.run(operations.render("img.sbsar", None, "s", None, None, None, None, None,
+                                          "png", "8", None, 30, images={"enabled": "maps/m.png"}))
+
     def test_render_failure_cleans_up(self):
         data = json.loads(sbsar(["pkg://g"]))
         (self.workspace / "bad.sbsar").write_text(json.dumps({**data, "mode": "render_fail"}))
@@ -309,6 +334,32 @@ class FakeCliTests(unittest.TestCase):
         self.assertNotIn("--high_scene_paths", world)
         self.assertNotIn("--output_texture_orientation", ao)
         self.assertEqual(set(result["maps"]), {"normal", "world_normal", "ambient_occlusion"})
+
+    def test_graph_queries_write_nothing_and_launch_designer_once_per_version(self):
+        from cavi_substance_mcp.designer import graph, server
+
+        graph.CATALOG.clear()
+        before = set(self.workspace.iterdir())
+        found = asyncio.run(server.graph("catalog", query="UNI"))
+        page = asyncio.run(graph.query("catalog", offset=1, limit=1))
+        node = asyncio.run(graph.query("catalog", query="sbs::compositing::blend"))
+        again = asyncio.run(graph.query("catalog", query="sbs::compositing::blend"))
+        self.assertEqual(found["definitions"], ["sbs::compositing::uniform"])
+        self.assertEqual((page["definitions"], page["total"]), (["sbs::compositing::uniform"], 2))
+        self.assertEqual(node["node_schema"]["input"]["opacitymult"]["type"], "float")
+        self.assertEqual(again, node)
+        launches = [call for call in self.calls() if call[0] == "Adobe Substance 3D Designer"]
+        self.assertEqual(len(launches), 2)
+        written = set(self.workspace.iterdir()) - before
+        self.assertEqual({path.name for path in written}, {".cavi-designer-authoring.lock"})
+
+    def test_bake_antialiasing_reaches_every_projecting_baker(self):
+        asyncio.run(operations.bake("meshes/low.fbx", "meshes/high.fbx", None,
+                                    ["normal", "world_normal"], "b",
+                                    OPTIONS | {"antialiasing": "4x4"}, 30))
+        normal, world = self.calls()
+        self.assertEqual(normal[normal.index("--projection.sampling_rate") + 1], "4x4")
+        self.assertNotIn("--projection.sampling_rate", world)
 
     def test_bake_low_only_cage_and_directx(self):
         options = OPTIONS | {"use_cage": True, "normal_format": "DirectX", "match_by_name": True}
@@ -385,6 +436,15 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(tools["designer_status"].annotations.read_only_hint)
         actions = tools["material"].input_schema["properties"]["action"]["enum"]
         self.assertEqual(actions, ["info", "cook", "render", "pack"])
+
+    def test_render_schema_accepts_image_paths_toggles_and_width_height(self):
+        from cavi_substance_mcp.designer.server import mcp
+
+        tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
+        Draft202012Validator(tools["material"].input_schema).validate({
+            "action": "render", "path": "m.sbsar", "directory": "r",
+            "values": {"enabled": True, "level": 0.5}, "images": {"mask": "maps/m.png"},
+            "resolution": [64, 32]})
 
 
 class StatusContractTests(unittest.IsolatedAsyncioTestCase):

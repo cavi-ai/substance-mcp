@@ -4,8 +4,21 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- Painter `layer_edit` effects `levels`, `filter`, `anchor_point`, `color_selection` and `compare_mask` in a layer's content or mask.
+- Painter `layer_edit sbsar_update` replaces a project graph with the same graph from a re-cooked `.sbsar`; `project update_resources` applies Painter's reloaded resources.
+- Painter `texture_set_settings mesh_maps` binds workspace images, such as Designer bakes, as mesh maps.
+- Painter `project` actions `save_as`, `save_template`, `export_mesh` and `display` (environment, color LUT, tone mapping).
+- Designer `material render` sets image inputs, boolean toggles and non-square sizes.
+- Designer `bake antialiasing` supersamples every projecting baker.
+- Designer `graph inspect` and `catalog` without `directory` write nothing; the catalog is cached per Designer version.
+
 ### Changed
 
+- Painter `texture_fill` accepts PNG, EXR and TIFF up to 8192 px; float images bind in the working color space.
+- An unknown Painter blend mode lists every valid name.
+- Painter `layer_edit` and `brush` and every Sampler editing tool refuse arguments the chosen action does not use.
 - `CAVI_SUBSTANCE_WORKSPACE` must be an absolute path; a relative value is refused.
 - Painter and Sampler in-app code uses MCP Core's workspace, file and journal modules; requires MCP Core 0.1.4.
 - Receipt manifests are written with MCP Core's durable JSON writer and readable by the owner only.
@@ -14,6 +27,7 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ### Fixed
 
+- Painter native brush strokes refuse a window handle that is not an `NSView` instead of crashing Painter.
 - Painter refuses a missing input file with the workspace input message instead of an OS error naming the absolute path.
 - Painter removes failed outputs that contain read-only files.
 - The Designer authoring lock is released explicitly on Windows.

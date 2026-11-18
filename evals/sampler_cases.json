@@ -210,7 +210,7 @@
       "directory": "x",
       "project": "projects/Rock.ssa"
     },
-    "error": "project is only valid"
+    "error": "Not valid for action=create: project"
   },
   {
     "id": "project-save-as",
@@ -425,7 +425,7 @@
       "project": "projects/Rock.ssa",
       "asset": "Rock"
     },
-    "error": "images must be a list"
+    "error": "images is required for action=import_images"
   },
   {
     "id": "asset-import-bad-option",

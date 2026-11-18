@@ -3,7 +3,7 @@
 import asyncio
 from typing import Annotated, Literal
 
-from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need, reject_foreign
+from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from ..core import workspace
+from ..core.actions import checked
 from ..core.contracts import (
     SamplerAssetResult,
     SamplerBuildResult,
@@ -88,25 +89,40 @@ class AssetMetadata(BaseModel):
     physical_size: tuple[float, float, float] | None = None
     custom_metadata: Annotated[dict[str, bool | int | float | str | None] | None,
                                Field(max_length=64)] = None
+# action -> (required, optional) arguments besides action and timeout_seconds
 INSPECT_PARAMS = {
-    "project": {"project"},
-    "asset": {"project", "asset"},
-    "catalog": {"query"},
+    "project": ({"project"}, set()),
+    "asset": ({"project", "asset"}, set()),
+    "catalog": (set(), {"query"}),
 }
+PROJECT_PARAMS = {
+    "create": ({"name"}, set()),
+    "save_as": ({"project"}, {"name"}),
+}
+_PLACE = {"position", "insert_above"}
 ASSET_PARAMS = {
-    "create": {"project", "name", "model", "preset", "empty"},
-    "delete": {"project", "asset"},
-    "import_resource": {"project", "path", "resources", "source_manifest", "expected_sha256"},
-    "set_metadata": {"project", "asset", "metadata"},
-    "activate_channels": {"project", "asset", "channels"},
-    "deactivate_channels": {"project", "asset", "channels"},
-    "import_images": {"project", "asset", "images", "position", "import_option", "insert_above"},
-    "import_textures": {"project", "asset", "images", "position", "insert_above"},
-    "insert_filter": {"project", "asset", "filter", "position", "insert_above"},
-    "insert_material": {
-        "project", "asset", "material", "position", "blend_mode", "insert_above",
-    },
+    "create": ({"name"}, {"model", "preset", "empty"}),
+    "delete": ({"asset", "confirm"}, set()),
+    "import_resource": ({"path"}, {"resources", "source_manifest", "expected_sha256"}),
+    "set_metadata": ({"asset", "metadata"}, set()),
+    "activate_channels": ({"asset", "channels"}, set()),
+    "deactivate_channels": ({"asset", "channels"}, set()),
+    "import_images": ({"asset", "images"}, {*_PLACE, "import_option"}),
+    "import_textures": ({"asset", "images"}, _PLACE),
+    "insert_filter": ({"asset", "filter"}, _PLACE),
+    "insert_material": ({"asset", "material"}, {*_PLACE, "blend_mode"}),
 }
+ASSET_DEFAULTS = {"model": "asm", "empty": False, "position": 0,
+                  "import_option": "use_as_bitmap", "blend_mode": "blend_normal",
+                  "confirm": False}
+LAYER_PARAMS = {
+    "set_parameters": ({"parameters"}, {"position"}),
+    "apply_preset": ({"preset"}, {"position"}),
+    "set_channels": (set(), {"position", "applies_to", "blend_applies_to"}),
+    "set_blend_parameters": ({"parameters"}, {"position"}),
+    "remove": ({"confirm"}, {"position"}),
+}
+LAYER_OPERATIONS = {"remove": "remove_layer"}
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -131,13 +147,9 @@ async def sampler_inspect(
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerInspection:
     """Inspect projects, assets and resource lists."""
-    given = {"project": project, "asset": asset, "query": query or None}
-    reject_foreign(action, given, INSPECT_PARAMS[action])
-    if action in ("project", "asset"):
-        need(project, "project", action)
-    if action == "asset":
-        need(asset, "asset", action)
-    arguments = {key: value for key, value in given.items() if value is not None}
+    accepted = checked(action, {"project": project, "asset": asset, "query": query},
+                       INSPECT_PARAMS, {"query": ""})
+    arguments = {key: value for key, value in accepted.items() if value}
     operation = {"project": "inspect_project", "asset": "inspect_asset",
                  "catalog": "catalog"}[action]
     return await launch.invoke(operation, arguments, timeout_seconds)
@@ -157,17 +169,11 @@ async def sampler_project(
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerProjectResult:
     """Create/copy a project in a new directory."""
-    if action == "create":
-        if project is not None:
-            raise ValueError("project is only valid for action=save_as")
-        need(name, "name", action)
-    else:
-        need(project, "project", action)
+    accepted = checked(action, {"name": name, "project": project}, PROJECT_PARAMS)
     operation = "create_project" if action == "create" else "save_as"
     return await launch.invoke(operation, {
-        key: value for key, value in {
-            "directory": directory, "name": name, "project": project,
-        }.items() if value is not None
+        "directory": directory,
+        **{key: value for key, value in accepted.items() if value is not None},
     }, timeout_seconds)
 
 
@@ -253,89 +259,22 @@ async def sampler_asset(
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerAssetResult:
     """Edit a copy; save before replacing the project."""
-    values = {
-        "project": project, "asset": asset, "name": name, "model": model, "preset": preset,
-        "empty": empty, "metadata": metadata, "channels": channels, "path": path,
-        "source_manifest": source_manifest, "expected_sha256": expected_sha256,
-        "resources": resources, "images": images, "position": position,
-        "import_option": import_option,
-        "insert_above": insert_above, "filter": filter, "material": material,
-        "blend_mode": blend_mode,
-    }
-    if action != "create":
-        values["model"], values["preset"], values["empty"] = None, None, None
-    if action != "set_metadata":
-        values["metadata"] = None
-    if action not in ("activate_channels", "deactivate_channels"):
-        values["channels"] = None
-    if action != "import_resource":
-        values["path"], values["resources"] = None, None
-    if action != "import_images":
-        values["import_option"] = None
-    if action != "insert_material":
-        values["blend_mode"] = None
-    if action not in ("import_images", "import_textures", "insert_filter", "insert_material"):
-        values["position"], values["insert_above"] = None, None
-    reject_foreign(action, values, ASSET_PARAMS[action])
+    given = {key: value for key, value in locals().items()
+             if key not in ("action", "project", "timeout_seconds")}
+    accepted = checked(action, given, ASSET_PARAMS, ASSET_DEFAULTS)
     if action == "delete" and not confirm:
         raise ValueError("confirm must be true for action=delete")
-    if action != "delete" and confirm:
-        raise ValueError("confirm is only valid for action=delete")
-    if action == "create":
-        need(name, "name", action)
-    if action == "import_resource":
-        need(path, "path", action)
-    if action in ("delete", "set_metadata", "activate_channels", "deactivate_channels",
-                  "import_images", "import_textures", "insert_filter", "insert_material"):
-        need(asset, "asset", action)
-    if action == "set_metadata":
-        need(metadata, "metadata", action)
-        if not metadata.model_dump(exclude_none=True):
-            raise ValueError("metadata must contain at least one field")
-    if action in ("activate_channels", "deactivate_channels"):
-        need(channels, "channels", action)
+    if action == "set_metadata" and not metadata.model_dump(exclude_none=True):
+        raise ValueError("metadata must contain at least one field")
     if action == "import_images" and not isinstance(images, list):
         raise ValueError("images must be a list of workspace images")
     if action == "import_textures" and not isinstance(images, dict):
         raise ValueError("images must map usages to workspace images")
-    if action == "insert_filter":
-        need(filter, "filter", action)
-    if action == "insert_material":
-        need(material, "material", action)
-    arguments = {"project": project}
-    if asset is not None:
-        arguments["asset"] = asset
-    if action == "create":
-        arguments["name"] = name
-        arguments["model"] = model
-        arguments["empty"] = empty
-        if preset is not None:
-            arguments["preset"] = preset
-    if action == "import_resource":
-        arguments["path"] = path
-        if resources is not None:
-            arguments["resources"] = resources
-        if source_manifest is not None:
-            arguments["source_manifest"] = source_manifest
-        if expected_sha256 is not None:
-            arguments["expected_sha256"] = expected_sha256
+    arguments = {"project": project, **{key: value for key, value in accepted.items()
+                                        if value is not None and key not in ("confirm",
+                                                                             "metadata")}}
     if action == "set_metadata":
         arguments.update(metadata.model_dump(exclude_none=True))
-    if action in ("activate_channels", "deactivate_channels"):
-        arguments["channels"] = channels
-    if action in ("import_images", "import_textures"):
-        arguments["images"] = images
-    if action in ("import_images", "import_textures", "insert_filter", "insert_material"):
-        arguments["position"] = position
-        if insert_above is not None:
-            arguments["insert_above"] = insert_above
-    if action == "import_images":
-        arguments["import_option"] = import_option
-    if action == "insert_filter":
-        arguments["filter"] = filter
-    if action == "insert_material":
-        arguments["material"] = material
-        arguments["blend_mode"] = blend_mode
     operation = {"create": "create_asset", "delete": "delete_asset"}.get(action, action)
     return await launch.invoke(operation, arguments, timeout_seconds)
 
@@ -377,59 +316,19 @@ async def sampler_layer(
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerLayerResult:
     """Edit layer channels, parameters or presets."""
-    if action == "set_parameters":
-        if not isinstance(parameters, dict) or not parameters:
-            raise ValueError("parameters must be a non-empty object")
-        if (
-            preset is not None or confirm or applies_to is not None
-            or blend_applies_to is not None
-        ):
-            raise ValueError("only parameters is valid for action=set_parameters")
-        arguments = {"project": project, "asset": asset, "layer": layer,
-                     "position": position, "parameters": parameters}
-    elif action == "apply_preset":
-        need(preset, "preset", action)
-        if (
-            parameters is not None or confirm or applies_to is not None
-            or blend_applies_to is not None
-        ):
-            raise ValueError("only preset is valid for action=apply_preset")
-        arguments = {"project": project, "asset": asset, "layer": layer,
-                     "position": position, "preset": preset}
-    elif action == "set_channels":
-        if applies_to is None and blend_applies_to is None:
-            raise ValueError("set_channels needs applies_to or blend_applies_to")
-        if parameters is not None or preset is not None or confirm:
-            raise ValueError("only applies_to and blend_applies_to are valid here")
-        arguments = {"project": project, "asset": asset, "layer": layer,
-                     "position": position, "applies_to": applies_to,
-                     "blend_applies_to": blend_applies_to}
-    elif action == "set_blend_parameters":
-        if not isinstance(parameters, dict) or not parameters:
-            raise ValueError("parameters must be a non-empty object")
-        if (
-            preset is not None or confirm or applies_to is not None
-            or blend_applies_to is not None
-        ):
-            raise ValueError("only parameters is valid for set_blend_parameters")
-        arguments = {"project": project, "asset": asset, "layer": layer,
-                     "position": position, "parameters": parameters}
-    else:
-        if not confirm:
-            raise ValueError("confirm must be true for action=remove")
-        if (
-            parameters is not None or preset is not None or applies_to is not None
-            or blend_applies_to is not None
-        ):
-            raise ValueError("only confirm is valid for action=remove")
-        arguments = {"project": project, "asset": asset, "layer": layer,
-                     "position": position}
-    operation = {"set_parameters": "set_parameters", "apply_preset": "apply_preset",
-                 "set_channels": "set_channels", "set_blend_parameters": "set_blend_parameters",
-                 "remove": "remove_layer"}[action]
-    return await launch.invoke(operation, {
-        key: value for key, value in arguments.items() if value is not None
-    }, timeout_seconds)
+    given = {key: value for key, value in locals().items()
+             if key not in ("action", "project", "asset", "layer", "timeout_seconds")}
+    accepted = checked(action, given, LAYER_PARAMS, {"confirm": False})
+    if "parameters" in accepted and not parameters:
+        raise ValueError("parameters must be a non-empty object")
+    if action == "set_channels" and applies_to is None and blend_applies_to is None:
+        raise ValueError("set_channels needs applies_to or blend_applies_to")
+    if action == "remove" and not confirm:
+        raise ValueError("confirm must be true for action=remove")
+    arguments = {"project": project, "asset": asset, "layer": layer,
+                 **{key: value for key, value in accepted.items()
+                    if value is not None and key != "confirm"}}
+    return await launch.invoke(LAYER_OPERATIONS.get(action, action), arguments, timeout_seconds)
 
 
 @mcp.tool(annotations=WRITES)

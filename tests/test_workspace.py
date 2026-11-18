@@ -393,7 +393,7 @@ from pathlib import Path
 namespace = {}
 exec(compile(sys.stdin.read(), "cavi_painter_operations", "exec"), namespace)
 try:
-    namespace["color_texture"](Path(sys.argv[1]), "maps/missing.png")
+    namespace["color_texture"](Path(sys.argv[1]), "maps/missing.png", Path(sys.argv[1]))
 except Exception as exc:
     print(type(exc).__name__ + ": " + str(exc))
 """

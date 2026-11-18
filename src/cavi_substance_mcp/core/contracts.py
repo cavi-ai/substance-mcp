@@ -86,6 +86,8 @@ class PainterProject(VariantResult):
         ("saved", "file", "needs_saving"),
         ("path", "bytes", "manifest"),
         ("connected", "ready", "waiting_on", "waited_seconds"),
+        ("updated",),
+        ("environment", "color_lut", "tone_mapping"),
     )
     nullable_shape_fields = frozenset({"file", "default_texture_resolution", "template"})
     requested: str | None = None
@@ -123,7 +125,7 @@ class PainterInspection(VariantResult):
 
 
 class PainterLayerResult(VariantResult):
-    shapes = (("uid",), ("deleted", "name"))
+    shapes = (("uid",), ("deleted", "name"), ("replaced", "resource_url"))
     uid: int | None = None
     deleted: int | None = None
     name: str | None = None
@@ -206,9 +208,9 @@ class DesignerMaterial(VariantResult):
 
 class DesignerGraphResult(Result):
     action: Literal['create', 'edit', 'inspect', 'catalog']
-    directory: str
-    manifest: str
-    report: str
+    directory: str | None = None
+    manifest: str | None = None
+    report: str | None = None
     package: str | None = None
     graphs: list[Record] | None = None
     node_ids: dict[str, str] | None = None
