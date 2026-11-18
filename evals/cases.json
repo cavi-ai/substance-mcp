@@ -700,7 +700,7 @@
    "simulated"
   ],
   "setup": "closed",
-  "error": "No such file"
+  "error": "supported file inside the workspace"
  },
  {
   "id": "open_project-extension",
@@ -770,7 +770,7 @@
    "simulated"
   ],
   "setup": "closed",
-  "error": "No such file"
+  "error": "supported file inside the workspace"
  },
  {
   "id": "create_project-extension",

@@ -1,9 +1,6 @@
 """Run one native Designer graph transaction, preserving its input packages."""
 
-import hashlib
 import json
-import os
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -11,22 +8,13 @@ from pathlib import Path
 from cavi_mcp_core import apps, proc
 
 from .. import receipts
-from ..core import workspace
+from ..core import host_script, workspace
+from ..core.lock import FileLock
 from . import runner
 from .graph_models import GraphRecipe
 
-DRIVER = '''import json,sys
-from pathlib import Path
-sys.path.insert(0, {package_root!r})
-from cavi_substance_mcp.designer.graph_native import run
-request=Path({request!r})
-response=Path({response!r})
-try:
-    result={{"ok":True,"result":run(json.loads(request.read_text(encoding="utf-8")))}}
-except BaseException as exc:
-    result={{"ok":False,"error":type(exc).__name__+": "+str(exc)}}
-response.write_text(json.dumps(result,allow_nan=False),encoding="utf-8")
-'''
+IN_APP = "cavi_substance_mcp.designer.graph_native"
+LOCK_NAME = ".cavi-designer-authoring.lock"
 
 
 def executable():
@@ -39,35 +27,19 @@ def executable():
     raise RuntimeError('Designer native application not found beside its CLIs')
 
 
-class AppLock:
+class AppLock(FileLock):
     """Fail before launch if another cooperating Designer authoring request owns the app."""
 
     def __init__(self, root):
-        self.path, self.fd = root / '.cavi-designer-authoring.lock', None
+        super().__init__(Path(root) / LOCK_NAME)
 
     def __enter__(self):
-        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            if sys.platform == 'win32':
-                import msvcrt
-                if os.fstat(self.fd).st_size == 0:
-                    os.write(self.fd, b'\0')
-                os.lseek(self.fd, 0, os.SEEK_SET)
-                msvcrt.locking(self.fd, msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            os.close(self.fd)
-            self.fd = None
-            raise RuntimeError('Another Designer authoring request is active; '
-                               'nothing launched') from exc
+        if not self.try_lock():
+            raise RuntimeError('Another Designer authoring request is active; nothing launched')
         return self
 
     def __exit__(self, *_):
-        if self.fd is not None:
-            os.close(self.fd)
-            self.fd = None
+        self.release()
 
 
 def recipe_data(recipe):
@@ -113,21 +85,18 @@ async def _native(app, folder, request, timeout_seconds):
     request_path = folder / '.graph-request.json'
     response = folder / '.graph-response.json'
     script = folder / '.graph-driver.py'
-    request_path.write_text(json.dumps(request, allow_nan=False), encoding='utf-8')
-    script.write_text(DRIVER.format(package_root=str(Path(__file__).parents[2]),
-                                    request=str(request_path), response=str(response)),
-                      encoding='utf-8')
+    host_script.prepare(script, request_path, response, IN_APP, request)
     result = await proc.run([app, '--startup-script', script, '--quit'], timeout_seconds)
     if result.returncode != 0:
         raise RuntimeError(runner.failure(result, 'Designer graph authoring'))
-    if not response.is_file() or response.stat().st_size > 8 * 1024**2:
+    if not response.is_file():
         raise RuntimeError('Designer did not produce a complete graph response')
-    reply = json.loads(response.read_text(encoding='utf-8'))
-    if not reply.get('ok'):
-        raise RuntimeError('Designer graph authoring failed: ' + str(reply.get('error')))
+    reply = host_script.envelope(response, 'Designer')
+    if not reply['ok']:
+        host_script.raise_error(str(reply.get('error')))
     for private in (request_path, response, script):
         private.unlink()
-    return reply['result']
+    return reply.get('result')
 
 
 def _idle(app):
@@ -195,7 +164,7 @@ async def invoke(action, directory, path=None, recipe=None, query='', offset=0, 
     data = recipe_data(recipe)
     source = (package_source(path, root) if action == 'catalog' and path else
               workspace.input_file(root, path, {'.sbs'}) if path else None)
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest() if source else None
+    source_hash = receipts.sha256_file(source) if source else None
     dependencies = libraries(data['operations'], root)
     app = executable()
     started = time.monotonic()
@@ -208,7 +177,7 @@ async def invoke(action, directory, path=None, recipe=None, query='', offset=0, 
                 'output': str(output), 'libraries': dependencies, 'query': query,
                 'offset': offset, 'limit': limit,
             }, timeout_seconds)
-            if source and hashlib.sha256(source.read_bytes()).hexdigest() != source_hash:
+            if source and receipts.sha256_file(source) != source_hash:
                 raise RuntimeError('Source package changed during authoring; inspect the source')
             report = folder / 'graph.json'
             report.write_text(json.dumps(value, allow_nan=False, indent=2), encoding='utf-8')

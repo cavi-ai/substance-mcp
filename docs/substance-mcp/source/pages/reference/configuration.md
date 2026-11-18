@@ -5,7 +5,7 @@ client, for example `"env": {"CAVI_SUBSTANCE_WORKSPACE": "/absolute/path"}`.
 
 | Variable | Server | Default | Meaning |
 | --- | --- | --- | --- |
-| `CAVI_SUBSTANCE_WORKSPACE` | all | `~/Documents/SubstanceMCP` | Asset workspace every tool reads from and writes to |
+| `CAVI_SUBSTANCE_WORKSPACE` | all | `~/Documents/SubstanceMCP` | Absolute path of the asset workspace every tool reads from and writes to; a relative path is refused |
 | `CAVI_PAINTER_PORT` | Painter | `60041` | Painter's local scripting port |
 | `CAVI_PAINTER_APP` | Painter | standard Adobe installation | Painter app bundle that `runtime start` launches |
 | `CAVI_DESIGNER_BIN_DIR` | Designer | — | Folder holding `sbscooker`, `sbsrender` and `substance3d_baker` |

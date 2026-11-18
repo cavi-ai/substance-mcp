@@ -17,13 +17,12 @@ from pathlib import Path
 
 from cavi_mcp_core import proc
 
-from ..core import workspace
+from ..core import host_script, workspace
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock
 from .names import PROJECT
 
-RESPONSE_LIMIT = 8 * 1024 * 1024
 LOCK_WAIT = 60
 WORK_PREFIX = ".cavi-work-"
 # Operations that save the project they open. They run on a disposable copy so a
@@ -35,48 +34,7 @@ MUTATING = frozenset({
     "remove_layer",
 })
 _HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
-
-DRIVER = '''import json
-import sys
-from pathlib import Path
-
-PACKAGE_ROOT = {package_root!r}
-REQUEST = Path({request!r})
-RESPONSE = Path({response!r})
-
-
-def main():
-    data = json.loads(REQUEST.read_text(encoding="utf-8"))
-    try:
-        sys.path.insert(0, PACKAGE_ROOT)
-        from cavi_substance_mcp.sampler.operations import (
-            execute_in_sampler, execute_job, preflight_job,
-        )
-
-        if "preflight" in data:
-            result = preflight_job(
-                data["preflight"], data["workspace"], data["project"]
-            )
-        elif "job" in data:
-            result = execute_job(data["job"], data["workspace"], data.get("version"))
-        else:
-            result = execute_in_sampler(
-                data["operation"], data.get("arguments") or {{}}, data["workspace"],
-                data.get("version"),
-            )
-    except BaseException as exc:
-        RESPONSE.write_text(
-            json.dumps({{"ok": False, "error": f"{{type(exc).__name__}}: {{exc}}"}}),
-            encoding="utf-8",
-        )
-    else:
-        RESPONSE.write_text(
-            json.dumps({{"ok": True, "result": result}}, default=str), encoding="utf-8"
-        )
-
-
-main()
-'''
+IN_APP = "cavi_substance_mcp.sampler.operations"
 
 
 def status() -> dict:
@@ -169,17 +127,7 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
     if progress_file is not None and on_progress is not None:
         tailer = asyncio.create_task(_tail_progress(Path(progress_file), on_progress, stop))
     try:
-        request.write_text(
-            json.dumps({**payload, "version": version}, allow_nan=False), encoding="utf-8"
-        )
-        script.write_text(
-            DRIVER.format(
-                package_root=str(Path(__file__).resolve().parents[2]),
-                request=str(request),
-                response=str(response),
-            ),
-            encoding="utf-8",
-        )
+        host_script.prepare(script, request, response, IN_APP, {**payload, "version": version})
         started = time.monotonic()
         result = await runner.run_script(script, remaining, job)
         deadline = time.monotonic() + 2
@@ -192,27 +140,14 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
                 "Sampler exited without running the script. Quit any running Sampler window, "
                 "then retry. " + proc.diagnostics(result)
             )
-        if response.stat().st_size > RESPONSE_LIMIT:
-            raise RuntimeError("Sampler response exceeds size limit")
-        try:
-            payload = json.loads(response.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise RuntimeError("Sampler returned an unreadable response") from exc
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
-            detail = str(
-                payload.get("error") if isinstance(payload, dict) else payload
-                or "Sampler operation failed"
-            )
-            detail = _unalias(detail, aliases)
-            for kind in (ValueError, FileExistsError, TypeError, RuntimeError):
-                prefix = f"{kind.__name__}: "
-                if detail.startswith(prefix):
-                    raise kind(detail[len(prefix):])
-            raise RuntimeError(detail)
+        envelope = host_script.envelope(response, "Sampler")
+        if not envelope["ok"]:
+            host_script.raise_error(
+                _unalias(str(envelope.get("error") or "Sampler operation failed"), aliases))
         if result.returncode != 0:
             # A response file proves the script ran, not that Sampler shut down cleanly.
             raise RuntimeError(runner.failure(result))
-        reply = payload.get("result")
+        reply = envelope.get("result")
         if not isinstance(reply, dict):
             raise TypeError("Sampler operation returned an unexpected response")
         reply["seconds"] = round(time.monotonic() - started, 3)

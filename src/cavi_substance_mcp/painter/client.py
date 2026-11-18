@@ -11,7 +11,9 @@ import threading
 import time
 from pathlib import Path
 
+from ..core import embedded
 from ..core import workspace as workspaces
+from ..core.host_script import RESPONSE_LIMIT
 
 OPERATIONS = frozenset(
     {
@@ -56,14 +58,19 @@ SLOW_OPERATIONS = frozenset({"save", "save_copy", "save_as", "save_template", "e
 OPERATION_TIMEOUTS = {"layer_edit": 120.0, **dict.fromkeys(SLOW_OPERATIONS, SLOW_TIMEOUT)}
 # How long status waits for a request already in flight before reporting it instead.
 STATUS_QUEUE_SECONDS = 0.5
-RESPONSE_LIMIT = 8 * 1024 * 1024
-# The payload is one exec'd string: the shared receipts module first, then the Painter
-# operations, which find it under the name ``receipts``.
+# The payload is one exec'd string: the mcp-core modules, then the shared receipts and
+# workspace modules, then the Painter operations, which find them as ``receipts`` and
+# ``workspace_paths``.
 _RECEIPTS = Path(__file__).parents[1].joinpath("receipts.py").read_text(encoding="utf-8")
+_WORKSPACE = Path(__file__).parents[1].joinpath("core", "workspace.py").read_text(
+    encoding="utf-8")
 _BRUSH = Path(__file__).with_name("native_brush.py").read_text(encoding="utf-8")
 SOURCE = (
-    "receipts = __import__('types').ModuleType('cavi_receipts')\n"
+    embedded.bootstrap()
+    + "receipts = __import__('types').ModuleType('cavi_receipts')\n"
     f"exec(compile({_RECEIPTS!r}, 'cavi_receipts', 'exec'), receipts.__dict__)\n"
+    "workspace_paths = __import__('types').ModuleType('cavi_workspace')\n"
+    f"exec(compile({_WORKSPACE!r}, 'cavi_workspace', 'exec'), workspace_paths.__dict__)\n"
     "native_brush = __import__('types').ModuleType('cavi_native_brush')\n"
     f"exec(compile({_BRUSH!r}, 'cavi_native_brush', 'exec'), native_brush.__dict__)\n"
     + Path(__file__).with_name("operations.py").read_text(encoding="utf-8")
