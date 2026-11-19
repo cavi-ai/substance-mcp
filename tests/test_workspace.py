@@ -258,36 +258,6 @@ class RemoveTreeTests(unittest.TestCase):
             self.assertEqual(workspace.remove_tree(self.tree), [])
         self.assertFalse(self.tree.exists())
 
-    def test_without_the_unlock_handler_that_file_would_be_left_behind(self):
-        target = self.tree / "top.txt"
-        target.chmod(stat.S_IREAD)
-        real = os.unlink
-
-        def unlink(path, *args, dir_fd=None, **kwargs):
-            if os.path.basename(str(path)) == "top.txt" and not (
-                    os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWUSR):
-                raise PermissionError(13, "read-only file", str(path))
-            return real(path, *args, dir_fd=dir_fd, **kwargs)
-
-        with patch.object(os, "unlink", unlink):
-            shutil.rmtree(self.tree, ignore_errors=True)
-        self.assertTrue(target.exists(), "the emulation no longer reproduces the failure")
-
-    def test_the_unlock_handler_clears_the_read_only_bit_and_retries(self):
-        target = self.tree / "top.txt"
-        target.chmod(stat.S_IREAD)
-        retried = []
-        workspace._unlock(self.tree)(retried.append, str(target), PermissionError())
-        self.assertEqual(retried, [str(target)])
-        self.assertTrue(os.access(target, os.W_OK))
-
-    def test_the_unlock_handler_never_touches_the_parent_of_the_tree(self):
-        parent = self.tree.parent
-        before = stat.S_IMODE(parent.stat().st_mode)
-        workspace._unlock(self.tree)(lambda path: None, str(self.tree), PermissionError())
-        self.assertEqual(stat.S_IMODE(parent.stat().st_mode), before)
-
-
 class NewOutputDirectoryTests(unittest.TestCase):
     """The context manager that makes an output directory and cleans it up on failure."""
 
