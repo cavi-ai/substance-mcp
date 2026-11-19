@@ -154,3 +154,33 @@ def write_png16(path: Path, pixels: np.ndarray):
         + chunk(b"IDAT", b"".join(parts))
         + chunk(b"IEND", b"")
     )
+
+
+def describe(path: Path) -> dict:
+    """Read original channel storage, without inferring color interpretation."""
+    width, height = dimensions(path)
+    suffix = path.suffix.lower()
+    if suffix == ".exr":
+        # Header-only File channels do not retain a usable pixel array for type().
+        # InputFile exposes the on-disk channel storage directly without decoding pixels.
+        image = OpenEXR.InputFile(str(path))
+        try:
+            channels = image.header()["channels"]
+            types = [channel.type.v for channel in channels.values()]
+            if any(value == 0 for value in types):
+                raise ValueError("Material EXR channels must use half or full float")
+            depth = 32 if any(value == 2 for value in types) else 16
+            return {"format": "exr", "bit_depth": depth, "sample_type": "float",
+                    "width": width, "height": height, "channels": len(channels)}
+        finally:
+            image.close()
+    if suffix in (".tif", ".tiff"):
+        with tifffile.TiffFile(path) as image:
+            page = image.pages[0]
+            return {"format": "tiff", "bit_depth": page.dtype.itemsize * 8,
+                    "sample_type": "float" if page.dtype.kind == "f" else "uint",
+                    "width": width, "height": height, "channels": page.samplesperpixel}
+    with path.open("rb") as stream:
+        width, height, _, info = png.Reader(file=stream).read()
+        return {"format": "png", "bit_depth": info["bitdepth"], "sample_type": "uint",
+                "width": width, "height": height, "channels": info["planes"]}
