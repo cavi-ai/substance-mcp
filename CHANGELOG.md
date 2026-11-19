@@ -4,6 +4,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+## 0.14.0 - 2026-11-18
+
 ### Added
 
 - Channel pack maps take `srgb: true` to sRGB-encode R, G and B; receipts record it.
