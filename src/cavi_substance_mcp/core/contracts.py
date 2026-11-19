@@ -131,6 +131,9 @@ class PainterLayerResult(VariantResult):
     name: str | None = None
     texture_set: str | None = None
     mask: str | None = None
+    base_color: list[Number] | None = None
+    roughness: Number | None = None
+    metallic: Number | None = None
 
 
 class PainterBrushResult(VariantResult):
