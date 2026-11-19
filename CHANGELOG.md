@@ -4,6 +4,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Fixed
+
+- `texture_io.describe` is back: it reports a PNG, TIFF or EXR file's format, bit depth, sample type, size and channel count.
+
 ## 0.14.0 - 2026-11-18
 
 ### Added
