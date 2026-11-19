@@ -285,54 +285,54 @@ async def layer_edit(
             "color_selection",
             "compare_mask",
         ],
-        Field(description="Layer operation."),
+        Field(description="Action."),
     ],
-    texture_set: Annotated[TextureSetName, Field(description="Target texture set.")],
+    texture_set: Annotated[TextureSetName, Field(description="Texture set.")],
     name: Annotated[
         str | None, Field(min_length=1, max_length=63, description="Layer name.")
     ] = None,
-    uid: Annotated[Uid, Field(description="Target node.")] = None,
-    parent_uid: Annotated[Uid, Field(description="Insert inside group.")] = None,
-    above_uid: Annotated[Uid, Field(description="Insert above layer.")] = None,
+    uid: Annotated[Uid, Field(description="Node ID.")] = None,
+    parent_uid: Annotated[Uid, Field(description="In group.")] = None,
+    above_uid: Annotated[Uid, Field(description="Above layer.")] = None,
     base_color: Annotated[Rgb | None, Field(description="fill: sRGB 0-1.")] = None,
     base_color_texture: Annotated[
-        WorkspaceFile, Field(description="texture_fill: PNG/EXR/TIFF; float is linear.")
+        WorkspaceFile, Field(description="texture_fill: PNG/EXR/TIFF; float linear.")
     ] = None,
-    roughness: Annotated[UnitValue, Field(description="fill: roughness value.")] = 0.5,
-    metallic: Annotated[UnitValue, Field(description="fill: metallic value.")] = 0.0,
+    roughness: Annotated[UnitValue, Field(description="fill: roughness.")] = 0.5,
+    metallic: Annotated[UnitValue, Field(description="fill: metallic.")] = 0.0,
     values: Annotated[
         dict[str, UnitValue | Rgb] | None,
-        Field(description="fill: extra channel values."),
+        Field(description="fill: extra channels."),
     ] = None,
     mask: Annotated[
-        Literal["black", "white"] | None, Field(description="New mask color; effects go in it.")
+        Literal["black", "white"] | None, Field(description="Mask color; effects go inside.")
     ] = None,
-    resource: Annotated[str | None, Field(max_length=256, description="Shelf name or URL.")] = None,
+    resource: Annotated[str | None, Field(max_length=256, description="Shelf/URL.")] = None,
     sbsar: WorkspaceFile = None,
     source_manifest: WorkspaceFile = None,
     expected_sha256: Annotated[
-        str | None, Field(description="sbsar_fill: expected source digest.")
+        str | None, Field(description="sbsar_fill: SHA-256.")
     ] = None,
     parameters: Annotated[
         dict[str, float | int | str | bool | list[float]] | None,
-        Field(description="Substance or effect settings."),
+        Field(description="Substance/effect settings."),
     ] = None,
     blend_mode: Annotated[
-        str | None, Field(max_length=32, description="Layer blend mode.")
+        str | None, Field(max_length=32, description="Blend mode.")
     ] = None,
     opacity: Annotated[
-        UnitValue | None, Field(description="Layer opacity.")
+        UnitValue | None, Field(description="Opacity.")
     ] = None,
     channel: Annotated[str | None, Field(max_length=16, description="Default: all.")] = None,
     visible: Annotated[
-        StrictBool | None, Field(description="Layer visibility.")
+        StrictBool | None, Field(description="Visibility.")
     ] = None,
     confirm_name: Annotated[
-        str | None, Field(max_length=63, description="delete: exact current layer name.")
+        str | None, Field(max_length=63, description="delete: exact current name.")
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterLayerResult:
-    """Edit a layer stack; failures roll back. delete needs confirm_name."""
+    """Edit layers; failures roll back. delete needs confirm_name."""
     arguments = {key: value for key, value in locals().items()
                  if key not in ("action", "texture_set", "lease_id")}
     accepted = checked(action, arguments, LAYER_EDIT_PARAMS, LAYER_EDIT_DEFAULTS)
