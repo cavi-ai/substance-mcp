@@ -1,10 +1,10 @@
 # Cavi Substance MCP
 
-[![PyPI weekly downloads](https://img.shields.io/pypi/dw/cavi-substance-mcp?label=PyPI%20downloads%2Fweek)](https://pypi.org/project/cavi-substance-mcp/)
+## Give imagination a surface.
 
 ![A dragon in a velvet jacket inspects its cuff while holding a tiny teacup](media/substance-mcp-hero.png)
 
-## Give imagination a surface.
+[![PyPI weekly downloads](https://img.shields.io/pypi/dw/cavi-substance-mcp?label=PyPI%20downloads%2Fweek)](https://pypi.org/project/cavi-substance-mcp/)
 
 Work with an assistant across Adobe Substance 3D Painter, Designer and Sampler. Cavi Substance MCP connects your MCP client to each application through its own local server, with a shared asset workspace for moving work between them.
 
