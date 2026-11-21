@@ -82,10 +82,10 @@ class PinGuardTests(unittest.TestCase):
         self.assertIn("::error file=.gitmodules::", result.stdout)
         self.assertIn("::error file=vendor/core::", result.stdout)
 
-    def test_consumer_dispatch_is_never_changed(self):
+    def test_consumer_pin_job_is_never_changed(self):
         result = self.pull_request(lambda: self.edit(
-            ".github/workflows/ci.yml", "repos/cavi-ai/game-art-pipeline/dispatches",
-            "repos/cavi-ai/other/dispatches"))
+            ".github/workflows/ci.yml", """consumers: '["game-art-pipeline"]'""",
+            """consumers: '["other"]'"""))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("changes the pin-consumers job", result.stdout)
 
