@@ -29,33 +29,16 @@ def checked(action, arguments, table, defaults=None, one_of=None):
         supplied = [key for key in names
                     if key in arguments and _supplied(key, arguments[key], defaults)]
         if len(supplied) != 1:
-            if action == "cook" and set(names) == {"path", "builtin"}:
-                raise ValueError("cook needs exactly one of path or builtin")
-            listed = " or ".join(sorted(names))
+            listed = " or ".join(names)
             raise ValueError(f"{action} needs exactly one of {listed}")
     return {key: arguments[key] for key in required | optional}
 
 
-def _exclusive(names):
-    """oneOf branches that require one name and refuse the others."""
-    branches = []
-    for name in sorted(names):
-        branch = {"required": [name]}
-        others = sorted(set(names) - {name})
-        if others:
-            branch["properties"] = dict.fromkeys(others, False)
-        branches.append(branch)
-    return branches
+def action_schema(table) -> dict:
+    """JSON Schema conditions on ``action`` matching the required and foreign checks.
 
-
-def action_schema(table, one_of=None) -> dict:
-    """JSON Schema conditions on ``action`` that require and forbid what ``checked`` does.
-
-    A required argument's own schema must refuse null, as ``checked`` does. An action in
-    ``one_of`` advertises that XOR as oneOf branches which require one name and set the
-    other properties to false.
+    A required argument's own schema must refuse null, as ``checked`` does.
     """
-    one_of = one_of or {}
     names = set().union(*(required | optional for required, optional in table.values()))
 
     def rules(actions, settled):
@@ -67,8 +50,6 @@ def action_schema(table, one_of=None) -> dict:
         rule = {"required": sorted(required)} if required else {}
         if refused:
             rule["properties"] = dict.fromkeys(sorted(refused), False)
-        if len(actions) == 1 and (exclusive := one_of.get(actions[0])):
-            rule["oneOf"] = _exclusive(exclusive)
         if len(actions) > 1:
             settled = settled | required | refused
             rule["if"] = {"properties": {"action": {"const": actions[0]}}}

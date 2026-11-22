@@ -168,6 +168,10 @@ class SamplerTests(unittest.TestCase):
                 self.call("export", directory="own-preset", wait_seconds=1,
                           preset="Unreal Engine 4", **base)
             self.assertFalse((self.workspace / "own-preset").exists())
+            with self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"):
+                self.call("export", directory="padded-preset", wait_seconds=1,
+                          preset="  Unreal Engine 4  ", **base)
+            self.assertFalse((self.workspace / "padded-preset").exists())
             exported = self.call(
                 "export", directory="other-preset", wait_seconds=1,
                 preset="Blender Cycles/Eevee", **base,

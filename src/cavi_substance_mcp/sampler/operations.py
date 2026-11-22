@@ -1357,10 +1357,9 @@ def _export(ssa, root, args) -> dict:
     if fmt not in EXPORT_FORMATS:
         raise ValueError(f"format must be one of: {', '.join(EXPORT_FORMATS)}")
     target_name = args.get("target")
-    if target_name is not None:
-        targets.target(target_name)
-        if fmt in ("sbsar", "sbs"):
-            raise ValueError("target exports textures; use png, tga, tif or exr")
+    target = targets.target(target_name) if target_name is not None else None
+    if target is not None and fmt in ("sbsar", "sbs"):
+        raise ValueError("target exports textures; use png, tga, tif or exr")
     material_type = args.get("material_type", "standard")
     if material_type not in MATERIAL_TYPES:
         raise ValueError(f"material_type must be one of: {', '.join(MATERIAL_TYPES)}")
@@ -1374,12 +1373,11 @@ def _export(ssa, root, args) -> dict:
         for item in channels:
             if not isinstance(item, str) or not USAGE.fullmatch(item):
                 raise ValueError(f"Invalid channel name: {item}")
-    caller_preset = args.get("preset")
-    preset_name = caller_preset
+    preset_name = args.get("preset")
     if preset_name is not None:
         preset_name = _resource_label(preset_name, "preset")
-    elif target_name is not None:
-        preset_name = targets.preset_for(target_name)
+    elif target is not None:
+        preset_name = target.preset
     asset_name = args.get("asset")
     asset_name = _name(asset_name, "asset") if asset_name else None
     project = _open(ssa, root, args.get("project"))
@@ -1428,11 +1426,9 @@ def _export(ssa, root, args) -> dict:
         asset.export_material(**options)
         controller.wait()
         expected = ()
-        if target_name is not None and channels is None and (
-            caller_preset is None or caller_preset == targets.preset_for(target_name)
-        ):
+        if target is not None and channels is None and preset_name == target.preset:
             # Only the target's own preset promises its map set.
-            expected = targets.target(target_name).maps
+            expected = target.maps
         files = _wait_files(destination, wait_seconds, expected)
         manifest_path = receipts.write_manifest(
             destination, "sampler", "export", root, inputs=[project], outputs=files,

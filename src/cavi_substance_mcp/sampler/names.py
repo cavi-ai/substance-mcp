@@ -45,7 +45,7 @@ def output_directory(value: str) -> str:
 # Vocabularies shared by the job model and server (host) and the operations (in Sampler).
 PROJECT = frozenset({".ssa"})
 # Edits that change the open project. The host copies before them; a batch job saves
-# after them. delete_asset belongs here: its own save is a no-op while a job is active.
+# after batch-dispatchable edits. delete_asset is a tool operation only.
 MUTATING = frozenset({
     "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
     "insert_material", "set_parameters", "apply_preset", "set_metadata",

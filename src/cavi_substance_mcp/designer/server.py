@@ -37,7 +37,7 @@ ACTION_PARAMS = {
                 "bit_depth", "pack"}),
     "pack": ({"directory", "pack", "sources"}, set()),
 }
-ONE_OF = {"cook": frozenset({"path", "builtin"})}
+ONE_OF = {"cook": ("path", "builtin")}
 DEFAULTS = {"format": "png", "bit_depth": "16", "expose_output_size": True,
             "expose_random_seed": True}
 
