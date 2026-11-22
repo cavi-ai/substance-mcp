@@ -12,13 +12,7 @@ from evals.painter_simulator import (
     BlendingMode,
     MeshMapUsage,
     PainterSimulator,
-    PlanarProjectionParams,
-    Projection3DParams,
-    ProjectionMode,
     ResourceID,
-    ScaleMode,
-    TriplanarProjectionParams,
-    UVTransformationParams,
 )
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR" + struct.pack(">II", 64, 64) + bytes(5)
@@ -287,101 +281,115 @@ class ProjectionTests(Fixture):
     def test_uv_scale_rotation_and_offset_round_trip(self):
         uid = self.fill()["uid"]
         placed = self.edit("projection", uid=uid, projection={
-            "mode": "UV", "scale": [2, 0.5], "rotation": 15, "offset": [0.1, -0.2],
-            "filtering": "Nearest", "wrap": "Repeat", "scale_mode": "CustomPhysicalSize"})
+            "mode": "UV",
+            "filtering_mode": "Nearest",
+            "uv_wrapping_mode": "Repeat",
+            "uv_transformation": {
+                "scale_mode": "CustomPhysicalSize",
+                "scale": [2, 0.5],
+                "rotation": 15,
+                "offset": [0.1, -0.2],
+            },
+        })
         params = self.sim.layers[0].get_projection_parameters()
         self.assertEqual(placed["uid"], uid)
         self.assertEqual(placed["projection"], {
-            "mode": "UV", "scale_mode": "CustomPhysicalSize", "scale": [2.0, 0.5],
-            "rotation": 15.0, "offset": [0.1, -0.2], "filtering": "Nearest", "wrap": "Repeat"})
-        self.assertEqual(params.uv_transformation.scale, [2.0, 0.5])
-        self.assertEqual(params.uv_transformation.rotation, 15.0)
-        self.assertEqual(params.uv_transformation.offset, [0.1, -0.2])
+            "mode": "UV",
+            "filtering_mode": "Nearest",
+            "uv_wrapping_mode": "Repeat",
+            "uv_transformation": {
+                "scale_mode": "CustomPhysicalSize",
+                "scale": [2.0, 0.5],
+                "rotation": 15.0,
+                "offset": [0.1, -0.2],
+            },
+        })
+        transform = params.uv_transformation
+        self.assertEqual((transform.scale, transform.rotation, transform.offset),
+                         ([2.0, 0.5], 15.0, [0.1, -0.2]))
+        with self.assertRaisesRegex(RuntimeError, "shape_crop_mode"):
+            self.edit("projection", uid=uid, projection={
+                "mode": "UV", "shape_crop_mode": "CroppedToShape"})
+        kept = self.sim.layers[0].get_projection_parameters().uv_transformation
+        self.assertEqual(kept.scale, [2.0, 0.5])
         masked = self.edit("smart_mask", uid=uid, resource="Edges Dirt")
         effect = next(item["uid"] for item in masked["effects"] if item["type"] == "FillEffect")
         again = self.edit("projection", uid=effect, projection={
-            "mode": "UV", "scale": [3, 4], "rotation": 1, "offset": [0, 1]})
-        self.assertEqual(again["projection"]["scale"], [3.0, 4.0])
-        self.assertEqual(again["projection"]["offset"], [0.0, 1.0])
+            "mode": "UV",
+            "uv_transformation": {"scale": [3, 4], "rotation": 1, "offset": [0, 1]},
+        })
+        self.assertEqual(again["projection"]["uv_transformation"]["scale"], [3.0, 4.0])
+        self.assertEqual(again["projection"]["uv_transformation"]["offset"], [0.0, 1.0])
 
-    def test_triplanar_refuses_offset(self):
+    def test_triplanar_refuses_offset_and_accepts_hardness_and_scale(self):
         uid = self.fill()["uid"]
-        placed = self.edit("projection", uid=uid, projection={
-            "mode": "Triplanar", "scale": [2, 2], "rotation": 5, "hardness": 0.25,
-            "projection_3d_scale": [1, 2, 3]})
-        self.assertEqual(placed["projection"]["mode"], "Triplanar")
-        self.assertEqual(placed["projection"]["projection_3d_scale"], [1.0, 2.0, 3.0])
-        self.assertNotIn("offset", placed["projection"])
-        with self.assertRaisesRegex(RuntimeError, "offset is unavailable for Triplanar"):
-            self.edit("projection", uid=uid, projection={"mode": "Triplanar", "offset": [0.1, 0.2]})
-        self.assertEqual(self.sim.layers[0].get_projection_mode().name, "Triplanar")
-        self.assertIsNone(self.sim.layers[0].get_projection_parameters().uv_transformation.offset)
-        with self.assertRaisesRegex(ValueError, "offset is unavailable for Triplanar"):
-            self.sim.layers[0].set_projection_parameters(TriplanarProjectionParams(
-                uv_transformation=UVTransformationParams(offset=[0.1, 0.2])))
-        with self.assertRaisesRegex(RuntimeError, "3 finite numbers"):
+        with self.assertRaisesRegex(RuntimeError, "unavailable for Triplanar"):
             self.edit("projection", uid=uid, projection={
-                "mode": "Triplanar", "projection_3d_scale": [1, 2]})
-
-    def test_planar_accepts_3d_placement_and_refuses_a_third_scale(self):
-        uid = self.fill()["uid"]
-        placed = self.edit("projection", uid=uid, projection={
-            "mode": "Planar", "projection_3d_rotation": [10, 20, 30],
-            "projection_3d_offset": [1, 2, 3], "projection_3d_scale": [4, 5]})
-        self.assertEqual(placed["projection"], {
-            "mode": "Planar", "scale_mode": "Factors",
-            "projection_3d_rotation": [10.0, 20.0, 30.0],
-            "projection_3d_offset": [1.0, 2.0, 3.0], "projection_3d_scale": [4.0, 5.0]})
-        with self.assertRaisesRegex(RuntimeError, "Z scaling is unavailable"):
+                "mode": "Triplanar", "uv_transformation": {"offset": [0.1, 0.2]}})
+        with self.assertRaisesRegex(RuntimeError, "uv_wrapping_mode"):
             self.edit("projection", uid=uid, projection={
-                "mode": "Planar", "projection_3d_scale": [1, 2, 3]})
-        node = self.sim.layers[0]
-        self.assertEqual(node.get_projection_mode().name, "Planar")
-        self.assertEqual(node.get_projection_parameters().projection_3d.scale, [4.0, 5.0])
-        with self.assertRaisesRegex(ValueError, "Z scaling is unavailable"):
-            node.set_projection_parameters(PlanarProjectionParams(
-                projection_3d=Projection3DParams(scale=[1, 2, 3])))
-
-    def test_uv_refuses_projection_3d_and_crop(self):
-        uid = self.fill()["uid"]
-        with self.assertRaisesRegex(RuntimeError, "projection_3d is unavailable for UV"):
-            self.edit("projection", uid=uid, projection={
-                "mode": "UV", "projection_3d_offset": [0, 0, 0]})
-        with self.assertRaisesRegex(RuntimeError, "crop is unavailable for UV"):
-            self.edit("projection", uid=uid, projection={
-                "mode": "UV", "crop": "CroppedToShape"})
+                "mode": "Triplanar", "uv_wrapping_mode": "Repeat"})
         self.assertEqual(self.sim.layers[0].get_projection_mode().name, "UV")
+        placed = self.edit("projection", uid=uid, projection={
+            "mode": "Triplanar",
+            "hardness": 0.25,
+            "projection_3d": {"scale": [1, 2, 3]},
+        })
+        self.assertEqual(placed["projection"]["mode"], "Triplanar")
+        self.assertEqual(placed["projection"]["hardness"], 0.25)
+        self.assertEqual(placed["projection"]["projection_3d"]["scale"], [1.0, 2.0, 3.0])
+        params = self.sim.layers[0].get_projection_parameters()
+        self.assertIsNone(params.uv_transformation.offset)
+        self.assertEqual(params.projection_3d.scale, [1.0, 2.0, 3.0])
 
-    def test_material_physical_size_and_spherical_are_refused(self):
+    def test_planar_refuses_hardness_and_accepts_3d_offset(self):
         uid = self.fill()["uid"]
-        with self.assertRaisesRegex(RuntimeError, "Factors, CustomPhysicalSize"):
+        with self.assertRaisesRegex(RuntimeError, "hardness"):
+            self.edit("projection", uid=uid, projection={"mode": "Planar", "hardness": 0.4})
+        with self.assertRaisesRegex(RuntimeError, "depth_culling"):
             self.edit("projection", uid=uid, projection={
-                "mode": "UV", "scale_mode": "MaterialPhysicalSize"})
+                "mode": "Planar", "depth_culling": True})
+        with self.assertRaisesRegex(RuntimeError, "Z scaling"):
+            self.edit("projection", uid=uid, projection={
+                "mode": "Planar", "projection_3d": {"scale": [1, 2, 3]}})
+        self.assertEqual(self.sim.layers[0].get_projection_mode().name, "UV")
+        placed = self.edit("projection", uid=uid, projection={
+            "mode": "Planar",
+            "uv_wrapping_mode": "RepeatHorizontally",
+            "projection_3d": {"offset": [1, 2, 3], "scale": [4, 5]},
+        })
+        self.assertEqual(placed["projection"]["mode"], "Planar")
+        self.assertEqual(placed["projection"]["projection_3d"]["offset"], [1.0, 2.0, 3.0])
+        self.assertEqual(placed["projection"]["projection_3d"]["scale"], [4.0, 5.0])
+        spatial = self.sim.layers[0].get_projection_parameters().projection_3d
+        self.assertEqual(spatial.offset, [1.0, 2.0, 3.0])
+        self.assertEqual(spatial.scale, [4.0, 5.0])
+
+    def test_unknown_mode_and_material_physical_size_are_refused(self):
+        uid = self.fill()["uid"]
         with self.assertRaisesRegex(RuntimeError, "UV, Triplanar, Planar"):
             self.edit("projection", uid=uid, projection={"mode": "Spherical"})
-        node = self.sim.layers[0]
-        with self.assertRaisesRegex(ValueError, "Factors, CustomPhysicalSize"):
-            node.set_projection_parameters(PlanarProjectionParams(
-                uv_transformation=UVTransformationParams(
-                    scale_mode=ScaleMode.MaterialPhysicalSize)))
-        with self.assertRaisesRegex(ValueError, "UV, Triplanar, Planar"):
-            node.set_projection_mode(ProjectionMode.Spherical)
-        self.assertEqual(node.get_projection_mode().name, "UV")
+        with self.assertRaisesRegex(RuntimeError, "physical-size metadata"):
+            self.edit("projection", uid=uid, projection={
+                "mode": "UV",
+                "uv_transformation": {"scale_mode": "MaterialPhysicalSize", "scale": [1, 1]},
+            })
+        self.assertEqual(self.sim.layers[0].get_projection_mode().name, "UV")
 
     def test_non_fill_uid_is_refused(self):
         paint = self.edit("paint", name="Paint")
-        with self.assertRaisesRegex(RuntimeError, "fill layer or fill effect"):
-            self.edit("projection", uid=paint["uid"], projection={"mode": "UV", "scale": [2, 2]})
+        with self.assertRaisesRegex(RuntimeError, "TypeError: uid must be a fill"):
+            self.edit("projection", uid=paint["uid"], projection={"mode": "UV"})
         self.assertFalse(hasattr(self.sim.layers[0], "projection_mode"))
 
     def test_failed_set_restores_the_previous_projection(self):
         uid = self.fill()["uid"]
         self.edit("projection", uid=uid, projection={
-            "mode": "UV", "scale": [2, 3], "rotation": 10})
+            "mode": "UV", "uv_transformation": {"scale": [2, 3], "rotation": 10}})
         self.sim.state = "projection-failure"
-        with self.assertRaisesRegex(RuntimeError, "previous projection restored"):
+        with self.assertRaisesRegex(RuntimeError, "previous values restored"):
             self.edit("projection", uid=uid, projection={
-                "mode": "Planar", "scale": [9, 9], "projection_3d_scale": [4, 5]})
+                "mode": "Planar", "projection_3d": {"scale": [4, 5]}})
         node = self.sim.layers[0]
         self.assertEqual(node.get_projection_mode().name, "UV")
         transform = node.get_projection_parameters().uv_transformation
@@ -390,10 +398,10 @@ class ProjectionTests(Fixture):
     def test_layer_stack_reports_the_projection_mode(self):
         uid = self.fill()["uid"]
         listing = self.client.call("layer_stack", {"texture_set": "Body"})
-        self.assertEqual(listing["layers"][0]["projection"], "UV")
+        self.assertEqual(listing["layers"][0]["projection_mode"], "UV")
         self.edit("projection", uid=uid, projection={"mode": "Planar"})
         listing = self.client.call("layer_stack", {"texture_set": "Body"})
-        self.assertEqual(listing["layers"][0]["projection"], "Planar")
+        self.assertEqual(listing["layers"][0]["projection_mode"], "Planar")
 
 
 class ProjectTests(Fixture):

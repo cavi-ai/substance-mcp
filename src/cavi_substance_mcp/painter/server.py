@@ -6,7 +6,7 @@ from typing import Annotated, Literal, TypeAliasType
 
 import anyio.to_thread
 from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from ..core.actions import checked
 from ..core.contracts import (
@@ -81,7 +81,7 @@ async def wait_until_ready(timeout_seconds, interval=0.5):
 
 @mcp.tool(annotations=READ_ONLY)
 async def painter_status() -> PainterStatus:
-    """Connectivity, project, busy and edition state; never changes anything."""
+    """Connectivity, project, and edition state."""
     try:
         return await painter("status")
     except (ConnectionError, TimeoutError) as exc:
@@ -101,7 +101,7 @@ async def session_control(
         StrictInt, Field(ge=30, le=3600, description="Lease seconds.")
     ] = 600,
 ) -> Ownership:
-    """Claim, renew, release or break the edit lease."""
+    """Claim, renew, release, or break a lease."""
     return await painter("session_control", {
         "action": action, "owner": owner, "expected_project": expected_project,
         "lease_id": lease_id, "ttl_seconds": ttl_seconds,
@@ -156,7 +156,7 @@ async def project(
     ] = 60,
     lease_id: LeaseId = None,
 ) -> PainterProject:
-    """Open, create, close, save, reload or display the project."""
+    """Open, create, save, reload, or display it."""
     if action == "wait_ready":
         return await wait_until_ready(timeout_seconds)
     if action == "open":
@@ -220,7 +220,7 @@ async def inspect(
     ] = None,
     limit: Annotated[StrictInt, Field(ge=1, le=100, description="Result limit.")] = 50,
 ) -> PainterInspection:
-    """Texture sets, layer stack, presets, shelf or bake settings."""
+    """Texture sets, layers, presets and shelf."""
     if action == "layer_stack":
         return await painter(
             "layer_stack", {"texture_set": need(texture_set, "texture_set", action)}
@@ -262,20 +262,48 @@ LAYER_EDIT_PARAMS = {
 LAYER_EDIT_DEFAULTS = {"roughness": 0.5, "metallic": 0.0}
 
 
-class Projection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["UV", "Triplanar", "Planar"]
+def _drop_schema_titles(schema):
+    schema.pop("title", None)
+    for prop in schema.get("properties", {}).values():
+        if isinstance(prop, dict):
+            prop.pop("title", None)
+
+
+class UVTransformation(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    scale_mode: Literal["Factors", "CustomPhysicalSize"] | None = None
     scale: Annotated[list[Finite], Field(min_length=2, max_length=2)] | None = None
     rotation: Finite | None = None
     offset: Annotated[list[Finite], Field(min_length=2, max_length=2)] | None = None
-    scale_mode: Literal["Factors", "CustomPhysicalSize"] = "Factors"
-    filtering: Literal["BilinearHQ", "BilinearSharp", "Nearest"] | None = None
-    wrap: Literal["RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat"] | None = None
-    crop: Literal["CroppedToShape", "ExtendsOutsideShape"] | None = None
-    hardness: Annotated[Finite, Field(ge=0, le=1)] | None = None
-    projection_3d_scale: Annotated[list[Finite], Field(min_length=2, max_length=3)] | None = None
-    projection_3d_rotation: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
-    projection_3d_offset: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+
+    @field_validator("scale_mode", mode="before")
+    @classmethod
+    def refuse_material_physical_size(cls, value):
+        if value == "MaterialPhysicalSize":
+            raise ValueError(
+                "MaterialPhysicalSize depends on resource physical-size metadata "
+                "this server does not read")
+        return value
+
+
+class Projection3D(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    offset: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+    rotation: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+    scale: Annotated[list[Finite], Field(min_length=2, max_length=3)] | None = None
+
+
+class FillProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    mode: Literal["UV", "Triplanar", "Planar"]
+    filtering_mode: Literal["BilinearHQ", "BilinearSharp", "Nearest"] | None = None
+    uv_wrapping_mode: Literal[
+        "RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat"
+    ] | None = None
+    shape_crop_mode: Literal["CroppedToShape", "ExtendsOutsideShape"] | None = None
+    hardness: Finite | None = None
+    uv_transformation: UVTransformation | None = None
+    projection_3d: Projection3D | None = None
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -347,16 +375,16 @@ async def layer_edit(
         str | None, Field(max_length=63, description="Current name.")
     ] = None,
     projection: Annotated[
-        Projection | None,
+        FillProjection | None,
         Field(description="UV, Triplanar or Planar placement."),
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterLayerResult:
-    """Edit layers; failures roll back. projection places a fill. delete needs confirm_name."""
+    """Edit layers. Projection places a fill layer."""
     arguments = {key: value for key, value in locals().items()
                  if key not in ("action", "texture_set", "lease_id")}
     accepted = checked(action, arguments, LAYER_EDIT_PARAMS, LAYER_EDIT_DEFAULTS)
-    if action == "projection":
+    if isinstance(projection, FillProjection):
         accepted["projection"] = projection.model_dump(exclude_none=True)
     if action in LAYER_ACTIONS:
         return await painter(LAYER_ACTIONS[action], {"texture_set": texture_set, **accepted},
@@ -401,7 +429,7 @@ async def texture_set_settings(
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterInspection:
-    """Set source formats, resolution or mesh maps."""
+    """Channel formats, resolution, or mesh maps."""
     if not channel_formats and resolution is None and not mesh_maps:
         raise ValueError('Provide channel_formats, resolution or mesh_maps')
     return await painter('texture_set_settings', {'texture_set': texture_set,
@@ -450,7 +478,7 @@ async def brush(
     ] = "paint",
     lease_id: LeaseId = None,
 ) -> PainterBrushResult:
-    """Prepare a viewport, then paint one stroke within 60 s."""
+    """Prepare a viewport, then paint one stroke."""
     arguments = {key: value for key, value in locals().items()
                  if key not in ("action", "lease_id")}
     accepted = checked(action, arguments, BRUSH_PARAMS, BRUSH_DEFAULTS)
@@ -508,7 +536,7 @@ async def export_textures(
     dry_run: Annotated[StrictBool, Field(description="False writes.")] = True,
     lease_id: LeaseId = None,
 ) -> TextureExport:
-    """Preview or export texture sets into a new workspace directory."""
+    """Preview or export textures to a directory."""
     if (source_manifest is None) != (source_file is None):
         raise ValueError("source_manifest and source_file must be provided together")
     return await painter("export_textures", {
@@ -582,7 +610,7 @@ async def bake(
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterBakeResult:
-    """Start a bake, then poll status until it finishes."""
+    """Start a bake, then poll until it finishes."""
     if action == "status":
         return await painter("bake_status")
     if action == "cancel":

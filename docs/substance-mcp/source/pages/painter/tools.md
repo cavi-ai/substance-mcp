@@ -49,13 +49,13 @@
 
 `layer_edit` action `projection` places a fill layer or fill effect (`uid`). `mode` is `UV`, `Triplanar`, or `Planar`. `Fill`, `Spherical`, `Cylindrical`, `Warp`, and `UVSetToUVSet` are refused.
 
-`filtering` is `BilinearHQ`, `BilinearSharp`, or `Nearest`. `wrap` (`RepeatNone`, `RepeatHorizontally`, `RepeatVertically`, `Repeat`) applies to UV and Planar. `crop` (`CroppedToShape`, `ExtendsOutsideShape`) applies to Triplanar and Planar. `hardness` (0 through 1) applies to Triplanar only.
+`filtering_mode` is `BilinearHQ`, `BilinearSharp`, or `Nearest`. `uv_wrapping_mode` (`RepeatNone`, `RepeatHorizontally`, `RepeatVertically`, `Repeat`) applies to UV and Planar. `shape_crop_mode` (`CroppedToShape`, `ExtendsOutsideShape`) applies to Triplanar and Planar. `hardness` applies to Triplanar only. Crop is refused on UV. Wrap is refused on Triplanar.
 
-`scale_mode` is `Factors` (the default) or `CustomPhysicalSize` (`scale` in centimeters). `scale` and `offset` are two numbers. `rotation` is one number. Offset is unavailable for Triplanar and is refused before Painter is called. `MaterialPhysicalSize` is refused because this server does not read resource physical-size metadata.
+`uv_transformation` takes `scale_mode` (`Factors` or `CustomPhysicalSize`, with `scale` in centimeters), `scale` and `offset` (two numbers), and `rotation`. UV offset is unavailable for Triplanar and is refused before the API is called. `MaterialPhysicalSize` is refused: it depends on resource physical-size metadata this server does not read.
 
-`projection_3d_offset`, `projection_3d_rotation`, and `projection_3d_scale` apply to Triplanar and Planar. Triplanar scale is three numbers. Planar scale is X and Y: this action does not enable depth culling, so Z scaling is unavailable and a third number is refused. UV refuses projection_3d fields and `crop`. A parameter the mode does not use is refused.
+`projection_3d` (`offset`, `rotation`, and `scale`) applies to Triplanar and Planar. Triplanar `offset`, `rotation`, and `scale` are 3-vectors. Planar `scale` is X and Y only: Z scaling is unavailable when projection mode is Planar and depth culling is disabled, and this action does not set depth culling, backface culling, or symmetry. UV refuses `projection_3d`.
 
-A failure restores the previous mode and parameters and says whether the restore succeeded. `layer_stack` reports the projection mode of each fill layer and fill effect. Checked against Painter's documented fill projection API and tested only against the simulator; it has not been run natively.
+A failure restores the previous projection. `layer_stack` reports `projection_mode` on each fill layer and fill effect. Checked against the documented Painter Python API and the simulator; not run inside Painter.
 
 ## Export
 

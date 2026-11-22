@@ -1,5 +1,6 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import dataclasses
 import hashlib
 import math
 import os
@@ -72,15 +73,18 @@ EFFECT_ENUMS = {"background": ("background_color", "ColorSelectionBackgroundColo
                 "right_operand": ("right_operand", "CompareMaskEffectOperand"),
                 "operation": ("operation", "CompareMaskEffectOperation")}
 PROJECTION_MODES = ("UV", "Triplanar", "Planar")
-PROJECTION_SCALE_MODES = ("Factors", "CustomPhysicalSize")
-PROJECTION_FILTERS = ("BilinearHQ", "BilinearSharp", "Nearest")
-PROJECTION_WRAPS = ("RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat")
-PROJECTION_CROPS = ("CroppedToShape", "ExtendsOutsideShape")
-PROJECTION_FIELDS = frozenset({
-    "mode", "scale", "rotation", "offset", "scale_mode", "filtering", "wrap", "crop", "hardness",
-    "projection_3d_scale", "projection_3d_rotation", "projection_3d_offset",
-})
-PROJECTION_3D = ("projection_3d_scale", "projection_3d_rotation", "projection_3d_offset")
+FILTERING_MODES = ("BilinearHQ", "BilinearSharp", "Nearest")
+UV_WRAP_MODES = ("RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat")
+SHAPE_CROP_MODES = ("CroppedToShape", "ExtendsOutsideShape")
+SCALE_MODES = ("Factors", "CustomPhysicalSize")
+PROJECTION_FIELDS = {
+    "UV": {"filtering_mode", "uv_wrapping_mode", "uv_transformation"},
+    "Triplanar": {"filtering_mode", "shape_crop_mode", "hardness", "uv_transformation",
+                  "projection_3d"},
+    "Planar": {"filtering_mode", "uv_wrapping_mode", "shape_crop_mode", "uv_transformation",
+               "projection_3d"},
+}
+UV_TRANSFORM_FIELDS = {"scale_mode", "scale", "rotation", "offset"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
@@ -1384,7 +1388,7 @@ def describe(node, context, depth):
                         "opacity": readable(lambda c=channel: node.get_opacity(c))}
                 for label, channel in context["channels"]}
     if isinstance(node, (layerstack.FillLayerNode, layerstack.FillEffectNode)):
-        item["projection"] = readable(lambda: node.get_projection_mode().name)
+        item["projection_mode"] = readable(lambda: node.get_projection_mode().name)
         mode = node.source_mode
         item["source_mode"] = getattr(mode, "name", None)
         if mode == source.SourceMode.Split:
@@ -1847,159 +1851,213 @@ def effect_changes(layerstack, colormanagement, values):
     return changes
 
 
-def _named(value, accepted, label):
-    if not isinstance(value, str) or value not in accepted:
+def _refuse(given, allowed, label):
+    foreign = sorted(set(given) - set(allowed))
+    if foreign:
+        raise ValueError(f"Not valid for {label}: {', '.join(foreign)}")
+
+
+def _choice(enum, value, label, accepted):
+    if not isinstance(value, str) or value not in accepted or value not in enum.__members__:
         raise ValueError(f"{label} must be one of {', '.join(accepted)}")
-    return value
+    return enum[value]
 
 
-def _finite_number(value, label):
-    if isinstance(value, bool) or type(value) not in (int, float) or not math.isfinite(value):
+def _number(value, label):
+    if type(value) not in (int, float) or not math.isfinite(value):
         raise ValueError(f"{label} must be a finite number")
     return float(value)
 
 
-def _finite_numbers(value, label, count=None):
-    if (isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple))
-            or len(value) == 0 or (count is not None and len(value) != count)
-            or any(isinstance(item, bool) or type(item) not in (int, float)
-                   or not math.isfinite(item) for item in value)):
-        expected = "finite numbers" if count is None else f"{count} finite numbers"
-        raise ValueError(f"{label} must be {expected}")
+def _floats(value, count, label):
+    if (not isinstance(value, (list, tuple)) or len(value) != count or any(
+            type(item) not in (int, float) or not math.isfinite(item) for item in value)):
+        raise ValueError(f"{label} must be {count} finite numbers")
     return [float(item) for item in value]
 
 
-def _projection_spec(spec):
-    """Validate a projection request. Length of projection_3d scale is Painter's rule."""
-    if not isinstance(spec, dict):
-        raise ValueError("projection must be an object")
-    unknown = sorted(set(spec) - PROJECTION_FIELDS)
-    if unknown:
-        raise ValueError(f"Unknown projection fields: {', '.join(unknown)}")
-    mode = _named(spec.get("mode"), PROJECTION_MODES, "projection mode")
-    cleaned = {"mode": mode, "scale_mode": _named(
-        spec.get("scale_mode", "Factors"), PROJECTION_SCALE_MODES, "scale_mode")}
-    if spec.get("scale") is not None:
-        cleaned["scale"] = _finite_numbers(spec["scale"], "scale", 2)
-    if spec.get("rotation") is not None:
-        cleaned["rotation"] = _finite_number(spec["rotation"], "rotation")
-    if spec.get("offset") is not None:
-        cleaned["offset"] = _finite_numbers(spec["offset"], "offset", 2)
-    if spec.get("filtering") is not None:
-        cleaned["filtering"] = _named(spec["filtering"], PROJECTION_FILTERS, "filtering")
-    if spec.get("wrap") is not None:
-        cleaned["wrap"] = _named(spec["wrap"], PROJECTION_WRAPS, "wrap")
-    if spec.get("crop") is not None:
-        cleaned["crop"] = _named(spec["crop"], PROJECTION_CROPS, "crop")
-    if spec.get("hardness") is not None:
-        hardness = _finite_number(spec["hardness"], "hardness")
-        if not 0 <= hardness <= 1:
-            raise ValueError("hardness must be between 0 and 1")
-        cleaned["hardness"] = hardness
-    for label, count in (("projection_3d_rotation", 3), ("projection_3d_offset", 3)):
-        if spec.get(label) is not None:
-            cleaned[label] = _finite_numbers(spec[label], label, count)
-    if spec.get("projection_3d_scale") is not None:
-        cleaned["projection_3d_scale"] = _finite_numbers(
-            spec["projection_3d_scale"], "projection_3d_scale")
-    if mode == "Triplanar" and "offset" in cleaned:
-        raise ValueError("offset is unavailable for Triplanar projection")
-    if mode == "UV" and "crop" in cleaned:
-        raise ValueError("crop is unavailable for UV; use Triplanar or Planar")
-    if mode == "UV" and any(name in cleaned for name in PROJECTION_3D):
-        raise ValueError("projection_3d is unavailable for UV; use Triplanar or Planar")
-    if mode == "Triplanar" and "wrap" in cleaned:
-        raise ValueError("wrap is unavailable for Triplanar; use UV or Planar")
-    if mode != "Triplanar" and "hardness" in cleaned:
-        raise ValueError("hardness is available for Triplanar only")
-    return cleaned
+def _unit(value, label):
+    number = _number(value, label)
+    if not 0 <= number <= 1:
+        raise ValueError(f"{label} must be a number between 0 and 1")
+    return number
 
 
-def _build_projection(layerstack, spec):
-    transform = {"scale_mode": layerstack.ScaleMode[spec["scale_mode"]]}
-    for name in ("scale", "rotation", "offset"):
-        if name in spec and not (spec["mode"] == "Triplanar" and name == "offset"):
-            transform[name] = spec[name]
-    uv = layerstack.UVTransformationParams(**transform)
-    filtering = (None if "filtering" not in spec
-                 else layerstack.FilteringMode[spec["filtering"]])
-    wrap = None if "wrap" not in spec else layerstack.UVWrapMode[spec["wrap"]]
-    crop = None if "crop" not in spec else layerstack.ShapeCropMode[spec["crop"]]
-    spatial = None
-    if any(name in spec for name in PROJECTION_3D):
-        spatial = layerstack.Projection3DParams(
-            scale=spec.get("projection_3d_scale"), rotation=spec.get("projection_3d_rotation"),
-            offset=spec.get("projection_3d_offset"))
-    mode = spec["mode"]
-    if mode == "UV":
-        return layerstack.UVProjectionParams(
-            filtering_mode=filtering, uv_wrapping_mode=wrap, uv_transformation=uv)
-    if mode == "Triplanar":
-        values = {"filtering_mode": filtering, "shape_crop_mode": crop, "uv_transformation": uv}
-        if "hardness" in spec:
-            values["hardness"] = spec["hardness"]
-        if spatial is not None:
-            values["projection_3d"] = spatial
-        return layerstack.TriplanarProjectionParams(**values)
-    return layerstack.PlanarProjectionParams(
-        filtering_mode=filtering, uv_wrapping_mode=wrap, shape_crop_mode=crop,
-        uv_transformation=uv, **({} if spatial is None else {"projection_3d": spatial}))
+def _scale_mode(layerstack, value):
+    if value == "MaterialPhysicalSize":
+        raise ValueError(
+            "MaterialPhysicalSize depends on resource physical-size metadata "
+            "this server does not read")
+    return _choice(layerstack.ScaleMode, value, "scale_mode", SCALE_MODES)
 
 
-def _projection_read(node, spec):
-    params = node.get_projection_parameters()
-    transform = params.uv_transformation
-    read = {"mode": node.get_projection_mode().name, "scale_mode": transform.scale_mode.name}
+def _object(value, label):
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _uv_values(layerstack, spec, mode):
+    if mode == "Triplanar" and "offset" in spec:
+        raise ValueError("UV offset is unavailable for Triplanar")
+    allowed = UV_TRANSFORM_FIELDS - ({"offset"} if mode == "Triplanar" else set())
+    _refuse(spec, allowed, f"projection mode={mode}")
+    values = {}
+    if "scale_mode" in spec:
+        values["scale_mode"] = _scale_mode(layerstack, spec["scale_mode"])
     if "scale" in spec:
-        read["scale"] = [float(value) for value in transform.scale]
+        values["scale"] = _floats(spec["scale"], 2, "uv_transformation scale")
     if "rotation" in spec:
-        read["rotation"] = float(transform.rotation)
+        values["rotation"] = _number(spec["rotation"], "uv_transformation rotation")
     if "offset" in spec:
-        read["offset"] = [float(value) for value in transform.offset]
-    if "filtering" in spec:
-        read["filtering"] = params.filtering_mode.name
-    if "wrap" in spec:
-        read["wrap"] = params.uv_wrapping_mode.name
-    if "crop" in spec:
-        read["crop"] = params.shape_crop_mode.name
+        values["offset"] = _floats(spec["offset"], 2, "uv_transformation offset")
+    return values
+
+
+def _planar_scale(layerstack, value):
+    del layerstack
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        raise ValueError(
+            "Z scaling is unavailable when projection mode is Planar "
+            "and depth culling is disabled")
+    return _floats(value, 2, "projection_3d scale")
+
+
+def _projection_3d_values(layerstack, spec, mode):
+    _refuse(spec, {"offset", "rotation", "scale"}, f"projection mode={mode}")
+    values = {}
+    if "offset" in spec:
+        values["offset"] = _floats(spec["offset"], 3, "projection_3d offset")
+    if "rotation" in spec:
+        values["rotation"] = _floats(spec["rotation"], 3, "projection_3d rotation")
+    if "scale" in spec:
+        if mode == "Triplanar":
+            values["scale"] = _floats(spec["scale"], 3, "projection_3d scale")
+        else:
+            values["scale"] = _planar_scale(layerstack, spec["scale"])
+    return values
+
+
+def _projection_values(layerstack, spec):
+    mode = spec.get("mode")
+    if not isinstance(mode, str) or mode not in PROJECTION_MODES:
+        raise ValueError(f"projection mode must be one of {', '.join(PROJECTION_MODES)}")
+    _refuse(set(spec) - {"mode"}, PROJECTION_FIELDS[mode], f"projection mode={mode}")
+    values = {}
+    if "filtering_mode" in spec:
+        values["filtering_mode"] = _choice(
+            layerstack.FilteringMode, spec["filtering_mode"], "filtering_mode", FILTERING_MODES)
+    if "uv_wrapping_mode" in spec:
+        values["uv_wrapping_mode"] = _choice(
+            layerstack.UVWrapMode, spec["uv_wrapping_mode"], "uv_wrapping_mode", UV_WRAP_MODES)
+    if "shape_crop_mode" in spec:
+        values["shape_crop_mode"] = _choice(
+            layerstack.ShapeCropMode, spec["shape_crop_mode"], "shape_crop_mode",
+            SHAPE_CROP_MODES)
     if "hardness" in spec:
-        read["hardness"] = float(params.hardness)
-    spatial = getattr(params, "projection_3d", None)
-    if "projection_3d_scale" in spec:
-        read["projection_3d_scale"] = [float(value) for value in spatial.scale]
-    if "projection_3d_rotation" in spec:
-        read["projection_3d_rotation"] = [float(value) for value in spatial.rotation]
-    if "projection_3d_offset" in spec:
-        read["projection_3d_offset"] = [float(value) for value in spatial.offset]
-    return read
+        values["hardness"] = _unit(spec["hardness"], "hardness")
+    if "uv_transformation" in spec:
+        values["uv_transformation"] = _uv_values(
+            layerstack, _object(spec["uv_transformation"], "uv_transformation"), mode)
+    if "projection_3d" in spec:
+        values["projection_3d"] = _projection_3d_values(
+            layerstack, _object(spec["projection_3d"], "projection_3d"), mode)
+    return mode, values
 
 
-def _restore_projection(layerstack, node, mode, params):
-    with layerstack.ScopedModification("Restore projection"):
-        node.set_projection_mode(mode)
-        if params is not None:
-            node.set_projection_parameters(params)
+def _overlay(current, normalized):
+    if current is None:
+        raise ValueError("Painter returned no projection parameters")
+    changes = {}
+    for key, value in normalized.items():
+        if key in {"uv_transformation", "projection_3d"}:
+            if not value:
+                continue
+            nested = getattr(current, key)
+            if nested is None:
+                raise ValueError(f"Painter returned no {key}")
+            changes[key] = dataclasses.replace(nested, **value)
+        else:
+            changes[key] = value
+    if not changes:
+        return None
+    return dataclasses.replace(current, **changes)
+
+
+def _read_projection(node, spec):
+    params = node.get_projection_parameters()
+    result = {"mode": node.get_projection_mode().name}
+    if "filtering_mode" in spec:
+        result["filtering_mode"] = params.filtering_mode.name
+    if "uv_wrapping_mode" in spec:
+        result["uv_wrapping_mode"] = params.uv_wrapping_mode.name
+    if "shape_crop_mode" in spec:
+        result["shape_crop_mode"] = params.shape_crop_mode.name
+    if "hardness" in spec:
+        result["hardness"] = params.hardness
+    transform = spec.get("uv_transformation")
+    if transform:
+        src = params.uv_transformation
+        out = {}
+        for key in transform:
+            value = getattr(src, key)
+            if key == "scale_mode":
+                out[key] = value.name
+            elif key == "rotation":
+                out[key] = value
+            else:
+                out[key] = list(value)
+        result["uv_transformation"] = out
+    spatial = spec.get("projection_3d")
+    if spatial:
+        src = params.projection_3d
+        result["projection_3d"] = {key: list(getattr(src, key)) for key in spatial}
+    return result
+
+
+def _clone(value):
+    if not dataclasses.is_dataclass(value) or isinstance(value, type):
+        return value
+    copied = {}
+    for field in dataclasses.fields(value):
+        item = getattr(value, field.name)
+        if dataclasses.is_dataclass(item) and not isinstance(item, type):
+            item = _clone(item)
+        elif isinstance(item, list):
+            item = list(item)
+        copied[field.name] = item
+    return type(value)(**copied)
 
 
 def _set_projection(params, node, layerstack):
     if not isinstance(node, (layerstack.FillLayerNode, layerstack.FillEffectNode)):
         raise TypeError("uid must be a fill layer or fill effect")
-    spec = _projection_spec(params.get("projection"))
-    before_mode = node.get_projection_mode()
-    before_params = node.get_projection_parameters()
+    spec = _object(params.get("projection"), "projection")
+    mode_name, normalized = _projection_values(layerstack, spec)
+    mode = layerstack.ProjectionMode[mode_name]
+    previous_mode = node.get_projection_mode()
+    previous_params = node.get_projection_parameters()
+    previous_params = None if previous_params is None else _clone(previous_params)
     try:
-        with layerstack.ScopedModification(f"Project {node.get_name()}"):
-            built = _build_projection(layerstack, spec)
-            node.set_projection_mode(layerstack.ProjectionMode[spec["mode"]])
-            node.set_projection_parameters(built)
+        with layerstack.ScopedModification(f"Projection {node.get_name()}"):
+            if node.get_projection_mode() != mode:
+                node.set_projection_mode(mode)
+            updated = _overlay(node.get_projection_parameters(), normalized)
+            if updated is not None:
+                node.set_projection_parameters(updated)
+        read = _read_projection(node, spec)
     except Exception as exc:
         try:
-            _restore_projection(layerstack, node, before_mode, before_params)
-            restored = "previous projection restored"
+            with layerstack.ScopedModification("Restore projection"):
+                node.set_projection_mode(previous_mode)
+                if previous_params is not None:
+                    node.set_projection_parameters(previous_params)
+            restored = "previous values restored"
         except Exception as restore_error:  # noqa: BLE001 -- report native partial effects
             restored = f"restore failed ({restore_error}); inspect the layer stack"
         raise RuntimeError(f"projection failed ({exc}); {restored}") from exc
-    return {"uid": node.uid(), "projection": _projection_read(node, spec)}
+    return {"uid": node.uid(), "projection": read}
+
 
 def _set_properties(params, node, stack, layerstack, textureset):
     changes = {key: params[key] for key in ("name", "visible", "blend_mode", "opacity")
