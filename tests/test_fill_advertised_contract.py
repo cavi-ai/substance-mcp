@@ -2,8 +2,10 @@ import unittest
 
 from cavi_mcp_core.schema import compact_schema
 from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 
 from cavi_substance_mcp.core.contracts import PainterLayerResult
+from cavi_substance_mcp.painter.server import FillProjection
 
 
 class FillAdvertisedContractTests(unittest.TestCase):
@@ -31,3 +33,12 @@ class FillAdvertisedContractTests(unittest.TestCase):
             PainterLayerResult.model_validate(placed).model_dump(mode="json"), placed)
         self.assertEqual(
             PainterLayerResult.model_validate({"uid": 1}).model_dump(mode="json"), {"uid": 1})
+
+    def test_projection_numbers_require_numeric_inputs(self):
+        for invalid in (True, "3.0"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValidationError):
+                FillProjection.model_validate({
+                    "mode": "UV", "uv_transformation": {"scale": [1, invalid]}})
+        projection = FillProjection.model_validate({
+            "mode": "UV", "uv_transformation": {"scale": [1, 3.5]}})
+        self.assertEqual(projection.uv_transformation.scale, [1.0, 3.5])
