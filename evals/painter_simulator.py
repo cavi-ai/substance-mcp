@@ -37,6 +37,7 @@ UVWrapMode = Enum("UVWrapMode", [
     "RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat"])
 ShapeCropMode = Enum("ShapeCropMode", ["CroppedToShape", "ExtendsOutsideShape"])
 ScaleMode = Enum("ScaleMode", ["Factors", "MaterialPhysicalSize", "CustomPhysicalSize"])
+SymmetryAxis = Enum("SymmetryAxis", ["X", "Y", "Z"])
 ACCEPTED_PROJECTION_MODES = (ProjectionMode.UV, ProjectionMode.Triplanar, ProjectionMode.Planar)
 BlendingMode = Enum("BlendingMode", [
     "Color", "ColorBurn", "ColorDodge", "Darken", "Difference", "Disable", "Divide", "Exclusion",
@@ -159,6 +160,30 @@ class PlanarProjectionParams:
             self.uv_transformation = UVTransformationParams()
         if self.projection_3d is None:
             self.projection_3d = Projection3DParams()
+
+
+@dataclasses.dataclass
+class MirrorSymmetryParams:
+    axis: SymmetryAxis | None = None
+    flip_u: bool | None = None
+    flip_v: bool | None = None
+    axis_position: list | None = None
+
+    def __post_init__(self):
+        self.axis_position = _copied(self.axis_position)
+
+
+@dataclasses.dataclass
+class RadialSymmetryParams:
+    axis: SymmetryAxis | None = None
+    flip_u: bool | None = None
+    flip_v: bool | None = None
+    axis_position: list | None = None
+    count: int | None = None
+    angle_span: float | None = None
+
+    def __post_init__(self):
+        self.axis_position = _copied(self.axis_position)
 
 
 def _projection_mode_of(params):
@@ -863,6 +888,35 @@ class PainterSimulator:
                 self.projection_mode = ProjectionMode.UV
                 self.projection_parameters = UVProjectionParams(
                     uv_transformation=UVTransformationParams(scale_mode=ScaleMode.Factors))
+                self.symmetry_enabled = False
+                self.symmetry_parameters = MirrorSymmetryParams()
+
+            def _require_symmetry(self):
+                if self.projection_mode not in (ProjectionMode.Triplanar, ProjectionMode.Planar):
+                    raise ValueError("symmetry is only available for 3D projection modes")
+
+            def is_symmetry_enabled(self):
+                self._require_symmetry()
+                return self.symmetry_enabled
+
+            def set_symmetry_enabled(self, enabled):
+                self._require_symmetry()
+                if type(enabled) is not bool:
+                    raise ValueError("symmetry enabled must be a boolean")
+                self.symmetry_enabled = enabled
+                if sim.state == "symmetry-failure":
+                    sim.state = "open"
+                    raise RuntimeError("simulated symmetry failure")
+
+            def get_symmetry_parameters(self):
+                self._require_symmetry()
+                return self.symmetry_parameters
+
+            def set_symmetry_parameters(self, params):
+                self._require_symmetry()
+                if not isinstance(params, (MirrorSymmetryParams, RadialSymmetryParams)):
+                    raise TypeError("symmetry parameters must be mirror or radial")
+                self.symmetry_parameters = params
 
             def get_projection_mode(self):
                 return self.projection_mode
@@ -1214,6 +1268,8 @@ class PainterSimulator:
             TriplanarProjectionParams=TriplanarProjectionParams,
             PlanarProjectionParams=PlanarProjectionParams,
             UVTransformationParams=UVTransformationParams, Projection3DParams=Projection3DParams,
+            SymmetryAxis=SymmetryAxis, MirrorSymmetryParams=MirrorSymmetryParams,
+            RadialSymmetryParams=RadialSymmetryParams,
             get_root_layer_nodes=lambda requested: list(self.layers),
             get_node_by_uid=get_node_by_uid,
             InsertPosition=SimpleNamespace(
@@ -1246,6 +1302,9 @@ class PainterSimulator:
         module.layerstack.ScaleMode = ScaleMode
         module.layerstack.UVTransformationParams = UVTransformationParams
         module.layerstack.Projection3DParams = Projection3DParams
+        module.layerstack.SymmetryAxis = SymmetryAxis
+        module.layerstack.MirrorSymmetryParams = MirrorSymmetryParams
+        module.layerstack.RadialSymmetryParams = RadialSymmetryParams
         module.layerstack.UVProjectionParams = UVProjectionParams
         module.layerstack.TriplanarProjectionParams = TriplanarProjectionParams
         module.layerstack.PlanarProjectionParams = PlanarProjectionParams

@@ -84,6 +84,11 @@ PROJECTION_FIELDS = {
     "Planar": {"filtering_mode", "uv_wrapping_mode", "shape_crop_mode", "uv_transformation",
                "projection_3d"},
 }
+SYMMETRY_MODES = ("Mirror", "Radial")
+SYMMETRY_AXES = ("X", "Y", "Z")
+SYMMETRY_3D = {"Triplanar", "Planar"}
+MIRROR_SYMMETRY_FIELDS = {"axis", "flip_u", "flip_v", "axis_position"}
+RADIAL_SYMMETRY_FIELDS = MIRROR_SYMMETRY_FIELDS | {"count", "angle_span"}
 UV_TRANSFORM_FIELDS = {"scale_mode", "scale", "rotation", "offset"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
@@ -1869,6 +1874,12 @@ def _number(value, label):
     return float(value)
 
 
+def _bool(value, label):
+    if type(value) is not bool:
+        raise ValueError(f"{label} must be a boolean")
+    return value
+
+
 def _floats(value, count, label):
     if (not isinstance(value, (list, tuple)) or len(value) != count or any(
             type(item) not in (int, float) or not math.isfinite(item) for item in value)):
@@ -2029,15 +2040,111 @@ def _clone(value):
     return type(value)(**copied)
 
 
+def _symmetry_values(layerstack, spec):
+    mode = spec.get("mode")
+    if not isinstance(mode, str) or mode not in SYMMETRY_MODES:
+        raise ValueError(f"symmetry mode must be one of {', '.join(SYMMETRY_MODES)}")
+    if "enabled" not in spec:
+        raise ValueError("symmetry enabled is required")
+    enabled = _bool(spec["enabled"], "symmetry enabled")
+    allowed = RADIAL_SYMMETRY_FIELDS if mode == "Radial" else MIRROR_SYMMETRY_FIELDS
+    _refuse(set(spec) - {"mode", "enabled"}, allowed, f"symmetry mode={mode}")
+    values = {}
+    if "axis" in spec:
+        values["axis"] = _choice(
+            layerstack.SymmetryAxis, spec["axis"], "symmetry axis", SYMMETRY_AXES)
+    for key in ("flip_u", "flip_v"):
+        if key in spec:
+            values[key] = _bool(spec[key], f"symmetry {key}")
+    if "axis_position" in spec:
+        position = _floats(spec["axis_position"], 3, "symmetry axis_position")
+        if any(item < -10 or item > 10 for item in position):
+            raise ValueError("symmetry axis_position must be between -10 and 10")
+        values["axis_position"] = position
+    if "count" in spec:
+        count = spec["count"]
+        if type(count) is not int or not 2 <= count <= 16:
+            raise ValueError("symmetry count must be an integer between 2 and 16")
+        values["count"] = count
+    if "angle_span" in spec:
+        span = _number(spec["angle_span"], "symmetry angle_span")
+        if not -360 <= span <= 360:
+            raise ValueError("symmetry angle_span must be between -360 and 360")
+        values["angle_span"] = span
+    return mode, enabled, values
+
+
+def _symmetry_request(layerstack, params, mode_name):
+    raw = params.get("symmetry")
+    if raw is None:
+        return None
+    if mode_name == "UV":
+        raise ValueError("symmetry is only available for 3D projection modes")
+    return _symmetry_values(layerstack, _object(raw, "symmetry"))
+
+
+def _symmetry_class(layerstack, mode_name):
+    if mode_name == "Mirror":
+        return layerstack.MirrorSymmetryParams
+    if mode_name == "Radial":
+        return layerstack.RadialSymmetryParams
+    raise ValueError(f"symmetry mode must be one of {', '.join(SYMMETRY_MODES)}")
+
+
+def _apply_symmetry(node, layerstack, symmetry):
+    mode_name, enabled, values = symmetry
+    built = _symmetry_class(layerstack, mode_name)()
+    for key, value in values.items():
+        setattr(built, key, value)
+    node.set_symmetry_parameters(built)
+    node.set_symmetry_enabled(enabled)
+
+
+def _remember_symmetry(node, previous_mode):
+    # get_symmetry_parameters raises when the projection is not 3D.
+    if previous_mode.name not in SYMMETRY_3D:
+        return None
+    return node.is_symmetry_enabled(), _clone(node.get_symmetry_parameters())
+
+
+def _restore_symmetry(node, previous):
+    if previous is None:
+        return
+    enabled, parameters = previous
+    node.set_symmetry_parameters(parameters)
+    node.set_symmetry_enabled(enabled)
+
+
+def _read_symmetry(node, layerstack, fields):
+    params = node.get_symmetry_parameters()
+    if isinstance(params, layerstack.MirrorSymmetryParams):
+        mode = "Mirror"
+    elif isinstance(params, layerstack.RadialSymmetryParams):
+        mode = "Radial"
+    else:
+        raise ValueError("Painter returned no symmetry parameters")
+    result = {"mode": mode, "enabled": node.is_symmetry_enabled()}
+    for key in fields:
+        value = getattr(params, key)
+        if key == "axis":
+            value = value.name
+        elif key == "axis_position":
+            value = list(value)
+        result[key] = value
+    return result
+
+
 def _set_projection(params, node, layerstack):
     if not isinstance(node, (layerstack.FillLayerNode, layerstack.FillEffectNode)):
         raise TypeError("uid must be a fill layer or fill effect")
     spec = _object(params.get("projection"), "projection")
     mode_name, normalized = _projection_values(layerstack, spec)
+    symmetry = _symmetry_request(layerstack, params, mode_name)
     mode = layerstack.ProjectionMode[mode_name]
     previous_mode = node.get_projection_mode()
     previous_params = node.get_projection_parameters()
     previous_params = None if previous_params is None else _clone(previous_params)
+    previous_symmetry = None if symmetry is None else _remember_symmetry(node, previous_mode)
     try:
         with layerstack.ScopedModification(f"Projection {node.get_name()}"):
             if node.get_projection_mode() != mode:
@@ -2045,13 +2152,18 @@ def _set_projection(params, node, layerstack):
             updated = _overlay(node.get_projection_parameters(), normalized)
             if updated is not None:
                 node.set_projection_parameters(updated)
+            if symmetry is not None:
+                _apply_symmetry(node, layerstack, symmetry)
         read = _read_projection(node, spec)
+        if symmetry is not None:
+            read["symmetry"] = _read_symmetry(node, layerstack, symmetry[2])
     except Exception as exc:
         try:
             with layerstack.ScopedModification("Restore projection"):
                 node.set_projection_mode(previous_mode)
                 if previous_params is not None:
                     node.set_projection_parameters(previous_params)
+                _restore_symmetry(node, previous_symmetry)
             restored = "previous values restored"
         except Exception as restore_error:  # noqa: BLE001 -- report native partial effects
             restored = f"restore failed ({restore_error}); inspect the layer stack"

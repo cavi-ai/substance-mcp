@@ -403,6 +403,187 @@ class ProjectionTests(Fixture):
         listing = self.client.call("layer_stack", {"texture_set": "Body"})
         self.assertEqual(listing["layers"][0]["projection_mode"], "Planar")
 
+    def _guard_symmetry(self, node):
+        called = []
+
+        def guard(name):
+            def wrapped(*_args, **_kwargs):
+                called.append(name)
+                raise AssertionError(name)
+            return wrapped
+
+        node.is_symmetry_enabled = guard("is_symmetry_enabled")
+        node.set_symmetry_enabled = guard("set_symmetry_enabled")
+        node.get_symmetry_parameters = guard("get_symmetry_parameters")
+        node.set_symmetry_parameters = guard("set_symmetry_parameters")
+        return called
+
+    def test_triplanar_mirror_sets_parameters_then_enables(self):
+        uid = self.fill()["uid"]
+        node = self.sim.layers[0]
+        order = []
+        set_parameters = node.set_symmetry_parameters
+        set_enabled = node.set_symmetry_enabled
+
+        def parameters(params):
+            order.append(("parameters", node.is_symmetry_enabled(), params))
+            set_parameters(params)
+
+        def enabled(flag):
+            order.append(("enabled", flag))
+            set_enabled(flag)
+
+        node.set_symmetry_parameters = parameters
+        node.set_symmetry_enabled = enabled
+        placed = self.edit("projection", uid=uid, projection={"mode": "Triplanar"}, symmetry={
+            "mode": "Mirror",
+            "enabled": True,
+            "axis": "X",
+            "flip_u": True,
+            "flip_v": False,
+            "axis_position": [-10, 0, 10],
+        })
+        self.assertEqual([step[0] for step in order], ["parameters", "enabled"])
+        self.assertFalse(order[0][1])
+        recorded = order[0][2]
+        self.assertEqual(type(recorded).__name__, "MirrorSymmetryParams")
+        self.assertEqual(recorded.axis.name, "X")
+        self.assertEqual((recorded.flip_u, recorded.flip_v), (True, False))
+        self.assertEqual(recorded.axis_position, [-10.0, 0.0, 10.0])
+        self.assertFalse(hasattr(recorded, "count"))
+        self.assertEqual(order[1][1], True)
+        self.assertEqual(placed["projection"]["symmetry"], {
+            "mode": "Mirror",
+            "enabled": True,
+            "axis": "X",
+            "flip_u": True,
+            "flip_v": False,
+            "axis_position": [-10.0, 0.0, 10.0],
+        })
+        self.assertTrue(node.is_symmetry_enabled())
+        self.assertEqual(node.get_symmetry_parameters().axis.name, "X")
+
+    def test_radial_sets_count_and_angle_span(self):
+        uid = self.fill()["uid"]
+        placed = self.edit("projection", uid=uid, projection={"mode": "Planar"}, symmetry={
+            "mode": "Radial", "enabled": True, "count": 16, "angle_span": 360,
+        })
+        self.assertEqual(placed["projection"]["symmetry"], {
+            "mode": "Radial", "enabled": True, "count": 16, "angle_span": 360.0,
+        })
+        node = self.sim.layers[0]
+        params = node.get_symmetry_parameters()
+        self.assertEqual(type(params).__name__, "RadialSymmetryParams")
+        self.assertEqual((params.count, params.angle_span), (16, 360.0))
+        self.assertTrue(node.is_symmetry_enabled())
+        disabled = self.edit("projection", uid=uid, projection={"mode": "Planar"}, symmetry={
+            "mode": "Radial", "enabled": False, "count": 2, "angle_span": -360,
+        })
+        self.assertEqual(disabled["projection"]["symmetry"], {
+            "mode": "Radial", "enabled": False, "count": 2, "angle_span": -360.0,
+        })
+        self.assertFalse(node.is_symmetry_enabled())
+        self.assertEqual(node.get_symmetry_parameters().count, 2)
+
+    def test_fill_effect_accepts_radial_symmetry(self):
+        uid = self.fill()["uid"]
+        masked = self.edit("smart_mask", uid=uid, resource="Edges Dirt")
+        effect = next(item["uid"] for item in masked["effects"] if item["type"] == "FillEffect")
+        placed = self.edit("projection", uid=effect, projection={"mode": "Triplanar"}, symmetry={
+            "mode": "Radial", "enabled": True, "count": 2, "angle_span": 90,
+        })
+        self.assertEqual(placed["projection"]["symmetry"]["mode"], "Radial")
+        self.assertEqual(placed["projection"]["symmetry"]["count"], 2)
+        node = self.sim.nodes[effect]
+        self.assertEqual(node.get_symmetry_parameters().angle_span, 90.0)
+        self.assertTrue(node.is_symmetry_enabled())
+
+    def test_mirror_refuses_count_and_angle_span(self):
+        uid = self.fill()["uid"]
+        node = self.sim.layers[0]
+        for symmetry in (
+            {"mode": "Mirror", "enabled": True, "count": 4},
+            {"mode": "Mirror", "enabled": True, "angle_span": 90},
+        ):
+            called = self._guard_symmetry(node)
+            with self.subTest(symmetry=sorted(symmetry)):
+                with self.assertRaisesRegex(RuntimeError, "symmetry mode=Mirror"):
+                    self.edit("projection", uid=uid, projection={"mode": "Triplanar"},
+                              symmetry=symmetry)
+                self.assertEqual(called, [])
+                self.assertEqual(node.get_projection_mode().name, "UV")
+
+    def test_uv_refuses_symmetry_without_calling_it(self):
+        uid = self.fill()["uid"]
+        self.edit("projection", uid=uid, projection={"mode": "Triplanar"})
+        node = self.sim.layers[0]
+        self.assertFalse(node.is_symmetry_enabled())
+        called = self._guard_symmetry(node)
+        with self.assertRaisesRegex(RuntimeError, "3D projection"):
+            self.edit("projection", uid=uid, projection={"mode": "UV"}, symmetry={
+                "mode": "Mirror", "enabled": True, "axis": "Z",
+            })
+        self.assertEqual(called, [])
+        self.assertEqual(node.get_projection_mode().name, "Triplanar")
+
+    def test_symmetry_ranges_are_refused_before_the_api(self):
+        uid = self.fill()["uid"]
+        node = self.sim.layers[0]
+        cases = (
+            ({"mode": "Mirror", "enabled": True, "axis_position": [10.1, 0, 0]}, "axis_position"),
+            ({"mode": "Mirror", "enabled": True, "axis_position": [0, 0, -10.1]}, "axis_position"),
+            ({"mode": "Radial", "enabled": True, "count": 1}, "count"),
+            ({"mode": "Radial", "enabled": True, "count": 17}, "count"),
+            ({"mode": "Radial", "enabled": False, "angle_span": -360.1}, "angle_span"),
+            ({"mode": "Radial", "enabled": False, "angle_span": 360.1}, "angle_span"),
+        )
+        for symmetry, message in cases:
+            called = self._guard_symmetry(node)
+            with self.subTest(symmetry=symmetry):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.edit("projection", uid=uid, projection={"mode": "Planar"},
+                              symmetry=symmetry)
+                self.assertEqual(called, [])
+                self.assertEqual(node.get_projection_mode().name, "UV")
+
+    def test_failed_symmetry_set_restores_the_previous_symmetry(self):
+        uid = self.fill()["uid"]
+        self.edit("projection", uid=uid, projection={
+            "mode": "Triplanar",
+            "hardness": 0.25,
+            "projection_3d": {"scale": [1, 2, 3]},
+        }, symmetry={
+            "mode": "Mirror",
+            "enabled": True,
+            "axis": "Y",
+            "flip_u": True,
+            "flip_v": False,
+            "axis_position": [1, 2, 3],
+        })
+        self.sim.state = "symmetry-failure"
+        with self.assertRaisesRegex(RuntimeError, "previous values restored"):
+            self.edit("projection", uid=uid, projection={
+                "mode": "Planar",
+                "projection_3d": {"scale": [4, 5]},
+            }, symmetry={
+                "mode": "Radial",
+                "enabled": False,
+                "count": 8,
+                "angle_span": 90,
+            })
+        node = self.sim.layers[0]
+        self.assertEqual(node.get_projection_mode().name, "Triplanar")
+        params = node.get_projection_parameters()
+        self.assertEqual(params.hardness, 0.25)
+        self.assertEqual(params.projection_3d.scale, [1.0, 2.0, 3.0])
+        self.assertTrue(node.is_symmetry_enabled())
+        symmetry = node.get_symmetry_parameters()
+        self.assertEqual(type(symmetry).__name__, "MirrorSymmetryParams")
+        self.assertEqual(symmetry.axis.name, "Y")
+        self.assertEqual((symmetry.flip_u, symmetry.flip_v), (True, False))
+        self.assertEqual(symmetry.axis_position, [1.0, 2.0, 3.0])
+        self.assertFalse(hasattr(symmetry, "count"))
+
 
 class ProjectTests(Fixture):
     def test_create_maps_udim_template_and_tangent_space(self):
