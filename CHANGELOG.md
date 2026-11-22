@@ -4,6 +4,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+## 0.15.0 - 2026-11-21
+
 ### Added
 
 - Painter `layer_edit` action `projection` places a fill layer or fill effect in UV, triplanar, or planar projection.
