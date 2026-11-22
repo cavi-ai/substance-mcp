@@ -1865,7 +1865,7 @@ def _refuse(given, allowed, label):
 def _choice(enum, value, label, accepted):
     if not isinstance(value, str) or value not in accepted or value not in enum.__members__:
         raise ValueError(f"{label} must be one of {', '.join(accepted)}")
-    return enum[value]
+    return enum.__members__[value]
 
 
 def _number(value, label):
@@ -2140,7 +2140,7 @@ def _set_projection(params, node, layerstack):
     spec = _object(params.get("projection"), "projection")
     mode_name, normalized = _projection_values(layerstack, spec)
     symmetry = _symmetry_request(layerstack, params, mode_name)
-    mode = layerstack.ProjectionMode[mode_name]
+    mode = _choice(layerstack.ProjectionMode, mode_name, "projection mode", PROJECTION_MODES)
     previous_mode = node.get_projection_mode()
     previous_params = node.get_projection_parameters()
     previous_params = None if previous_params is None else _clone(previous_params)
