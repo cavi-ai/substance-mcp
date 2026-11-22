@@ -44,7 +44,7 @@ UnitValue = TypeAliasType(
 PaintValue = TypeAliasType(
     "PaintValue", Annotated[float, Field(strict=True, allow_inf_nan=False)]
 )
-Finite = TypeAliasType("Finite", Annotated[float, Field(allow_inf_nan=False)])
+Finite = TypeAliasType("Finite", Annotated[float, Field(strict=True, allow_inf_nan=False)])
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
