@@ -9,7 +9,7 @@
 | `session_control` | `inspect`, `claim`, `renew`, `release`, `break` | `owner`, `expected_project`, `lease_id`, `ttl_seconds` (30–3600, default 600) |
 | `project` | `open`, `create`, `close`, `save`, `save_copy`, `save_as`, `save_template`, `export_mesh`, `update_resources`, `display`, `wait_ready`, `reload_mesh` | `path` (open), `mesh_path` (create, reload_mesh), `normal_map_format`, `default_texture_resolution`, `source_precision` (`16` or explicit `template`), `udim`, `template` (workspace `.spt`), `tangent_space_per_fragment` (create), `preserve_strokes` (reload_mesh, default true), `expected_file`, `discard_unsaved` (close), `directory` (save_copy, save_as, save_template, export_mesh), `mesh_format` (export_mesh), `display`, `timeout_seconds` (wait_ready), `lease_id` |
 | `inspect` | `texture_sets`, `layer_stack`, `export_presets`, `shelf`, `bake_settings` | `texture_set` (layer_stack; bake_settings filter), `query`, `usage`, `limit` (shelf) |
-| `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `sbsar_update`, `set_properties`, `delete`, `levels`, `filter`, `anchor_point`, `color_selection`, `compare_mask` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `lease_id` |
+| `layer_edit` | `fill`, `texture_fill`, `paint`, `group`, `fill_mask`, `smart_material`, `smart_mask`, `generator`, `sbsar_fill`, `sbsar_update`, `set_properties`, `delete`, `levels`, `filter`, `anchor_point`, `color_selection`, `compare_mask`, `projection` | `texture_set`, `name`, `uid`, `parent_uid`, `above_uid`, `base_color`, `base_color_texture`, `roughness`, `metallic`, `values`, `mask`, `resource`, `sbsar`, `source_manifest`, `expected_sha256`, `parameters`, `blend_mode`, `opacity`, `channel`, `visible`, `confirm_name`, `projection`, `lease_id` |
 | `brush` | `prepare`, `stroke`, `settings` | `texture_set`, `uid`, `directory`, `context_token`, `points`, `uv` (stroke), `settings`, `preset`, `channel_values`, `enabled_channels`, `mode`, `target`, `lease_id` |
 | `texture_set_settings` | — | `texture_set`, `channel_formats`, `resolution`, `mesh_maps`, `lease_id` |
 | `export_textures` | — | `directory`, `preset` or `maps`, `source_manifest` + `source_file` (optional provenance), `resolution`, `file_format`, `bit_depth`, `texture_sets`, `udim_tiles`, `padding`, `dilation_distance`, `dry_run` (default true), `lease_id` |
@@ -29,7 +29,7 @@
 
 ## Inspection
 
-- `texture_sets` includes resolution, UV tiles and channel formats. `layer_stack` walks groups (depth ≤ 8, ≤ 512 nodes, `truncated` flags the cut) with masks, effects, visibility, per-channel blend mode and opacity, and every channel source.
+- `texture_sets` includes resolution, UV tiles and channel formats. `layer_stack` walks groups (depth ≤ 8, ≤ 512 nodes, `truncated` flags the cut) with masks, effects, visibility, per-channel blend mode and opacity, every channel source, and the projection mode of each fill.
 - `shelf` searches resources (≤ 100) optionally filtered by `smart_material`, `smart_mask`, `material`, `generator`, `texture`, `environment`, `brush`; unfiltered results also label `filter` and `color_lut` resources. `bake_settings` lists per-set baking parameters and baked mesh maps.
 
 ## Layers
@@ -41,8 +41,21 @@
 - `sbsar_update` imports a re-cooked `.sbsar` (same verification) and replaces the graph at `resource` (the URL `sbsar_fill` returned) everywhere in the project; parameter values are kept. A mismatch changes nothing and reports the kept import.
 - Effects go into layer `uid`'s content, or its mask when `mask` is given (a mask of that color is added when missing). `color_selection` and `compare_mask` always go in the mask. `levels` takes `input_min`, `input_max`, `gamma`, `output_min`, `output_max` (one number, or three for a color channel in content) and `clamp`; `channel` picks the affected channel. `filter` inserts a shelf filter `resource` and sets its substance `parameters`. `anchor_point` needs `name`. `color_selection` takes the ID map texture as `resource` and `colors` (`"#RRGGBB,..."`), `tolerance`, `hardness`, `output_value`, `background` (`Transparent`, `Black`, `White`, `Gray`). `compare_mask` takes `left_operand`/`right_operand` (`LayersBelow`, `ThisLayer`, `ThisMask`, `Constant`), `operation` (`LesserThan`, `WithinTolerance`, `GreaterThan`), `constant`, `tolerance`, `hardness` and `channel`.
 - `set_properties` changes `name`, `visible`, `blend_mode` (Painter `BlendingMode` name; an unknown name lists them all) and `opacity` for one `channel` or all; failures restore previous values.
+- `projection` places a fill layer or fill effect in UV, triplanar, or planar projection. See Fill projection.
 - `delete` removes nodes this lease created; other nodes need `confirm_name` equal to the current name.
 - Failed layer actions remove the nodes they created and report anything left.
+
+## Fill projection
+
+`layer_edit` action `projection` places a fill layer or fill effect (`uid`). `mode` is `UV`, `Triplanar`, or `Planar`. `Fill`, `Spherical`, `Cylindrical`, `Warp`, and `UVSetToUVSet` are refused.
+
+`filtering_mode` is `BilinearHQ`, `BilinearSharp`, or `Nearest`. `uv_wrapping_mode` (`RepeatNone`, `RepeatHorizontally`, `RepeatVertically`, `Repeat`) applies to UV and Planar. `shape_crop_mode` (`CroppedToShape`, `ExtendsOutsideShape`) applies to Triplanar and Planar. `hardness` applies to Triplanar only. Crop is refused on UV. Wrap is refused on Triplanar.
+
+`uv_transformation` takes `scale_mode` (`Factors` or `CustomPhysicalSize`, with `scale` in centimeters), `scale` and `offset` (two numbers), and `rotation`. UV offset is unavailable for Triplanar and is refused before the API is called. `MaterialPhysicalSize` is refused: it depends on resource physical-size metadata this server does not read.
+
+`projection_3d` (`offset`, `rotation`, and `scale`) applies to Triplanar and Planar. Triplanar `offset`, `rotation`, and `scale` are 3-vectors. Planar `scale` is X and Y only: Z scaling is unavailable when projection mode is Planar and depth culling is disabled, and this action does not set depth culling, backface culling, or symmetry. UV refuses `projection_3d`.
+
+A failure restores the previous projection. `layer_stack` reports `projection_mode` on each fill layer and fill effect. Checked against the documented Painter Python API and the simulator; not run inside Painter.
 
 ## Export
 

@@ -72,8 +72,18 @@ class ForeignArgumentTests(unittest.IsolatedAsyncioTestCase):
              "levels: resource"),
             ("layer_edit", {"action": "fill", "name": "A", "base_color": [0, 0, 0], "uid": 3},
              "fill: uid"),
+            ("layer_edit", {"action": "fill", "name": "A", "base_color": [0, 0, 0],
+                            "projection": {"mode": "UV"}}, "fill: projection"),
             ("layer_edit", {"action": "paint", "name": "A", "roughness": 0.2},
              "paint: roughness"),
+            ("layer_edit", {"action": "set_properties", "uid": 3,
+                            "projection": {"mode": "UV"}},
+             "set_properties: projection"),
+            ("layer_edit", {"action": "projection", "uid": 3,
+                            "projection": {"mode": "UV"}, "parameters": {"scale": 1}},
+             "projection: parameters"),
+            ("layer_edit", {"action": "delete", "uid": 3, "projection": {"mode": "UV"}},
+             "delete: projection"),
             ("brush", {"action": "settings", "mode": "erase"}, "settings: mode"),
         ]
         reached = []

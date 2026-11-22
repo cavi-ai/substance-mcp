@@ -19,7 +19,8 @@ Keep working in the native projects and inspect the results at each step. The ap
 ## Application support
 
 The Painter server supports project operations (UDIM, templates, mesh reload),
-layer-tree inspection, paint, fill, group, mask, generator, smart-material,
+layer-tree inspection, paint, fill with UV, triplanar and planar projection,
+group, mask, generator, smart-material,
 smart-mask and `.sbsar` layers, mesh-map baking, shelf search and channel-packed
 texture export. Native macOS brush input adds real 2D strokes with viewport
 previews and pressure; see [Painter tools](docs/substance-mcp/source/pages/painter/tools.md#native-brush-painting).

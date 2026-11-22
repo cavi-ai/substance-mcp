@@ -6,7 +6,7 @@ from typing import Annotated, Literal, TypeAliasType
 
 import anyio.to_thread
 from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from ..core.actions import checked
 from ..core.contracts import (
@@ -34,7 +34,7 @@ mcp = Server(
 )
 LeaseId = Annotated[
     str | None,
-    Field(max_length=128, pattern=r"^[A-Za-z0-9_-]+$", description="Edit lease token."),
+    Field(max_length=128, pattern=r"^[A-Za-z0-9_-]+$", description="Lease."),
 ]
 WorkspaceFile = Annotated[str | None, Field(description="Workspace file.")]
 NewDirectory = Annotated[str, Field(description="New directory.")]
@@ -44,6 +44,7 @@ UnitValue = TypeAliasType(
 PaintValue = TypeAliasType(
     "PaintValue", Annotated[float, Field(strict=True, allow_inf_nan=False)]
 )
+Finite = TypeAliasType("Finite", Annotated[float, Field(allow_inf_nan=False)])
 TextureSetName = Annotated[str, Field(min_length=1, max_length=128)]
 
 
@@ -80,7 +81,7 @@ async def wait_until_ready(timeout_seconds, interval=0.5):
 
 @mcp.tool(annotations=READ_ONLY)
 async def painter_status() -> PainterStatus:
-    """Connectivity, project, busy and edition state; never changes anything."""
+    """Connectivity, project, and edition state."""
     try:
         return await painter("status")
     except (ConnectionError, TimeoutError) as exc:
@@ -94,14 +95,13 @@ async def session_control(
         Field(description="Lease operation."),
     ],
     owner: Annotated[str | None, Field(max_length=128, description="claim: editor name.")] = None,
-    expected_project: Annotated[str | None, Field(description="project_id from inspect.")] = None,
+    expected_project: Annotated[str | None, Field(description="Project id.")] = None,
     lease_id: LeaseId = None,
     ttl_seconds: Annotated[
-        StrictInt, Field(ge=30, le=3600, description="Lease lifetime in seconds.")
+        StrictInt, Field(ge=30, le=3600, description="Lease seconds.")
     ] = 600,
 ) -> Ownership:
-    """Edit lease. claim needs owner+expected_project; renew/release need lease_id.
-    break requires a matching project and 300 s idle. No save or close."""
+    """Claim, renew, release, or break a lease."""
     return await painter("session_control", {
         "action": action, "owner": owner, "expected_project": expected_project,
         "lease_id": lease_id, "ttl_seconds": ttl_seconds,
@@ -115,49 +115,48 @@ async def project(
                 "export_mesh", "update_resources", "display", "wait_ready", "reload_mesh"],
         Field(description="Project operation."),
     ],
-    path: Annotated[WorkspaceFile, Field(description="open: workspace .spp.")] = None,
-    mesh_path: Annotated[WorkspaceFile, Field(description="create/reload_mesh: mesh.")] = None,
+    path: Annotated[WorkspaceFile, Field(description="Project file.")] = None,
+    mesh_path: Annotated[WorkspaceFile, Field(description="Mesh path.")] = None,
     normal_map_format: Annotated[
-        Literal["OpenGL", "DirectX"], Field(description="create: normal orientation.")
+        Literal["OpenGL", "DirectX"], Field(description="Normal orientation.")
     ] = "OpenGL",
     default_texture_resolution: Annotated[
         Literal[256, 512, 1024, 2048, 4096, 8192] | None,
-        Field(description="create: texture size."),
+        Field(description="Texture size."),
     ] = None,
     source_precision: Annotated[
-        Literal["16", "template"], Field(description="create: source precision.")
+        Literal["16", "template"], Field(description="Source precision.")
     ] = "16",
-    udim: Annotated[StrictBool, Field(description="create: UV tile workflow.")] = False,
-    template: Annotated[WorkspaceFile, Field(description="create: workspace .spt.")] = None,
+    udim: Annotated[StrictBool, Field(description="UV tiles.")] = False,
+    template: Annotated[WorkspaceFile, Field(description="Template.")] = None,
     tangent_space_per_fragment: Annotated[
-        StrictBool, Field(description="create: per-fragment tangents.")
+        StrictBool, Field(description="Per-fragment tangents.")
     ] = False,
     preserve_strokes: Annotated[
-        StrictBool, Field(description="reload_mesh: reproject strokes.")
+        StrictBool, Field(description="Reproject strokes.")
     ] = True,
     expected_file: Annotated[
-        str | None, Field(description="close: file from painter_status; null if unsaved.")
+        str | None, Field(description="close: status file.")
     ] = None,
     discard_unsaved: Annotated[
-        StrictBool, Field(description="close: discard unsaved edits.")
+        StrictBool, Field(description="Discard unsaved.")
     ] = False,
     directory: Annotated[
-        str | None, Field(description="save_*/export_mesh: new directory.")
+        str | None, Field(description="Output directory.")
     ] = None,
     mesh_format: Annotated[
         Literal["fbx", "obj", "gltf", "usd", "dae", "ply"], Field(description="export_mesh.")
     ] = "fbx",
     display: Annotated[
         dict[str, str] | None,
-        Field(description="environment/color_lut: shelf name/URL; tone_mapping: Linear/ACES."),
+        Field(description="Environment, LUT, or tone mapping."),
     ] = None,
     timeout_seconds: Annotated[
-        StrictInt, Field(ge=1, le=300, description="Readiness timeout (s).")
+        StrictInt, Field(ge=1, le=300, description="Timeout (s).")
     ] = 60,
     lease_id: LeaseId = None,
 ) -> PainterProject:
-    """Open/create need no open project; close protects unsaved edits. wait_ready polls
-    async work. create sets 16-bit sources unless source_precision=template."""
+    """Open, create, save, reload, or display it."""
     if action == "wait_ready":
         return await wait_until_ready(timeout_seconds)
     if action == "open":
@@ -200,10 +199,10 @@ async def project(
 async def inspect(
     action: Annotated[
         Literal["texture_sets", "layer_stack", "export_presets", "shelf", "bake_settings"],
-        Field(description="Inspection to return."),
+        Field(description="Inspection."),
     ],
     texture_set: Annotated[
-        TextureSetName | None, Field(description="layer_stack; bake_settings filter.")
+        TextureSetName | None, Field(description="Set name filter.")
     ] = None,
     query: Annotated[str, Field(max_length=128, description="shelf search text.")] = "",
     usage: Annotated[
@@ -217,12 +216,11 @@ async def inspect(
             "brush",
         ]
         | None,
-        Field(description="shelf: resource category."),
+        Field(description="Shelf category."),
     ] = None,
-    limit: Annotated[StrictInt, Field(ge=1, le=100, description="shelf: maximum results.")] = 50,
+    limit: Annotated[StrictInt, Field(ge=1, le=100, description="Result limit.")] = 50,
 ) -> PainterInspection:
-    """Texture sets, layer tree (groups, masks, effects, blending), export presets,
-    shelf resources, or baking parameters."""
+    """Texture sets, layers, presets and shelf."""
     if action == "layer_stack":
         return await painter(
             "layer_stack", {"texture_set": need(texture_set, "texture_set", action)}
@@ -259,8 +257,53 @@ LAYER_EDIT_PARAMS = {
     "anchor_point": ({"uid", "name"}, {"mask"}),
     "color_selection": ({"uid", "resource"}, {"mask", "parameters"}),
     "compare_mask": ({"uid"}, {"mask", "channel", "parameters"}),
+    "projection": ({"uid", "projection"}, set()),
 }
 LAYER_EDIT_DEFAULTS = {"roughness": 0.5, "metallic": 0.0}
+
+
+def _drop_schema_titles(schema):
+    schema.pop("title", None)
+    for prop in schema.get("properties", {}).values():
+        if isinstance(prop, dict):
+            prop.pop("title", None)
+
+
+class UVTransformation(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    scale_mode: Literal["Factors", "CustomPhysicalSize"] | None = None
+    scale: Annotated[list[Finite], Field(min_length=2, max_length=2)] | None = None
+    rotation: Finite | None = None
+    offset: Annotated[list[Finite], Field(min_length=2, max_length=2)] | None = None
+
+    @field_validator("scale_mode", mode="before")
+    @classmethod
+    def refuse_material_physical_size(cls, value):
+        if value == "MaterialPhysicalSize":
+            raise ValueError(
+                "MaterialPhysicalSize depends on resource physical-size metadata "
+                "this server does not read")
+        return value
+
+
+class Projection3D(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    offset: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+    rotation: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+    scale: Annotated[list[Finite], Field(min_length=2, max_length=3)] | None = None
+
+
+class FillProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    mode: Literal["UV", "Triplanar", "Planar"]
+    filtering_mode: Literal["BilinearHQ", "BilinearSharp", "Nearest"] | None = None
+    uv_wrapping_mode: Literal[
+        "RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat"
+    ] | None = None
+    shape_crop_mode: Literal["CroppedToShape", "ExtendsOutsideShape"] | None = None
+    hardness: Finite | None = None
+    uv_transformation: UVTransformation | None = None
+    projection_3d: Projection3D | None = None
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -284,6 +327,7 @@ async def layer_edit(
             "anchor_point",
             "color_selection",
             "compare_mask",
+            "projection",
         ],
         Field(description="Action."),
     ],
@@ -296,26 +340,26 @@ async def layer_edit(
     above_uid: Annotated[Uid, Field(description="Above layer.")] = None,
     base_color: Annotated[Rgb | None, Field(description="fill: sRGB 0-1.")] = None,
     base_color_texture: Annotated[
-        WorkspaceFile, Field(description="texture_fill: PNG/EXR/TIFF; float linear.")
+        WorkspaceFile, Field(description="texture_fill image.")
     ] = None,
     roughness: Annotated[UnitValue, Field(description="fill: roughness.")] = 0.5,
     metallic: Annotated[UnitValue, Field(description="fill: metallic.")] = 0.0,
     values: Annotated[
         dict[str, UnitValue | Rgb] | None,
-        Field(description="fill: extra channels."),
+        Field(description="Extra channels."),
     ] = None,
     mask: Annotated[
-        Literal["black", "white"] | None, Field(description="Mask color; effects go inside.")
+        Literal["black", "white"] | None, Field(description="Mask color.")
     ] = None,
     resource: Annotated[str | None, Field(max_length=256, description="Shelf/URL.")] = None,
     sbsar: WorkspaceFile = None,
     source_manifest: WorkspaceFile = None,
     expected_sha256: Annotated[
-        str | None, Field(description="sbsar_fill: SHA-256.")
+        str | None, Field(description="SHA-256.")
     ] = None,
     parameters: Annotated[
         dict[str, float | int | str | bool | list[float]] | None,
-        Field(description="Substance/effect settings."),
+        Field(description="Effect settings."),
     ] = None,
     blend_mode: Annotated[
         str | None, Field(max_length=32, description="Blend mode.")
@@ -328,19 +372,26 @@ async def layer_edit(
         StrictBool | None, Field(description="Visibility.")
     ] = None,
     confirm_name: Annotated[
-        str | None, Field(max_length=63, description="delete: exact current name.")
+        str | None, Field(max_length=63, description="Current name.")
+    ] = None,
+    projection: Annotated[
+        FillProjection | None,
+        Field(description="UV, Triplanar or Planar placement."),
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterLayerResult:
-    """Edit layers; failures roll back. delete needs confirm_name."""
+    """Edit layers. Projection places a fill layer."""
     arguments = {key: value for key, value in locals().items()
                  if key not in ("action", "texture_set", "lease_id")}
     accepted = checked(action, arguments, LAYER_EDIT_PARAMS, LAYER_EDIT_DEFAULTS)
+    if isinstance(projection, FillProjection):
+        accepted["projection"] = projection.model_dump(exclude_none=True)
     if action in LAYER_ACTIONS:
         return await painter(LAYER_ACTIONS[action], {"texture_set": texture_set, **accepted},
                              lease_id=lease_id)
     return await painter("layer_edit", {"action": action, "texture_set": texture_set, **accepted},
                          lease_id=lease_id)
+
 
 
 _BRUSH = {"settings", "preset", "channel_values", "enabled_channels"}
@@ -368,18 +419,17 @@ async def texture_set_settings(
             str, Literal["sRGB8", "L8", "RGB8", "L16", "RGB16", "L16F", "RGB16F", "L32F", "RGB32F"]
         ]
         | None,
-        Field(max_length=64, description="Channel name to source format."),
+        Field(max_length=64, description="Channel format."),
     ] = None,
     resolution: Annotated[
-        Literal[256, 512, 1024, 2048, 4096, 8192] | None, Field(description="Working texture size.")
+        Literal[256, 512, 1024, 2048, 4096, 8192] | None, Field(description="Texture size.")
     ] = None,
     mesh_maps: Annotated[
-        dict[str, str] | None, Field(max_length=10, description="Bake map -> workspace image.")
+        dict[str, str] | None, Field(max_length=10, description="Mesh map file.")
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterInspection:
-    """Set source formats, resolution or mesh maps; read back. Export bit depth cannot
-    restore precision lost in source channels."""
+    """Channel formats, resolution, or mesh maps."""
     if not channel_formats and resolution is None and not mesh_maps:
         raise ValueError('Provide channel_formats, resolution or mesh_maps')
     return await painter('texture_set_settings', {'texture_set': texture_set,
@@ -391,21 +441,21 @@ async def texture_set_settings(
 async def brush(
     action: Annotated[
         Literal["prepare", "stroke", "settings"],
-        Field(description="prepare, stroke or settings."),
+        Field(description="Brush action."),
     ],
     texture_set: Annotated[
-        TextureSetName | None, Field(description="prepare: texture set.")
+        TextureSetName | None, Field(description="Texture set.")
     ] = None,
     uid: Annotated[Uid, Field(description="prepare: layer UID.")] = None,
-    directory: Annotated[str | None, Field(description="prepare: new directory.")] = None,
+    directory: Annotated[str | None, Field(description="Stroke directory.")] = None,
     context_token: Annotated[
-        str | None, Field(max_length=128, description="stroke: prepared token.")
+        str | None, Field(max_length=128, description="Stroke token.")
     ] = None,
     points: Annotated[
         list[tuple[UnitValue, UnitValue, UnitValue]] | None,
-        Field(min_length=2, max_length=128, description="stroke: [x,y,pressure] in 0..1, y down."),
+        Field(min_length=2, max_length=128, description="Stroke points."),
     ] = None,
-    uv: Annotated[StrictBool, Field(description="stroke: u,v points, v up.")] = False,
+    uv: Annotated[StrictBool, Field(description="UV points.")] = False,
     settings: Annotated[
         BrushSettings | None, Field(description="Native brush units.")
     ] = None,
@@ -414,22 +464,21 @@ async def brush(
     ] = None,
     channel_values: Annotated[
         dict[str, PaintValue | tuple[PaintValue, PaintValue, PaintValue]] | None,
-        Field(max_length=64, description="ChannelType: scalar/RGB."),
+        Field(max_length=64, description="Channel value."),
     ] = None,
     enabled_channels: Annotated[
         dict[str, StrictBool] | None,
         Field(max_length=64, description="Channel toggles."),
     ] = None,
     target: Annotated[
-        Literal["content", "mask"], Field(description="prepare: content or mask.")
+        Literal["content", "mask"], Field(description="Content or mask.")
     ] = "content",
     mode: Annotated[
-        Literal["paint", "erase"], Field(description="prepare: paint or erase.")
+        Literal["paint", "erase"], Field(description="Paint or erase.")
     ] = "paint",
     lease_id: LeaseId = None,
 ) -> PainterBrushResult:
-    """macOS 2D painting. Inspect the prepared viewport, then stroke once within 60 s
-    with no other input or edits. Verify the result; no save or retry."""
+    """Prepare a viewport, then paint one stroke."""
     arguments = {key: value for key, value in locals().items()
                  if key not in ("action", "lease_id")}
     accepted = checked(action, arguments, BRUSH_PARAMS, BRUSH_DEFAULTS)
@@ -440,24 +489,24 @@ async def brush(
 
 class OutputMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: Annotated[str, Field(min_length=1, max_length=128, description="May use $textureSet.")]
+    name: Annotated[str, Field(min_length=1, max_length=128, description="Export name.")]
     format: Literal["png", "tga", "tiff", "exr", "jpeg"] | None = None
     bit_depth: Literal[8, 16, "16f", "32f"] | None = None
     channels: Annotated[
         dict[Literal["R", "G", "B", "A", "RGB", "L"], str | float],
-        Field(description="Map name, 1-roughness, or 0/1."),
+        Field(description="Map source."),
     ]
 
 
 @mcp.tool(annotations=WRITES)
 async def export_textures(
     directory: NewDirectory,
-    preset: Annotated[str | None, Field(description="URL from inspect export_presets.")] = None,
-    source_manifest: Annotated[WorkspaceFile, Field(description="Receipt for source_file.")] = None,
+    preset: Annotated[str | None, Field(description="Preset URL.")] = None,
+    source_manifest: Annotated[WorkspaceFile, Field(description="Source receipt.")] = None,
     source_file: Annotated[WorkspaceFile, Field(description="Source .sbsar.")] = None,
     maps: Annotated[
         list[OutputMap] | None,
-        Field(max_length=16, description="Channel packing; not with preset."),
+        Field(max_length=16, description="Channel pack."),
     ] = None,
     resolution: Annotated[
         Literal[128, 256, 512, 1024, 2048, 4096, 8192] | None,
@@ -472,22 +521,22 @@ async def export_textures(
     ] = None,
     texture_sets: Annotated[
         list[TextureSetName] | None,
-        Field(max_length=64, description="Sets to export; null=all."),
+        Field(max_length=64, description="Texture sets."),
     ] = None,
     udim_tiles: Annotated[
         list[tuple[StrictInt, StrictInt]] | None, Field(max_length=100, description="[u, v] pairs.")
     ] = None,
     padding: Annotated[
         Literal["infinite", "passthrough", "transparent", "color", "diffusion"],
-        Field(description="UV island padding mode."),
+        Field(description="Padding mode."),
     ] = "infinite",
     dilation_distance: Annotated[
-        StrictInt | None, Field(ge=0, le=256, description="Padding distance in pixels.")
+        StrictInt | None, Field(ge=0, le=256, description="Padding pixels.")
     ] = None,
-    dry_run: Annotated[StrictBool, Field(description="Only explicit false writes files.")] = True,
+    dry_run: Annotated[StrictBool, Field(description="False writes.")] = True,
     lease_id: LeaseId = None,
 ) -> TextureExport:
-    """Preview or export texture sets into a new workspace directory."""
+    """Preview or export textures to a directory."""
     if (source_manifest is None) != (source_file is None):
         raise ValueError("source_manifest and source_file must be provided together")
     return await painter("export_textures", {
@@ -504,7 +553,7 @@ async def export_textures(
 @mcp.tool(annotations=WRITES)
 async def bake(
     action: Annotated[
-        Literal["start", "status", "cancel"], Field(description="Start, inspect or cancel a bake.")
+        Literal["start", "status", "cancel"], Field(description="Bake action.")
     ],
     texture_sets: Annotated[
         list[TextureSetName] | None,
@@ -541,11 +590,11 @@ async def bake(
     ] = None,
     max_frontal: Annotated[
         float | None,
-        Field(ge=0, le=100, allow_inf_nan=False, description="start: front ray distance / bbox."),
+        Field(ge=0, le=100, allow_inf_nan=False, description="Front distance."),
     ] = None,
     max_rear: Annotated[
         float | None,
-        Field(ge=0, le=100, allow_inf_nan=False, description="start: rear ray distance / bbox."),
+        Field(ge=0, le=100, allow_inf_nan=False, description="Rear distance."),
     ] = None,
     use_cage: Annotated[StrictBool | None, Field(description="Use cage_mesh.")] = None,
     cage_mesh: WorkspaceFile = None,
@@ -561,8 +610,7 @@ async def bake(
     ] = None,
     lease_id: LeaseId = None,
 ) -> PainterBakeResult:
-    """start returns at once; poll status until busy is false. Unset options keep current
-    settings; unselected sets are disabled."""
+    """Start a bake, then poll until it finishes."""
     if action == "status":
         return await painter("bake_status")
     if action == "cancel":

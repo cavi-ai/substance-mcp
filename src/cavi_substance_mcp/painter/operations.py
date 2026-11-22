@@ -1,5 +1,6 @@
 """Trusted operations evaluated inside Painter's Python interpreter."""
 
+import dataclasses
 import hashlib
 import math
 import os
@@ -71,6 +72,19 @@ EFFECT_ENUMS = {"background": ("background_color", "ColorSelectionBackgroundColo
                 "left_operand": ("left_operand", "CompareMaskEffectOperand"),
                 "right_operand": ("right_operand", "CompareMaskEffectOperand"),
                 "operation": ("operation", "CompareMaskEffectOperation")}
+PROJECTION_MODES = ("UV", "Triplanar", "Planar")
+FILTERING_MODES = ("BilinearHQ", "BilinearSharp", "Nearest")
+UV_WRAP_MODES = ("RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat")
+SHAPE_CROP_MODES = ("CroppedToShape", "ExtendsOutsideShape")
+SCALE_MODES = ("Factors", "CustomPhysicalSize")
+PROJECTION_FIELDS = {
+    "UV": {"filtering_mode", "uv_wrapping_mode", "uv_transformation"},
+    "Triplanar": {"filtering_mode", "shape_crop_mode", "hardness", "uv_transformation",
+                  "projection_3d"},
+    "Planar": {"filtering_mode", "uv_wrapping_mode", "shape_crop_mode", "uv_transformation",
+               "projection_3d"},
+}
+UV_TRANSFORM_FIELDS = {"scale_mode", "scale", "rotation", "offset"}
 ANTIALIASING = ("none", "2x2", "4x4", "8x8")
 MAX_DEPTH = 8
 SBSAR_LIMIT = 512 * 1024 * 1024
@@ -1374,6 +1388,7 @@ def describe(node, context, depth):
                         "opacity": readable(lambda c=channel: node.get_opacity(c))}
                 for label, channel in context["channels"]}
     if isinstance(node, (layerstack.FillLayerNode, layerstack.FillEffectNode)):
+        item["projection_mode"] = readable(lambda: node.get_projection_mode().name)
         mode = node.source_mode
         item["source_mode"] = getattr(mode, "name", None)
         if mode == source.SourceMode.Split:
@@ -1697,6 +1712,8 @@ def _layer_edit(params, root):
         return {"deleted": params["uid"], "name": name}
     if action == "set_properties":
         return _set_properties(params, node, stack, layerstack, textureset)
+    if action == "projection":
+        return _set_projection(params, node, layerstack)
     if not isinstance(node, layerstack.LayerNode):
         raise TypeError("uid must be a layer, not an effect")
     background = params.get("mask")
@@ -1832,6 +1849,214 @@ def effect_changes(layerstack, colormanagement, values):
             except ValueError:
                 raise ValueError(f"{key} must be a number between 0 and 1") from None
     return changes
+
+
+def _refuse(given, allowed, label):
+    foreign = sorted(set(given) - set(allowed))
+    if foreign:
+        raise ValueError(f"Not valid for {label}: {', '.join(foreign)}")
+
+
+def _choice(enum, value, label, accepted):
+    if not isinstance(value, str) or value not in accepted or value not in enum.__members__:
+        raise ValueError(f"{label} must be one of {', '.join(accepted)}")
+    return enum[value]
+
+
+def _number(value, label):
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValueError(f"{label} must be a finite number")
+    return float(value)
+
+
+def _floats(value, count, label):
+    if (not isinstance(value, (list, tuple)) or len(value) != count or any(
+            type(item) not in (int, float) or not math.isfinite(item) for item in value)):
+        raise ValueError(f"{label} must be {count} finite numbers")
+    return [float(item) for item in value]
+
+
+def _unit(value, label):
+    number = _number(value, label)
+    if not 0 <= number <= 1:
+        raise ValueError(f"{label} must be a number between 0 and 1")
+    return number
+
+
+def _scale_mode(layerstack, value):
+    if value == "MaterialPhysicalSize":
+        raise ValueError(
+            "MaterialPhysicalSize depends on resource physical-size metadata "
+            "this server does not read")
+    return _choice(layerstack.ScaleMode, value, "scale_mode", SCALE_MODES)
+
+
+def _object(value, label):
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _uv_values(layerstack, spec, mode):
+    if mode == "Triplanar" and "offset" in spec:
+        raise ValueError("UV offset is unavailable for Triplanar")
+    allowed = UV_TRANSFORM_FIELDS - ({"offset"} if mode == "Triplanar" else set())
+    _refuse(spec, allowed, f"projection mode={mode}")
+    values = {}
+    if "scale_mode" in spec:
+        values["scale_mode"] = _scale_mode(layerstack, spec["scale_mode"])
+    if "scale" in spec:
+        values["scale"] = _floats(spec["scale"], 2, "uv_transformation scale")
+    if "rotation" in spec:
+        values["rotation"] = _number(spec["rotation"], "uv_transformation rotation")
+    if "offset" in spec:
+        values["offset"] = _floats(spec["offset"], 2, "uv_transformation offset")
+    return values
+
+
+def _planar_scale(layerstack, value):
+    del layerstack
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        raise ValueError(
+            "Z scaling is unavailable when projection mode is Planar "
+            "and depth culling is disabled")
+    return _floats(value, 2, "projection_3d scale")
+
+
+def _projection_3d_values(layerstack, spec, mode):
+    _refuse(spec, {"offset", "rotation", "scale"}, f"projection mode={mode}")
+    values = {}
+    if "offset" in spec:
+        values["offset"] = _floats(spec["offset"], 3, "projection_3d offset")
+    if "rotation" in spec:
+        values["rotation"] = _floats(spec["rotation"], 3, "projection_3d rotation")
+    if "scale" in spec:
+        if mode == "Triplanar":
+            values["scale"] = _floats(spec["scale"], 3, "projection_3d scale")
+        else:
+            values["scale"] = _planar_scale(layerstack, spec["scale"])
+    return values
+
+
+def _projection_values(layerstack, spec):
+    mode = spec.get("mode")
+    if not isinstance(mode, str) or mode not in PROJECTION_MODES:
+        raise ValueError(f"projection mode must be one of {', '.join(PROJECTION_MODES)}")
+    _refuse(set(spec) - {"mode"}, PROJECTION_FIELDS[mode], f"projection mode={mode}")
+    values = {}
+    if "filtering_mode" in spec:
+        values["filtering_mode"] = _choice(
+            layerstack.FilteringMode, spec["filtering_mode"], "filtering_mode", FILTERING_MODES)
+    if "uv_wrapping_mode" in spec:
+        values["uv_wrapping_mode"] = _choice(
+            layerstack.UVWrapMode, spec["uv_wrapping_mode"], "uv_wrapping_mode", UV_WRAP_MODES)
+    if "shape_crop_mode" in spec:
+        values["shape_crop_mode"] = _choice(
+            layerstack.ShapeCropMode, spec["shape_crop_mode"], "shape_crop_mode",
+            SHAPE_CROP_MODES)
+    if "hardness" in spec:
+        values["hardness"] = _unit(spec["hardness"], "hardness")
+    if "uv_transformation" in spec:
+        values["uv_transformation"] = _uv_values(
+            layerstack, _object(spec["uv_transformation"], "uv_transformation"), mode)
+    if "projection_3d" in spec:
+        values["projection_3d"] = _projection_3d_values(
+            layerstack, _object(spec["projection_3d"], "projection_3d"), mode)
+    return mode, values
+
+
+def _overlay(current, normalized):
+    if current is None:
+        raise ValueError("Painter returned no projection parameters")
+    changes = {}
+    for key, value in normalized.items():
+        if key in {"uv_transformation", "projection_3d"}:
+            if not value:
+                continue
+            nested = getattr(current, key)
+            if nested is None:
+                raise ValueError(f"Painter returned no {key}")
+            changes[key] = dataclasses.replace(nested, **value)
+        else:
+            changes[key] = value
+    if not changes:
+        return None
+    return dataclasses.replace(current, **changes)
+
+
+def _read_projection(node, spec):
+    params = node.get_projection_parameters()
+    result = {"mode": node.get_projection_mode().name}
+    if "filtering_mode" in spec:
+        result["filtering_mode"] = params.filtering_mode.name
+    if "uv_wrapping_mode" in spec:
+        result["uv_wrapping_mode"] = params.uv_wrapping_mode.name
+    if "shape_crop_mode" in spec:
+        result["shape_crop_mode"] = params.shape_crop_mode.name
+    if "hardness" in spec:
+        result["hardness"] = params.hardness
+    transform = spec.get("uv_transformation")
+    if transform:
+        src = params.uv_transformation
+        out = {}
+        for key in transform:
+            value = getattr(src, key)
+            if key == "scale_mode":
+                out[key] = value.name
+            elif key == "rotation":
+                out[key] = value
+            else:
+                out[key] = list(value)
+        result["uv_transformation"] = out
+    spatial = spec.get("projection_3d")
+    if spatial:
+        src = params.projection_3d
+        result["projection_3d"] = {key: list(getattr(src, key)) for key in spatial}
+    return result
+
+
+def _clone(value):
+    if not dataclasses.is_dataclass(value) or isinstance(value, type):
+        return value
+    copied = {}
+    for field in dataclasses.fields(value):
+        item = getattr(value, field.name)
+        if dataclasses.is_dataclass(item) and not isinstance(item, type):
+            item = _clone(item)
+        elif isinstance(item, list):
+            item = list(item)
+        copied[field.name] = item
+    return type(value)(**copied)
+
+
+def _set_projection(params, node, layerstack):
+    if not isinstance(node, (layerstack.FillLayerNode, layerstack.FillEffectNode)):
+        raise TypeError("uid must be a fill layer or fill effect")
+    spec = _object(params.get("projection"), "projection")
+    mode_name, normalized = _projection_values(layerstack, spec)
+    mode = layerstack.ProjectionMode[mode_name]
+    previous_mode = node.get_projection_mode()
+    previous_params = node.get_projection_parameters()
+    previous_params = None if previous_params is None else _clone(previous_params)
+    try:
+        with layerstack.ScopedModification(f"Projection {node.get_name()}"):
+            if node.get_projection_mode() != mode:
+                node.set_projection_mode(mode)
+            updated = _overlay(node.get_projection_parameters(), normalized)
+            if updated is not None:
+                node.set_projection_parameters(updated)
+        read = _read_projection(node, spec)
+    except Exception as exc:
+        try:
+            with layerstack.ScopedModification("Restore projection"):
+                node.set_projection_mode(previous_mode)
+                if previous_params is not None:
+                    node.set_projection_parameters(previous_params)
+            restored = "previous values restored"
+        except Exception as restore_error:  # noqa: BLE001 -- report native partial effects
+            restored = f"restore failed ({restore_error}); inspect the layer stack"
+        raise RuntimeError(f"projection failed ({exc}); {restored}") from exc
+    return {"uid": node.uid(), "projection": read}
 
 
 def _set_properties(params, node, stack, layerstack, textureset):
