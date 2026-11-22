@@ -92,6 +92,167 @@ class InputGuardTests(unittest.TestCase):
             self.brush(qt_buttons=0, modal=object())
 
 
+class StrokeOrderTests(unittest.TestCase):
+    def setUp(self):
+        self.context = {
+            'token': 'ctx', 'expires': 10**12, 'lease_id': 'mine', 'input_serial': 0,
+            'uv': None, 'uv_error': 'UV strokes need a square texture set without UDIM tiles',
+            'texture_set': 'Body', 'uid': 7, 'project': 'project', 'file': 'file.spp',
+            'snapshot': None,
+        }
+        self.state = {'context': self.context, 'input_serial': 0}
+        self.params = {'action': 'stroke', 'context_token': 'ctx', 'lease_id': 'mine',
+                       'points': [[0.25, 0.75, 1.0], [0.5, 0.5, 0.3]]}
+
+    def stroke(self, params, *, modal=None, buttons=0):
+        class QPoint:
+            def __init__(self, x, y):
+                self._x, self._y = x, y
+
+            def x(self):
+                return self._x
+
+            def y(self):
+                return self._y
+
+        class QEventLoop:
+            ExcludeUserInputEvents = 0
+
+            def quit(self):
+                return None
+
+            def exec(self, flag):
+                return None
+
+        class QTimer:
+            @staticmethod
+            def singleShot(delay, callback):
+                callback()
+
+        class QComboBox:
+            def isVisible(self):
+                return True
+
+            def objectName(self):
+                return 'channel'
+
+            def parent(self):
+                return SimpleNamespace(objectName=lambda: 'viewermode_viewport_combobox')
+
+            def currentText(self):
+                return 'Base color'
+
+        class Viewer:
+            def objectName(self):
+                return 'TextureViewer'
+
+            def isVisible(self):
+                return True
+
+            def winId(self):
+                return 2
+
+            def width(self):
+                return 100
+
+            def height(self):
+                return 100
+
+            def devicePixelRatioF(self):
+                return 1.0
+
+            def mapTo(self, window, point):
+                return SimpleNamespace(x=lambda: 10, y=lambda: 20)
+
+            def mapToGlobal(self, point):
+                return SimpleNamespace(x=lambda: 0, y=lambda: 0)
+
+        class Channel:
+            name = 'BaseColor'
+
+        class Source:
+            def format(self):
+                return SimpleNamespace(name='RGB8')
+
+        viewer, combo = Viewer(), QComboBox()
+        window = SimpleNamespace(height=lambda: 800, winId=lambda: 9)
+        stack = SimpleNamespace(all_channels=lambda: {Channel(): Source()})
+        node = SimpleNamespace(uid=lambda: 7)
+        layerstack = SimpleNamespace(
+            get_selected_nodes=lambda stack: [node],
+            get_selection_type=lambda node: SimpleNamespace(name='Content'))
+        textureset = SimpleNamespace(Stack=SimpleNamespace(from_name=lambda name: stack))
+        project = SimpleNamespace(
+            get_uuid=lambda: 'project', file_path=lambda: 'file.spp',
+            is_busy=lambda: False, needs_saving=lambda: False)
+        core = SimpleNamespace(QPoint=QPoint, QEventLoop=QEventLoop, QTimer=QTimer)
+        app = SimpleNamespace(activeModalWidget=lambda: modal, allWidgets=lambda: [viewer, combo])
+        qt = (core, None, SimpleNamespace(QApplication=app, QComboBox=QComboBox),
+              SimpleNamespace(isValid=lambda widget: True))
+        self.context['snapshot'] = brush._fingerprint(
+            window, viewer, combo, stack, layerstack, qt)
+        recorded, kinds = [], []
+
+        class Native:
+            flipped = True
+            view = 1
+
+            def active(self):
+                return True
+
+            def send(self, *args):
+                recorded.append(args[4][0])
+                return brush.Point(0, 0)
+
+            def event(self, kind, position, pressure):
+                kinds.append((kind, pressure))
+
+        ui = SimpleNamespace(get_main_window=lambda: window)
+        with patch.object(brush, '_qt', return_value=qt), \
+                patch.object(brush, 'AppKit', return_value=Native()), \
+                patch.object(brush, '_state', return_value=self.state), \
+                patch.object(brush, 'pressed_buttons', return_value=buttons):
+            result = brush.run(params, None, SimpleNamespace(), layerstack, textureset, project,
+                               ui, lambda: None)
+        return result, recorded, kinds
+
+    def test_invalid_points_leave_the_context_in_place(self):
+        params = {**self.params, 'points': [[0, 0.5, 1], [0.2, 0.5, 1]]}
+        with self.assertRaises(ValueError):
+            self.stroke(params)
+        self.assertIs(self.state['context'], self.context)
+
+    def test_a_modal_dialog_leaves_the_context_in_place(self):
+        with self.assertRaisesRegex(RuntimeError, 'modal dialog'):
+            self.stroke(self.params, modal=object())
+        self.assertIs(self.state['context'], self.context)
+
+    def test_pressed_buttons_leave_the_context_in_place(self):
+        with self.assertRaisesRegex(RuntimeError, 'mouse buttons'):
+            self.stroke(self.params, buttons=1)
+        self.assertIs(self.state['context'], self.context)
+
+    def test_missing_uv_raises_the_context_error_after_clearing_it(self):
+        with self.assertRaisesRegex(RuntimeError, 'square texture set'):
+            self.stroke({**self.params, 'uv': True})
+        self.assertIsNone(self.state['context'])
+
+    def test_a_uv_stroke_gestures_the_mapped_path(self):
+        rect = [0.1, 0.2, 0.9, 0.6]
+        self.context['uv'] = rect
+        result, recorded, kinds = self.stroke({**self.params, 'uv': True})
+        mapped = brush.uv_points(brush.points(self.params['points']), rect)
+        sequence = (mapped[0], mapped[0], mapped[1], mapped[1])
+        expected = [brush._window_point(10, 20, 100, 100, 800, True, point) for point in sequence]
+        self.assertEqual([kind for kind, _pressure in kinds], [2, 1, 6, 2])
+        self.assertEqual([(point.x, point.y) for point in recorded],
+                         [(point.x, point.y) for point in expected])
+        self.assertEqual([pressure for _kind, pressure in kinds], [point[2] for point in sequence])
+        self.assertEqual(result['dispatched'], True)
+        self.assertEqual(result['points'], len(mapped))
+        self.assertIsNone(self.state['context'])
+
+
 def capture(left, top, right, bottom):
     """A 1702x1640 2D-view capture: a checkered UV tile, a channel selector overlay at the
     top right and a flat background."""
