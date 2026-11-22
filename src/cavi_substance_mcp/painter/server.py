@@ -20,6 +20,7 @@ from ..core.contracts import (
     TextureExport,
 )
 from .client import PainterClient
+from .targets import expand
 
 mcp = Server(
     "cavi-substance-mcp",
@@ -508,6 +509,10 @@ async def export_textures(
         list[OutputMap] | None,
         Field(max_length=16, description="Channel pack."),
     ] = None,
+    target: Annotated[
+        Literal["unreal", "unity", "blender"] | None,
+        Field(description="unreal, unity, or blender."),
+    ] = None,
     resolution: Annotated[
         Literal[128, 256, 512, 1024, 2048, 4096, 8192] | None,
         Field(description="Texture size."),
@@ -539,10 +544,14 @@ async def export_textures(
     """Preview or export textures to a directory."""
     if (source_manifest is None) != (source_file is None):
         raise ValueError("source_manifest and source_file must be provided together")
+    preset, maps = expand(target, preset, maps)
     return await painter("export_textures", {
         "directory": directory, "preset": preset,
         "source_manifest": source_manifest, "source_file": source_file,
-        "maps": None if maps is None else [m.model_dump(exclude_none=True) for m in maps],
+        "maps": None if maps is None else [
+            item.model_dump(exclude_none=True) if isinstance(item, OutputMap) else item
+            for item in maps
+        ],
         "resolution": resolution, "file_format": file_format, "bit_depth": bit_depth,
         "texture_sets": texture_sets,
         "udim_tiles": None if udim_tiles is None else [list(tile) for tile in udim_tiles],
