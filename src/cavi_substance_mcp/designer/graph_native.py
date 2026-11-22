@@ -67,6 +67,21 @@ def properties(node, category):
     return result
 
 
+def graph_inputs(graph, category):
+    result = properties(graph, category)
+    for prop in graph.getProperties(category):
+        listed = {item.getId() for item in graph.getPropertyAnnotations(prop)}
+        annotations = {}
+        for name in ('label', 'group', 'description', 'min', 'max'):
+            if name not in listed:
+                continue
+            value = graph.getPropertyAnnotationValueFromId(prop, name)
+            annotations[name] = unpack(value)
+        if annotations:
+            result[prop.getId()]['annotations'] = annotations
+    return result
+
+
 def set_values(node, values):
     from sd.api.sdproperty import SDPropertyCategory
 
@@ -80,6 +95,15 @@ def set_values(node, values):
         converted.append((prop, value_for(prop.getType().getId(), value)))
     for prop, value in converted:
         node.setPropertyValue(prop, value)
+
+
+def annotation_text(spec, name):
+    value = spec.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f'{name} annotation must not be blank')
+    return value
 
 
 def expose(graph, node, spec):
@@ -102,12 +126,20 @@ def expose(graph, node, spec):
     factory = getattr(importlib.import_module('sd.api.sdtype' + suffix.lower()), 'SDType' + suffix)
     graph_input = graph.newProperty(spec['identifier'], factory.sNew(), SDPropertyCategory.Input)
     graph.setPropertyValue(graph_input, value_for(exposed_type, default))
+    texts = []
+    for name in ('group', 'description'):
+        value = annotation_text(spec, name)
+        if value is not None:
+            texts.append((name, value))
+    annotation_types = {p.getId(): p.getType().getId()
+                        for p in graph.getPropertyAnnotations(graph_input)}
+    for name, _text in texts:
+        if name not in annotation_types:
+            raise ValueError(f'Exposed input has no {name} annotation')
     if spec.get('label'):
         graph.setPropertyAnnotationValueFromId(graph_input, 'label',
                                               SDValueString.sNew(spec['label']))
-    annotation_types = {p.getId(): p.getType().getId()
-                        for p in graph.getPropertyAnnotations(graph_input)}
-    bounds = []
+    pending = [(name, SDValueString.sNew(value)) for name, value in texts]
     for name, field in (('min', 'minimum'), ('max', 'maximum')):
         if spec.get(field) is not None:
             if name not in annotation_types:
@@ -117,8 +149,8 @@ def expose(graph, node, spec):
                 if not math.isfinite(value) or value != math.trunc(value):
                     raise ValueError(f'{name} annotation needs an integer bound')
                 value = int(value)
-            bounds.append((name, value_for(kind, value)))
-    for name, value in bounds:
+            pending.append((name, value_for(kind, value)))
+    for name, value in pending:
         graph.setPropertyAnnotationValueFromId(graph_input, name, value)
     fn = node.newPropertyGraph(prop, 'SDSBSFunctionGraph')
     getter = {'float': 'float1', 'int': 'integer1', 'int2': 'integer2',
@@ -224,7 +256,7 @@ def describe(graph):
                       'connections': connections})
     return {'identifier': graph.getIdentifier(),
             'precision': unpack(graph.getInputPropertyValueFromId('$format')),
-            'inputs': properties(graph, SDPropertyCategory.Input), 'nodes': nodes}
+            'inputs': graph_inputs(graph, SDPropertyCategory.Input), 'nodes': nodes}
 
 
 def run(request):

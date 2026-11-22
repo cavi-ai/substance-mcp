@@ -5,22 +5,30 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from cavi_substance_mcp.designer import graph_native as native
+from cavi_substance_mcp.designer.graph_models import Expose
 
 
-def prop(identifier, kind):
+def prop(identifier, kind, connectable=False, read_only=False):
     return SimpleNamespace(getId=lambda: identifier,
-                           getType=lambda: SimpleNamespace(getId=lambda: kind))
+                           getType=lambda: SimpleNamespace(getId=lambda: kind),
+                           isConnectable=lambda: connectable,
+                           isReadOnly=lambda: read_only)
 
 
 class Graph:
-    def __init__(self, annotation_type='int'):
+    def __init__(self, annotation_type='int', annotations=None):
         self.identifier = 'Material'
-        self.annotations = [prop('min', annotation_type), prop('max', annotation_type)]
+        self.annotations = annotations if annotations is not None else [
+            prop('min', annotation_type), prop('max', annotation_type),
+            prop('label', 'string'), prop('group', 'string'), prop('description', 'string')]
         self.bounds = {}
         self.inheritance = {'$outputsize': 1, '$format': 1}
         self.values = {}
         self.parent_size = None
+        self.inputs = []
 
     @staticmethod
     def sNew(package):
@@ -36,10 +44,13 @@ class Graph:
         return prop(identifier, 'int2') if identifier.startswith('$') else None
 
     def newProperty(self, identifier, kind, category):
-        return prop(identifier, kind)
+        created = prop(identifier, kind)
+        self.inputs.append(created)
+        return created
 
     def setPropertyValue(self, property_, value):
-        pass
+        raw = value[1] if isinstance(value, tuple) else value
+        self.values[property_.getId()] = raw
 
     def getPropertyAnnotations(self, property_):
         return self.annotations
@@ -49,6 +60,25 @@ class Graph:
         if value[0] != expected or (expected == 'int' and type(value[1]) is not int):
             raise ValueError('SDK InvalidValue: annotation type mismatch')
         self.bounds[name] = value
+
+    def getPropertyAnnotationValueFromId(self, property_, name):
+        stored = self.bounds.get(name)
+        if stored is None:
+            return None
+        raw = stored[1]
+        return SimpleNamespace(get=lambda raw=raw: raw)
+
+    def getProperties(self, category):
+        return self.inputs
+
+    def getPropertyValue(self, property_):
+        return SimpleNamespace(get=lambda: self.values.get(property_.getId()))
+
+    def getNodes(self):
+        return []
+
+    def getInputPropertyValueFromId(self, identifier):
+        return SimpleNamespace(get=lambda: self.values.get(identifier))
 
     def setPropertyInheritanceMethod(self, property_, method):
         self.inheritance[property_.getId()] = method
@@ -102,6 +132,46 @@ class NativePropertyTests(unittest.TestCase):
         graph = Graph('float')
         self.expose(graph, source_type='float3', minimum=0.125, maximum=1)
         self.assertEqual(graph.bounds, {'min': ('float', 0.125), 'max': ('float', 1)})
+
+    def test_group_and_description_are_string_annotations(self):
+        graph = Graph(annotations=[prop('min', 'int'), prop('max', 'int'),
+                                   prop('group', 'string'), prop('description', 'string')])
+        self.expose(graph, group='Surface', description='Tile count')
+        self.assertEqual(graph.bounds['group'], ('string', 'Surface'))
+        self.assertEqual(graph.bounds['description'], ('string', 'Tile count'))
+
+    def test_blank_group_is_refused(self):
+        base = {'action': 'expose', 'node': 'blend', 'property': 'opacitymult',
+                'identifier': 'blendAmount'}
+        for group in ('', '   ', '\n\t'):
+            with self.subTest(group=group), self.assertRaises(ValidationError):
+                Expose.model_validate({**base, 'group': group})
+        graph = Graph()
+        with self.assertRaisesRegex(ValueError, 'group annotation must not be blank'):
+            self.expose(graph, group='   ')
+        self.assertNotIn('group', graph.bounds)
+        with self.assertRaises(ValidationError):
+            Expose.model_validate({**base, 'group': 'g' * 129})
+        Expose.model_validate({**base, 'group': 'g' * 128, 'description': 'd' * 128})
+
+    def test_missing_group_annotation_writes_nothing(self):
+        graph = Graph(annotations=[prop('min', 'int'), prop('max', 'int'),
+                                   prop('label', 'string'), prop('description', 'string')])
+        with self.assertRaisesRegex(ValueError, 'no group annotation'):
+            self.expose(graph, group='Surface', description='Tile count')
+        self.assertEqual(graph.bounds, {})
+
+    def test_describe_includes_annotations_that_were_set(self):
+        graph = Graph(annotations=[prop('min', 'int'), prop('max', 'int'),
+                                   prop('label', 'string'), prop('group', 'string'),
+                                   prop('description', 'string')])
+        self.expose(graph, group='Surface', description='Tile count', label='Tiling',
+                    minimum=1, maximum=8)
+        entry = native.describe(graph)['inputs']['Tiling']
+        self.assertEqual(entry['value'], 4)
+        self.assertEqual(entry['annotations'], {
+            'label': 'Tiling', 'group': 'Surface', 'description': 'Tile count',
+            'min': 1, 'max': 8})
 
     def run_graph(self, action, recipe):
         graph = Graph()

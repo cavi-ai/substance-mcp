@@ -77,6 +77,11 @@ includes resource URLs suitable for `instance`. `inspect` reopens a saved packag
 and reports nodes, connections, graph inputs and actual precision. Creation
 returns `node_ids` so later edits can address the saved native identifiers.
 
+`expose` may set `label`, `minimum`, `maximum`, `group` and `description`.
+`group` and `description` are optional strings of at most 128 characters.
+Empty or whitespace-only text is refused. Inspect reports `label`, `group`,
+`description`, `min` and `max` on each graph input when that annotation exists.
+
 For example, pass this recipe to `graph(action="create", directory=...)`:
 
 ```json
@@ -86,7 +91,8 @@ For example, pass this recipe to `graph(action="create", directory=...)`:
   "operations": [
     {"action": "add_node", "key": "paint", "definition": "sbs::compositing::uniform",
      "values": {"outputcolor": [0.1, 0.3, 0.6, 1.0]}},
-    {"action": "expose", "node": "paint", "property": "outputcolor", "identifier": "paintColor"},
+    {"action": "expose", "node": "paint", "property": "outputcolor",
+     "identifier": "paintColor", "group": "Paint", "description": "Painted metal color"},
     {"action": "output", "key": "base", "source": "paint",
      "source_port": "unique_filter_output", "identifier": "BaseColor",
      "usage": "baseColor", "color_space": "sRGB"}
