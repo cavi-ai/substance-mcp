@@ -7,6 +7,8 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 ### Added
 
 - Painter `layer_edit` action `projection` places a fill layer or fill effect in UV, triplanar, or planar projection.
+- Sampler `sampler_layer` action `expose` and batch step `expose` publish a layer parameter with a label and group.
+- Designer graph `expose` writes optional `group` and `description` annotations, and inspect reports input annotation values.
 
 ### Fixed
 

@@ -130,6 +130,26 @@ class EditSafetyTests(unittest.TestCase):
             (server.sampler_layer, {"action": "apply_preset", "asset": "Rock", "layer": "Fill",
                                     "preset": "Soft", "parameters": {"x": 1}},
                                    "apply_preset: parameters"),
+            (server.sampler_layer, {"action": "set_parameters", "asset": "Rock", "layer": "Fill",
+                                    "parameters": {"x": 1},
+                                    "exposures": [{"parameter": "x", "label": "X"}]},
+                                   "set_parameters: exposures"),
+            (server.sampler_layer, {"action": "apply_preset", "asset": "Rock", "layer": "Fill",
+                                    "preset": "Soft",
+                                    "exposures": [{"parameter": "x", "label": "X"}]},
+                                   "apply_preset: exposures"),
+            (server.sampler_layer, {"action": "set_channels", "asset": "Rock", "layer": "Fill",
+                                    "applies_to": ["baseColor"],
+                                    "exposures": [{"parameter": "x", "label": "X"}]},
+                                   "set_channels: exposures"),
+            (server.sampler_layer, {"action": "set_blend_parameters", "asset": "Rock",
+                                    "layer": "Fill", "parameters": {"x": 1},
+                                    "exposures": [{"parameter": "x", "label": "X"}]},
+                                   "set_blend_parameters: exposures"),
+            (server.sampler_layer, {"action": "remove", "asset": "Rock", "layer": "Fill",
+                                    "confirm": True,
+                                    "exposures": [{"parameter": "x", "label": "X"}]},
+                                   "remove: exposures"),
             (server.sampler_project, {"action": "create", "name": "Other", "directory": "copy"},
              "create: project"),
             (server.sampler_inspect, {"action": "catalog"}, "catalog: project"),
@@ -139,6 +159,18 @@ class EditSafetyTests(unittest.TestCase):
                 with self.subTest(foreign=foreign), self.assertRaisesRegex(
                         ValueError, f"^Not valid for action={foreign}$"):
                     asyncio.run(tool(project="projects/Rock.ssa", **arguments))
+            invoke.assert_not_called()
+
+    def test_expose_refuses_a_blank_label_before_sampler(self):
+        published = [{"parameter": "tiling", "label": label} for label in ("", "   ", "\n")]
+        with patch.object(launch, "invoke") as invoke:
+            for item in published:
+                with self.subTest(label=item["label"]), self.assertRaisesRegex(
+                        ValueError, "label"):
+                    asyncio.run(server.sampler_layer(
+                        action="expose", project="projects/Rock.ssa", asset="Rock",
+                        layer="Tiling", exposures=[item],
+                    ))
             invoke.assert_not_called()
 
     def test_destructive_tools_are_annotated(self):

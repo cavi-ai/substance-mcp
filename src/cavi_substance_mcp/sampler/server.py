@@ -28,6 +28,7 @@ from ..core.contracts import (
 from ..packing import USAGE, PackSpec
 from . import batch, launch
 from . import pack as packer
+from .job import Exposure
 from .names import BLEND_MODES, EXPORT_FORMATS, IMPORT_OPTIONS, MATERIAL_TYPES
 from .targets import TARGETS
 
@@ -110,6 +111,7 @@ ASSET_DEFAULTS = {"model": "asm", "empty": False, "position": 0,
                   "confirm": False}
 LAYER_PARAMS = {
     "set_parameters": ({"parameters"}, {"position"}),
+    "expose": ({"exposures"}, {"position"}),
     "apply_preset": ({"preset"}, {"position"}),
     "set_channels": (set(), {"position", "applies_to", "blend_applies_to"}),
     "set_blend_parameters": ({"parameters"}, {"position"}),
@@ -274,6 +276,7 @@ async def sampler_layer(
     action: Annotated[
         Literal[
             "set_parameters",
+            "expose",
             "apply_preset",
             "set_channels",
             "set_blend_parameters",
@@ -291,6 +294,10 @@ async def sampler_layer(
         dict[str, ParameterValue] | None,
         Field(max_length=64, description='Parameter values'),
     ] = None,
+    exposures: Annotated[
+        list[Exposure] | None,
+        Field(min_length=1, max_length=64, description='Published parameters'),
+    ] = None,
     preset: Annotated[
         str | None, Field(max_length=128, description='Preset name')
     ] = None,
@@ -305,7 +312,7 @@ async def sampler_layer(
     confirm: Annotated[StrictBool, Field(description='remove: true')] = False,
     timeout_seconds: Annotated[Timeout, Field(description='Timeout')] = 600,
 ) -> SamplerLayerResult:
-    """Edit layer channels, parameters or presets."""
+    """Edit layer channels, parameters, presets or published parameters."""
     given = {key: value for key, value in locals().items()
              if key not in ("action", "project", "asset", "layer", "timeout_seconds")}
     accepted = checked(action, given, LAYER_PARAMS, {"confirm": False})
@@ -315,9 +322,24 @@ async def sampler_layer(
         raise ValueError("set_channels needs applies_to or blend_applies_to")
     if action == "remove" and not confirm:
         raise ValueError("confirm must be true for action=remove")
-    arguments = {"project": project, "asset": asset, "layer": layer,
-                 **{key: value for key, value in accepted.items()
-                    if value is not None and key != "confirm"}}
+    if action == "expose":
+        if not exposures:
+            raise ValueError("exposures must be a non-empty list of at most 64 entries")
+        for item in exposures:
+            label = item.get("label") if isinstance(item, dict) else item.label
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError("label must not be empty or whitespace")
+    arguments = {"project": project, "asset": asset, "layer": layer}
+    for key, value in accepted.items():
+        if value is None or key == "confirm":
+            continue
+        if key == "exposures":
+            arguments[key] = [
+                item.model_dump() if hasattr(item, "model_dump") else dict(item)
+                for item in value
+            ]
+        else:
+            arguments[key] = value
     return await launch.invoke(LAYER_OPERATIONS.get(action, action), arguments, timeout_seconds)
 
 

@@ -34,9 +34,12 @@ cavi-substance-sampler-mcp doctor --launch
 
 - Steps: `create_asset` (optionally `empty` for B2M), `import_resource`,
   `import_images`, `import_textures`, `insert_filter`, `insert_material`,
-  `set_parameters`, `apply_preset`, `set_metadata`, `activate_channels`,
+  `set_parameters`, `expose`, `apply_preset`, `set_metadata`, `activate_channels`,
   `deactivate_channels`, `set_channels`, `set_blend_parameters`, `remove_layer`,
   `export`.
+- `expose` publishes layer parameters. Each entry in `exposures` names a `parameter`
+  (identifier or unambiguous label), a non-empty `label` and a `group` (`""` by
+  default). Image parameters are refused.
 - The job directory must be new. It contains `job.json`, the project, exports and
   `manifest.json`; on failure it is removed unless `--keep-on-failure`.
 - The manifest records the app version, job and input hashes, step results, output

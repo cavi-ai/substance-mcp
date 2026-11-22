@@ -79,6 +79,28 @@ class JobModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             job.Job.model_validate(data)
 
+    def test_expose_step_validates_and_set_parameters_refuses_exposures(self):
+        data = job_data()
+        data["steps"].insert(-1, {
+            "action": "expose", "asset": "Rock", "layer": "Tiling",
+            "exposures": [{"parameter": "Tiling", "label": "Repeat"}],
+        })
+        parsed = job.Job.model_validate(data)
+        step = next(item for item in parsed.steps if item.action == "expose")
+        self.assertEqual(step.exposures[0].group, "")
+        self.assertEqual(step.exposures[0].label, "Repeat")
+        blank = job_data()
+        blank["steps"].insert(-1, {
+            "action": "expose", "asset": "Rock", "layer": "Tiling",
+            "exposures": [{"parameter": "Tiling", "label": "   "}],
+        })
+        with self.assertRaisesRegex(ValueError, "label"):
+            job.Job.model_validate(blank)
+        foreign = job_data()
+        foreign["steps"][2]["exposures"] = [{"parameter": "Tiling", "label": "Repeat"}]
+        with self.assertRaises(ValueError):
+            job.Job.model_validate(foreign)
+
 
 class TargetTests(unittest.TestCase):
     def test_engine_defaults(self):
@@ -718,6 +740,43 @@ class BatchTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "share export directory"):
                     run_job_file(path, self.workspace)
                 self.assertFalse((self.workspace / data["directory"]).exists())
+
+    def test_expose_preflight_and_executor_call_expose(self):
+        source = self.source_seed("expose-seed", material=False)
+        digest = (self.workspace / source).read_bytes()
+        path = self.source_job("expose-job", source, [
+            {"action": "expose", "asset": "Rock", "layer": "Tiling",
+             "exposures": [{"parameter": "Tiling", "label": "Repeat", "group": "Tile"}]},
+            {"action": "export", "asset": "Rock", "target": "unity", "directory": "unity"},
+        ])
+        log = self.workspace / "expose.log"
+        os.environ["FAKE_SAMPLER_EXPOSE_LOG"] = str(log)
+        plan = batch.validate_with_project(path, self.workspace)
+        self.assertEqual(plan["project_check"], "ok")
+        self.assertFalse(log.exists())
+        self.assertEqual((self.workspace / source).read_bytes(), digest)
+        manifest = run_job_file(path, self.workspace)
+        step = next(item for item in manifest["steps"] if item["action"] == "expose")
+        self.assertEqual(step["result"]["exposures"], [
+            {"parameter": "tiling", "label": "Repeat", "group": "Tile"},
+        ])
+        self.assertEqual(step["result"]["layer"]["name"], "Tiling")
+        self.assertTrue(step["result"]["saved"])
+        project = json.loads((self.workspace / "jobs/expose-job/RockCopy.ssa").read_text())
+        layer = next(item for item in project["assets"][0]["layers"] if item["name"] == "Tiling")
+        self.assertEqual(layer["published"], [
+            {"parameter": "tiling", "exposed_label": "Repeat", "exposed_group": "Tile"},
+        ])
+        self.assertEqual(json.loads(log.read_text()), layer["published"][0])
+        image = self.source_job("expose-image", source, [
+            {"action": "expose", "asset": "Rock", "layer": "Image Import",
+             "exposures": [{"parameter": "Input Image", "label": "Photo"}]},
+            {"action": "export", "asset": "Rock", "target": "unity", "directory": "unity"},
+        ])
+        with self.assertRaisesRegex(
+                job.JobValidationError, "image parameter and is not supported"):
+            batch.validate_with_project(image, self.workspace)
+        self.assertEqual((self.workspace / source).read_bytes(), digest)
 
     def test_remove_layer(self):
         data = job_data(directory="jobs/remove")

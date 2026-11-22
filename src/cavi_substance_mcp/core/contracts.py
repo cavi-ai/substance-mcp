@@ -281,6 +281,7 @@ class SamplerLayerResult(VariantResult):
     saved: bool
     removed: str | None = None
     position: int | None = None
+    exposures: list[Record] | None = None
 
 
 class SamplerExportResult(Result):

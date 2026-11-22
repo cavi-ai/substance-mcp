@@ -18,7 +18,7 @@ from launcher import write_launcher
 from sampler_fake_cli import ENV, install
 
 from cavi_substance_mcp import receipts
-from cavi_substance_mcp.sampler import launch, runner
+from cavi_substance_mcp.sampler import launch, runner, server
 
 TIMEOUT = 30
 
@@ -287,6 +287,55 @@ class SamplerTests(unittest.TestCase):
         blended = self.call("set_blend_parameters", project="projects/Rock.ssa",
                             asset="Rock", layer="Brick", parameters={"Opacity": 0.5})
         self.assertEqual(blended["parameters"]["opacity"], 0.5)
+
+    def test_expose_publishes_parameters(self):
+        self.create_project()
+        self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
+                  filter="Tiling", position=0)
+        self.call("import_images", project="projects/Rock.ssa", asset="Rock",
+                  images=["maps/basecolor.png"], position=0, import_option="use_as_bitmap")
+        log = self.workspace / "expose.log"
+        os.environ["FAKE_SAMPLER_EXPOSE_LOG"] = str(log)
+        project = self.workspace / "projects/Rock.ssa"
+        result = asyncio.run(server.sampler_layer(
+            action="expose", project="projects/Rock.ssa", asset="Rock", layer="Tiling",
+            exposures=[
+                {"parameter": "Tiling", "label": "Repeat", "group": "Material"},
+                {"parameter": "opacity", "label": "Amount"},
+            ],
+        ))
+        self.assertEqual(result["project"], "projects/Rock.ssa")
+        self.assertEqual(result["asset"], "Rock")
+        self.assertTrue(result["saved"])
+        self.assertEqual(result["layer"]["name"], "Tiling")
+        self.assertEqual(result["exposures"], [
+            {"parameter": "tiling", "label": "Repeat", "group": "Material"},
+            {"parameter": "opacity", "label": "Amount", "group": ""},
+        ])
+        saved = json.loads(project.read_text())
+        layer = next(item for item in saved["assets"][0]["layers"] if item["name"] == "Tiling")
+        calls = [
+            {"parameter": "tiling", "exposed_label": "Repeat", "exposed_group": "Material"},
+            {"parameter": "opacity", "exposed_label": "Amount", "exposed_group": ""},
+        ]
+        self.assertEqual(layer["published"], calls)
+        self.assertEqual([json.loads(line) for line in log.read_text().splitlines()], calls)
+        before = project.read_bytes()
+        log.unlink()
+        with self.assertRaisesRegex(ValueError, "not found"):
+            asyncio.run(server.sampler_layer(
+                action="expose", project="projects/Rock.ssa", asset="Rock", layer="Tiling",
+                exposures=[{"parameter": "Missing", "label": "Nope"}],
+            ))
+        self.assertFalse(log.exists())
+        self.assertEqual(project.read_bytes(), before)
+        with self.assertRaisesRegex(ValueError, "image parameter and is not supported"):
+            asyncio.run(server.sampler_layer(
+                action="expose", project="projects/Rock.ssa", asset="Rock", layer="Image Import",
+                exposures=[{"parameter": "Input Image", "label": "Photo"}],
+            ))
+        self.assertFalse(log.exists())
+        self.assertEqual(project.read_bytes(), before)
 
     def test_layer_mutations_and_export(self):
         self.create_project()
