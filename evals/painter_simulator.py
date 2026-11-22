@@ -30,6 +30,14 @@ ChannelType = Enum("ChannelType", [
 MeshMapUsage = Enum("MeshMapUsage", ["AO", "BentNormals", "Curvature", "Height", "ID", "Normal",
                                      "Opacity", "Position", "Thickness", "WorldSpaceNormal"])
 # Member names probed read-only from Painter 12.2.
+ProjectionMode = Enum("ProjectionMode", [
+    "Fill", "UV", "Triplanar", "Planar", "Spherical", "Cylindrical", "Warp", "UVSetToUVSet"])
+FilteringMode = Enum("FilteringMode", ["BilinearHQ", "BilinearSharp", "Nearest"])
+UVWrapMode = Enum("UVWrapMode", [
+    "RepeatNone", "RepeatHorizontally", "RepeatVertically", "Repeat"])
+ShapeCropMode = Enum("ShapeCropMode", ["CroppedToShape", "ExtendsOutsideShape"])
+ScaleMode = Enum("ScaleMode", ["Factors", "MaterialPhysicalSize", "CustomPhysicalSize"])
+ACCEPTED_PROJECTION_MODES = (ProjectionMode.UV, ProjectionMode.Triplanar, ProjectionMode.Planar)
 BlendingMode = Enum("BlendingMode", [
     "Color", "ColorBurn", "ColorDodge", "Darken", "Difference", "Disable", "Divide", "Exclusion",
     "HardLight", "InverseDivide", "InverseSubtract", "Lighten", "LinearBurn", "LinearDodge",
@@ -82,6 +90,108 @@ VIRTUAL_MAPS = {"Normal_OpenGL", "Normal_DirectX", "AO_Mixed", "Diffuse", "Specu
 FORMATS = {"png": {"8", "16"}, "tga": {"8"}, "tiff": {"8", "16", "32f"}, "exr": {"16f", "32f"},
            "jpeg": {"8"}}
 PADDINGS = {"passthrough", "color", "transparent", "diffusion", "infinite"}
+
+
+def _copied(value):
+    return None if value is None else list(value)
+
+
+@dataclasses.dataclass
+class UVTransformationParams:
+    scale_mode: ScaleMode | None = None
+    scale: list | None = None
+    rotation: float | None = None
+    offset: list | None = None
+
+    def __post_init__(self):
+        self.scale = _copied(self.scale)
+        self.offset = _copied(self.offset)
+
+
+@dataclasses.dataclass
+class Projection3DParams:
+    offset: list | None = None
+    rotation: list | None = None
+    scale: list | None = None
+
+    def __post_init__(self):
+        self.offset = _copied(self.offset)
+        self.rotation = _copied(self.rotation)
+        self.scale = _copied(self.scale)
+
+
+@dataclasses.dataclass
+class UVProjectionParams:
+    filtering_mode: FilteringMode | None = None
+    uv_wrapping_mode: UVWrapMode | None = None
+    uv_transformation: UVTransformationParams | None = None
+
+    def __post_init__(self):
+        if self.uv_transformation is None:
+            self.uv_transformation = UVTransformationParams()
+
+
+@dataclasses.dataclass
+class TriplanarProjectionParams:
+    filtering_mode: FilteringMode | None = None
+    shape_crop_mode: ShapeCropMode | None = None
+    hardness: float | None = None
+    uv_transformation: UVTransformationParams | None = None
+    projection_3d: Projection3DParams | None = None
+
+    def __post_init__(self):
+        if self.uv_transformation is None:
+            self.uv_transformation = UVTransformationParams()
+        if self.projection_3d is None:
+            self.projection_3d = Projection3DParams()
+
+
+@dataclasses.dataclass
+class PlanarProjectionParams:
+    filtering_mode: FilteringMode | None = None
+    uv_wrapping_mode: UVWrapMode | None = None
+    shape_crop_mode: ShapeCropMode | None = None
+    uv_transformation: UVTransformationParams | None = None
+    projection_3d: Projection3DParams | None = None
+
+    def __post_init__(self):
+        if self.uv_transformation is None:
+            self.uv_transformation = UVTransformationParams()
+        if self.projection_3d is None:
+            self.projection_3d = Projection3DParams()
+
+
+def _projection_mode_of(params):
+    """Refusal rules set_projection_parameters applies for the modes this server places."""
+    transform = getattr(params, "uv_transformation", None)
+    if transform is not None and transform.scale_mode == ScaleMode.MaterialPhysicalSize:
+        raise ValueError("scale_mode must be one of Factors, CustomPhysicalSize")
+    if transform is not None and transform.scale is not None and len(transform.scale) != 2:
+        raise ValueError("scale must be 2 finite numbers")
+    if transform is not None and transform.offset is not None and len(transform.offset) != 2:
+        raise ValueError("offset must be 2 finite numbers")
+    spatial = getattr(params, "projection_3d", None)
+    if spatial is not None and spatial.rotation is not None and len(spatial.rotation) != 3:
+        raise ValueError("projection_3d_rotation must be 3 finite numbers")
+    if spatial is not None and spatial.offset is not None and len(spatial.offset) != 3:
+        raise ValueError("projection_3d_offset must be 3 finite numbers")
+    if isinstance(params, UVProjectionParams):
+        return ProjectionMode.UV
+    if isinstance(params, TriplanarProjectionParams):
+        if transform is not None and transform.offset is not None:
+            raise ValueError("UV offset is unavailable for Triplanar")
+        scale = None if spatial is None else spatial.scale
+        if scale is not None and len(scale) != 3:
+            raise ValueError("projection_3d scale must be 3 finite numbers")
+        return ProjectionMode.Triplanar
+    if isinstance(params, PlanarProjectionParams):
+        scale = None if spatial is None else spatial.scale
+        if scale is not None and len(scale) != 2:
+            raise ValueError(
+                "Z scaling is unavailable when projection mode is Planar "
+                "and depth culling is disabled")
+        return ProjectionMode.Planar
+    raise ValueError("projection mode must be one of UV, Triplanar, Planar")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -750,6 +860,33 @@ class PainterSimulator:
             def init_fill(self):
                 self.sources, self.material = {}, None
                 self.active = set()
+                self.projection_mode = ProjectionMode.UV
+                self.projection_parameters = UVProjectionParams(
+                    uv_transformation=UVTransformationParams(scale_mode=ScaleMode.Factors))
+
+            def get_projection_mode(self):
+                return self.projection_mode
+
+            def set_projection_mode(self, mode):
+                kinds = {ProjectionMode.UV: UVProjectionParams,
+                         ProjectionMode.Triplanar: TriplanarProjectionParams,
+                         ProjectionMode.Planar: PlanarProjectionParams}
+                if mode not in kinds:
+                    raise ValueError("projection mode must be one of UV, Triplanar, Planar")
+                if self.projection_mode != mode:
+                    self.projection_parameters = kinds[mode]()
+                self.projection_mode = mode
+
+            def get_projection_parameters(self):
+                return self.projection_parameters
+
+            def set_projection_parameters(self, params):
+                mode = _projection_mode_of(params)
+                self.projection_parameters = params
+                self.projection_mode = mode
+                if sim.state == "projection-failure":
+                    sim.state = "open"
+                    raise RuntimeError("simulated projection failure")
 
             @property
             def active_channels(self):
@@ -1071,6 +1208,12 @@ class PainterSimulator:
             FillEffectNode=FillEffect, GeneratorEffectNode=GeneratorEffect,
             PaintLayerNode=PaintLayer,
             BlendingMode=BlendingMode, MaskBackground=MaskBackground, NodeStack=NodeStack,
+            ProjectionMode=ProjectionMode, FilteringMode=FilteringMode, UVWrapMode=UVWrapMode,
+            ShapeCropMode=ShapeCropMode, ScaleMode=ScaleMode,
+            UVProjectionParams=UVProjectionParams,
+            TriplanarProjectionParams=TriplanarProjectionParams,
+            PlanarProjectionParams=PlanarProjectionParams,
+            UVTransformationParams=UVTransformationParams, Projection3DParams=Projection3DParams,
             get_root_layer_nodes=lambda requested: list(self.layers),
             get_node_by_uid=get_node_by_uid,
             InsertPosition=SimpleNamespace(
@@ -1096,6 +1239,16 @@ class PainterSimulator:
             delete_node=delete_node,
             ScopedModification=modification,
         )
+        module.layerstack.ProjectionMode = ProjectionMode
+        module.layerstack.FilteringMode = FilteringMode
+        module.layerstack.UVWrapMode = UVWrapMode
+        module.layerstack.ShapeCropMode = ShapeCropMode
+        module.layerstack.ScaleMode = ScaleMode
+        module.layerstack.UVTransformationParams = UVTransformationParams
+        module.layerstack.Projection3DParams = Projection3DParams
+        module.layerstack.UVProjectionParams = UVProjectionParams
+        module.layerstack.TriplanarProjectionParams = TriplanarProjectionParams
+        module.layerstack.PlanarProjectionParams = PlanarProjectionParams
         module.levels = SimpleNamespace(LevelsParamsMono=LevelsParamsMono,
                                         LevelsParamsRGB=LevelsParamsRGB)
 

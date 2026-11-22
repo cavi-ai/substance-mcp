@@ -78,6 +78,10 @@ def cases():
                 "effects": [],
             },
             {"uid": 1, "name": "Fill", "visible": True, "channels": [None], "changed": ["opacity"]},
+            {"uid": 1, "projection": {
+                "mode": "UV",
+                "uv_transformation": {"scale_mode": "Factors", "scale": [2.0, 3.0]},
+            }},
         ],
         "PainterBakeResult": [
             {

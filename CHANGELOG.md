@@ -4,6 +4,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- Painter `layer_edit` action `projection` places a fill layer or fill effect in UV, triplanar, or planar projection.
+
 ### Fixed
 
 - `texture_io.describe` is back: it reports a PNG, TIFF or EXR file's format, bit depth, sample type, size and channel count.

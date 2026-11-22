@@ -134,6 +134,7 @@ class PainterLayerResult(VariantResult):
     base_color: list[Number] | None = None
     roughness: Number | None = None
     metallic: Number | None = None
+    projection: Record | None = None
 
 
 class PainterBrushResult(VariantResult):

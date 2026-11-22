@@ -20,3 +20,14 @@ class FillAdvertisedContractTests(unittest.TestCase):
             invalid = {**fill, 'roughness': 'invalid'}
             self.assertFalse(Draft202012Validator(candidate).is_valid(invalid))
         self.assertEqual(PainterLayerResult.model_validate(fill).model_dump(mode='json'), fill)
+
+    def test_projection_rides_on_the_uid_shape(self):
+        schema = PainterLayerResult.model_json_schema()
+        self.assertIn("projection", schema["properties"])
+        self.assertIn(("uid",), PainterLayerResult.shapes)
+        placed = {"uid": 1, "projection": {
+            "mode": "UV", "uv_transformation": {"scale": [2.0, 3.0]}}}
+        self.assertEqual(
+            PainterLayerResult.model_validate(placed).model_dump(mode="json"), placed)
+        self.assertEqual(
+            PainterLayerResult.model_validate({"uid": 1}).model_dump(mode="json"), {"uid": 1})
