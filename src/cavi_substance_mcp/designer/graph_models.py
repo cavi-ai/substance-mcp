@@ -2,7 +2,15 @@
 
 from typing import Annotated, Literal, TypeAliasType
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    field_validator,
+)
 
 Identifier = TypeAliasType(
     "Identifier", Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,95}$")]
@@ -67,8 +75,17 @@ class Expose(Edit):
     property: str
     identifier: Identifier
     label: str | None = None
+    group: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    description: Annotated[str, Field(min_length=1, max_length=128)] | None = None
     minimum: Number | None = None
     maximum: Number | None = None
+
+    @field_validator('group', 'description')
+    @classmethod
+    def reject_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError('must not be blank')
+        return value
 
 
 class SetInput(Edit):
