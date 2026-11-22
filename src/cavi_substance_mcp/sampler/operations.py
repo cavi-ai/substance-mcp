@@ -603,7 +603,8 @@ def _probe(ssa, root, args) -> dict:
 
 
 _LAYER_ACTIONS = (
-    "set_parameters", "apply_preset", "set_channels", "set_blend_parameters", "remove_layer",
+    "set_parameters", "expose", "apply_preset", "set_channels", "set_blend_parameters",
+    "remove_layer",
 )
 
 
@@ -760,6 +761,16 @@ class _Preflight:
             self.collect(prefix, lambda i=identifier, v=value: _parameter_value(
                 _parameter(layer, i), v))
 
+    def expose(self, step, asset_name, layer, prefix) -> None:
+        try:
+            rows = _exposure_rows(step.get("exposures"))
+        except ValueError as exc:
+            self.problems.append(f"{prefix}: {exc}")
+            return
+        for parameter_name, *_rest in rows:
+            self.collect(prefix, lambda name=parameter_name: _unsupported_image(
+                _parameter(layer, name)))
+
     def apply_preset(self, step, asset_name, layer, prefix) -> None:
         presets = _get(layer, "presets", []) or []
         if step.get("preset") not in presets:
@@ -789,6 +800,7 @@ class _Preflight:
 
 _LAYER_CHECKS = {
     "set_parameters": _Preflight.set_parameters,
+    "expose": _Preflight.expose,
     "apply_preset": _Preflight.apply_preset,
     "set_channels": _Preflight.set_channels,
     "set_blend_parameters": _Preflight.set_blend_parameters,
@@ -1040,6 +1052,40 @@ def _insert_material(ssa, root, args) -> dict:
     }
 
 
+def _exposure_label(value) -> str:
+    if not isinstance(value, str) or len(value) > 128 or not value.strip():
+        raise ValueError("label must be a non-empty string of at most 128 characters")
+    return value
+
+
+def _exposure_group(value) -> str:
+    if not isinstance(value, str) or len(value) > 128:
+        raise ValueError("group must be a string of at most 128 characters")
+    return value
+
+
+def _unsupported_image(parameter) -> None:
+    if _enum(_get(parameter, "type")) == "image":
+        identifier = _get(parameter, "identifier")
+        raise ValueError(f"{identifier} is an image parameter and is not supported")
+
+
+def _exposure_rows(value) -> list[tuple[str, str, str]]:
+    if not isinstance(value, list) or not value or len(value) > 64:
+        raise ValueError("exposures must be a non-empty list of at most 64 entries")
+    rows = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("exposure must be an object")
+        parameter = item.get("parameter")
+        if not isinstance(parameter, str) or not parameter.strip() or len(parameter) > 128:
+            raise ValueError("parameter must be a non-empty string of at most 128 characters")
+        rows.append((
+            parameter, _exposure_label(item.get("label")), _exposure_group(item.get("group", "")),
+        ))
+    return rows
+
+
 def _set_parameters(ssa, root, args) -> dict:
     values = args.get("parameters")
     if not isinstance(values, dict) or not values or len(values) > 64:
@@ -1072,6 +1118,43 @@ def _set_parameters(ssa, root, args) -> dict:
         "parameters": applied,
         "changed": changed,
         "saved": changed,
+    }
+
+
+def _expose(ssa, root, args) -> dict:
+    rows = _exposure_rows(args.get("exposures"))
+    asset_name = _name(args.get("asset"), "asset")
+    layer_name = _resource_label(args.get("layer"), "layer")
+    position = args.get("position")
+    if position is not None:
+        position = _position(position)
+    path = _open(ssa, root, args.get("project"))
+    if path is None:
+        raise ValueError("project is required for action=expose")
+    asset = _find_asset(ssa, asset_name)
+    layer = _find_layer(asset, layer_name, position)
+    resolved = []
+    for parameter_name, label, group in rows:
+        parameter = _parameter(layer, parameter_name)
+        _unsupported_image(parameter)
+        resolved.append((parameter, label, group))
+    applied = []
+    for parameter, label, group in resolved:
+        parameter.expose(exposed_label=label, exposed_group=group)
+        applied.append({
+            "parameter": _jsonable(_get(parameter, "identifier")),
+            "label": label,
+            "group": group,
+        })
+    ssa.wait_for_computation()
+    if applied:
+        _save(ssa)
+    return {
+        "project": rel(root, path),
+        "asset": _jsonable(_get(asset, "name")),
+        "layer": _layer(layer),
+        "exposures": applied,
+        "saved": bool(applied),
     }
 
 
@@ -1552,6 +1635,8 @@ def _dispatch_step(ssa, root, job_dir, project, step):
         return action, _insert_material(ssa, root, arguments)
     if action == "set_parameters":
         return action, _set_parameters(ssa, root, arguments)
+    if action == "expose":
+        return action, _expose(ssa, root, arguments)
     if action == "apply_preset":
         return action, _apply_preset(ssa, root, arguments)
     if action == "set_metadata":
@@ -1700,6 +1785,7 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str,
         "insert_filter": _insert_filter,
         "insert_material": _insert_material,
         "set_parameters": _set_parameters,
+        "expose": _expose,
         "apply_preset": _apply_preset,
         "set_metadata": _set_metadata,
         "activate_channels": lambda ssa, root, args: _channels(ssa, root, args, True),

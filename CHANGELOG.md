@@ -4,6 +4,10 @@ Versions come from git tags; a pull request adds its lines under Unreleased and 
 
 ## Unreleased
 
+### Added
+
+- Sampler `sampler_layer` action `expose` and batch step `expose` publish a layer parameter with a label and group.
+
 ### Fixed
 
 - `texture_io.describe` is back: it reports a PNG, TIFF or EXR file's format, bit depth, sample type, size and channel count.
