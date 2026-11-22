@@ -3,24 +3,39 @@
 from cavi_mcp_core.server import need, reject_foreign
 
 
-def checked(action, arguments, table, defaults=None):
+def _supplied(key, value, defaults):
+    """True when ``value`` was passed: not null, and not an omitted default."""
+    if value is None:
+        return False
+    return key not in defaults or value != defaults[key]
+
+
+def checked(action, arguments, table, defaults=None, one_of=None):
     """The arguments ``action`` accepts, after refusing missing required and foreign ones.
 
     ``table`` maps each action to (required, optional) argument names. An argument equal to
-    its entry in ``defaults`` counts as not passed.
+    its entry in ``defaults`` counts as not passed. ``one_of`` maps an action to names of
+    which exactly one must be supplied.
     """
     defaults = defaults or {}
+    one_of = one_of or {}
     required, optional = table[action]
     reject_foreign(action, {key: value for key, value in arguments.items()
                             if key not in defaults or value != defaults[key]},
                    required | optional)
     for key in sorted(required):
         need(arguments[key], key, action)
+    if names := one_of.get(action):
+        supplied = [key for key in names
+                    if key in arguments and _supplied(key, arguments[key], defaults)]
+        if len(supplied) != 1:
+            listed = " or ".join(names)
+            raise ValueError(f"{action} needs exactly one of {listed}")
     return {key: arguments[key] for key in required | optional}
 
 
 def action_schema(table) -> dict:
-    """JSON Schema conditions on ``action`` that require and forbid what ``checked`` does.
+    """JSON Schema conditions on ``action`` matching the required and foreign checks.
 
     A required argument's own schema must refuse null, as ``checked`` does.
     """

@@ -159,6 +159,28 @@ class SamplerTests(unittest.TestCase):
                             asset="Rock", target="generic", format="png", dry_run=False)
         self.assertTrue(generic["files"])
 
+    def test_own_preset_still_requires_target_maps(self):
+        self.create_project()
+        base = {"project": "projects/Rock.ssa", "asset": "Rock", "target": "unreal",
+                "format": "png", "dry_run": False}
+        with patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "missing"}):
+            with self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"):
+                self.call("export", directory="own-preset", wait_seconds=1,
+                          preset="Unreal Engine 4", **base)
+            self.assertFalse((self.workspace / "own-preset").exists())
+            with self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"):
+                self.call("export", directory="padded-preset", wait_seconds=1,
+                          preset="  Unreal Engine 4  ", **base)
+            self.assertFalse((self.workspace / "padded-preset").exists())
+            exported = self.call(
+                "export", directory="other-preset", wait_seconds=1,
+                preset="Blender Cycles/Eevee", **base,
+            )
+        self.assertEqual(
+            sorted(Path(item).name for item in exported["files"]),
+            ["Rock_basecolor.png", "Rock_normal.png", "Rock_roughness.png"],
+        )
+
     def test_export_waits_for_files_to_stop_growing(self):
         self.create_project()
         with patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "growing"}):
@@ -510,6 +532,16 @@ class SamplerWorkspaceRootTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "CAVI_SUBSTANCE_WORKSPACE.*does not exist"):
             self.call("catalog")
         self.assertFalse(missing.exists())
+
+
+class SharedMutatingSetTests(unittest.TestCase):
+    def test_launch_and_jobs_share_the_edits_that_save(self):
+        from cavi_substance_mcp.sampler import names, operations
+
+        self.assertIs(launch.MUTATING, names.MUTATING)
+        self.assertIs(operations.MUTATING, names.MUTATING)
+        self.assertIn("delete_asset", names.MUTATING)
+        self.assertIn("MUTATING", operations.execute_job.__code__.co_names)
 
 
 class SamplerServerTests(unittest.TestCase):

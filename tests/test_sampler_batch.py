@@ -355,6 +355,37 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(export["result"]["preset"], "Unreal Engine 4")
         self.assertTrue((self.workspace / "jobs/rock/manifest.json").is_file())
 
+    def test_job_export_waits_for_the_targets_own_maps(self):
+        def run(name, preset):
+            step = {
+                "action": "export", "asset": "Rock", "target": "unreal",
+                "outputs": ["textures"], "wait_seconds": 1, "resolution": 64,
+            }
+            if preset is not None:
+                step["preset"] = preset
+            data = job_data(directory=f"jobs/{name}")
+            data["steps"] = [step]
+            return run_job_file(self.write_job(f"{name}.json", data), self.workspace)
+
+        with patch.dict(os.environ, {"FAKE_SAMPLER_EXPORT": "missing"}):
+            for name, preset in (("own-filled", None), ("own-preset", "Unreal Engine 4")):
+                with (
+                    self.subTest(preset=preset),
+                    self.assertRaisesRegex(RuntimeError, "missing.*occlusionroughnessmetallic"),
+                ):
+                    run(name, preset)
+            manifest = run("other-preset", "Blender Cycles/Eevee")
+        self.assertEqual(manifest["status"], "success")
+        files = [
+            Path(item).name
+            for row in manifest["steps"][-1]["result"]["outputs"]
+            for item in row["files"]
+        ]
+        self.assertEqual(
+            sorted(files),
+            ["Rock_basecolor.png", "Rock_normal.png", "Rock_roughness.png"],
+        )
+
     def test_all_engine_targets(self):
         for target in ("unreal", "unity", "blender", "generic"):
             with self.subTest(target=target):

@@ -51,3 +51,18 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
                           {'action': 'asset', 'project': 'rock.ssa', 'asset': 'Rock'}):
             with self.subTest(arguments=arguments):
                 self.assertTrue(validate(arguments))
+
+    async def test_cook_rejects_a_missing_or_double_source(self):
+        message = '^cook needs exactly one of path or builtin$'
+        for arguments in ({'directory': 'out'},
+                          {'path': 'a.sbs', 'builtin': 'templates/brick', 'directory': 'out'}):
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(ValueError, message):
+                await designer.material(action='cook', **arguments)
+
+    async def test_graph_table_refuses_the_same_arguments_as_dispatch(self):
+        with self.assertRaisesRegex(ValueError, 'directory is required'):
+            await designer.graph(action='create')
+        with self.assertRaisesRegex(ValueError, 'Not valid for action=create: path'):
+            await designer.graph(action='create', directory='out', path='a.sbs')
+        with self.assertRaisesRegex(ValueError, 'path is required'):
+            await designer.graph(action='inspect')
