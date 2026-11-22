@@ -8,6 +8,7 @@ from unittest.mock import patch
 from test_texturing import Fixture
 
 from cavi_substance_mcp.painter import operations as ops
+from cavi_substance_mcp.painter import server, targets
 from cavi_substance_mcp.painter.client import PainterClient
 
 PRESET = "resource://eval-preset"
@@ -107,6 +108,77 @@ class FailedOutputTests(Fixture):
         with self.assertRaises(FileExistsError), ops.new_output_directory(folder):
             self.fail("entered a directory that already existed")
         self.assertEqual((folder / "precious.txt").read_text(), "keep")
+
+
+UNREAL = [
+    {"name": "T_$textureSet_BaseColor", "channels": {"RGB": "basecolor"}},
+    {"name": "T_$textureSet_Normal", "channels": {"RGB": "normal_directx"}},
+    {"name": "T_$textureSet_OcclusionRoughnessMetallic", "channels": {
+        "R": "ambientocclusion", "G": "roughness", "B": "metallic"}},
+]
+UNITY = [
+    {"name": "T_$textureSet_BaseColor", "channels": {"RGB": "basecolor"}},
+    {"name": "T_$textureSet_Normal", "channels": {"RGB": "normal_opengl"}},
+    {"name": "T_$textureSet_MaskMap", "channels": {
+        "R": "metallic", "G": "ambientocclusion", "B": "0", "A": "1-roughness"}},
+]
+BLENDER = [
+    {"name": "T_$textureSet_BaseColor", "channels": {"RGB": "basecolor"}},
+    {"name": "T_$textureSet_Normal", "channels": {"RGB": "normal_opengl"}},
+    {"name": "T_$textureSet_Roughness", "channels": {"L": "roughness"}},
+    {"name": "T_$textureSet_Metallic", "channels": {"L": "metallic"}},
+]
+
+
+class TargetExpansionTests(unittest.IsolatedAsyncioTestCase):
+    def test_each_target_expands_to_channel_maps_the_exporter_accepts(self):
+        expected = {"unreal": UNREAL, "unity": UNITY, "blender": BLENDER}
+        for name, maps in expected.items():
+            with self.subTest(target=name):
+                preset, expanded = targets.expand(name, None, None)
+                self.assertIsNone(preset)
+                self.assertEqual(expanded, maps)
+                for item in expanded:
+                    self.assertNotIn("format", item)
+                    self.assertNotIn("bit_depth", item)
+                translated = ops.export_maps(expanded, "tga", "8")
+                self.assertEqual([item["fileName"] for item in translated],
+                                 [item["name"] for item in maps])
+                self.assertEqual(
+                    [item["parameters"] for item in translated],
+                    [{"fileFormat": "tga", "bitDepth": "8", "dithering": False}] * len(maps))
+                expanded[0]["channels"]["RGB"] = "changed"
+                self.assertEqual(targets.expand(name, None, None)[1], maps)
+
+    def test_target_is_refused_with_preset_or_maps(self):
+        hand_written = [{"name": "T_$textureSet_Roughness", "channels": {"L": "roughness"}}]
+        with self.assertRaisesRegex(ValueError, "preset"):
+            targets.expand("unity", PRESET, None)
+        with self.assertRaisesRegex(ValueError, "maps"):
+            targets.expand("unity", None, hand_written)
+        self.assertEqual(targets.expand(None, PRESET, None), (PRESET, None))
+        self.assertEqual(targets.expand(None, None, hand_written), (None, hand_written))
+
+    def test_an_unknown_target_names_unreal_unity_and_blender(self):
+        with self.assertRaisesRegex(ValueError, "unreal, unity, blender"):
+            targets.expand("generic", None, None)
+
+    async def test_export_textures_sends_expanded_maps_without_the_target(self):
+        calls = []
+
+        def spy(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
+            calls.append((operation, params, lease_id))
+            return {"dry_run": True, "files": []}
+
+        with patch.object(PainterClient, "call", spy):
+            await server.mcp.call_tool("export_textures", {
+                "directory": "out", "target": "blender", "file_format": "png", "bit_depth": 16})
+        self.assertEqual(calls, [("export_textures", {
+            "directory": "out", "preset": None, "source_manifest": None, "source_file": None,
+            "maps": BLENDER, "resolution": None, "file_format": "png", "bit_depth": 16,
+            "texture_sets": None, "udim_tiles": None, "padding": "infinite",
+            "dilation_distance": None, "dry_run": True,
+        }, None)])
 
 
 if __name__ == "__main__":
