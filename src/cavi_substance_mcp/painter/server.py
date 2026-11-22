@@ -6,7 +6,15 @@ from typing import Annotated, Literal, TypeAliasType
 
 import anyio.to_thread
 from cavi_mcp_core.server import DESTRUCTIVE, READ_ONLY, WRITES, Server, need
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from ..core.actions import checked
 from ..core.contracts import (
@@ -258,7 +266,7 @@ LAYER_EDIT_PARAMS = {
     "anchor_point": ({"uid", "name"}, {"mask"}),
     "color_selection": ({"uid", "resource"}, {"mask", "parameters"}),
     "compare_mask": ({"uid"}, {"mask", "channel", "parameters"}),
-    "projection": ({"uid", "projection"}, set()),
+    "projection": ({"uid", "projection"}, {"symmetry"}),
 }
 LAYER_EDIT_DEFAULTS = {"roughness": 0.5, "metallic": 0.0}
 
@@ -305,6 +313,31 @@ class FillProjection(BaseModel):
     hardness: Finite | None = None
     uv_transformation: UVTransformation | None = None
     projection_3d: Projection3D | None = None
+
+
+class ProjectionSymmetry(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_drop_schema_titles)
+    mode: Literal["Mirror", "Radial"]
+    enabled: StrictBool
+    axis: Literal["X", "Y", "Z"] | None = None
+    flip_u: StrictBool | None = None
+    flip_v: StrictBool | None = None
+    axis_position: Annotated[list[Finite], Field(min_length=3, max_length=3)] | None = None
+    count: Annotated[StrictInt, Field(ge=2, le=16)] | None = None
+    angle_span: Finite | None = None
+
+    @model_validator(mode="after")
+    def check_symmetry(self):
+        if self.axis_position is not None and any(
+                item < -10 or item > 10 for item in self.axis_position):
+            raise ValueError("axis_position components must be between -10 and 10")
+        if self.angle_span is not None and not -360 <= self.angle_span <= 360:
+            raise ValueError("angle_span must be between -360 and 360")
+        if self.mode == "Mirror":
+            foreign = [name for name in ("count", "angle_span") if getattr(self, name) is not None]
+            if foreign:
+                raise ValueError(f"Not valid for symmetry mode=Mirror: {', '.join(foreign)}")
+        return self
 
 
 @mcp.tool(annotations=DESTRUCTIVE)
@@ -379,6 +412,10 @@ async def layer_edit(
         FillProjection | None,
         Field(description="UV, Triplanar or Planar placement."),
     ] = None,
+    symmetry: Annotated[
+        ProjectionSymmetry | None,
+        Field(description="Mirror or radial repeat."),
+    ] = None,
     lease_id: LeaseId = None,
 ) -> PainterLayerResult:
     """Edit layers. Projection places a fill layer."""
@@ -387,6 +424,8 @@ async def layer_edit(
     accepted = checked(action, arguments, LAYER_EDIT_PARAMS, LAYER_EDIT_DEFAULTS)
     if isinstance(projection, FillProjection):
         accepted["projection"] = projection.model_dump(exclude_none=True)
+    if isinstance(symmetry, ProjectionSymmetry):
+        accepted["symmetry"] = symmetry.model_dump(exclude_none=True)
     if action in LAYER_ACTIONS:
         return await painter(LAYER_ACTIONS[action], {"texture_set": texture_set, **accepted},
                              lease_id=lease_id)

@@ -84,6 +84,9 @@ class ForeignArgumentTests(unittest.IsolatedAsyncioTestCase):
              "projection: parameters"),
             ("layer_edit", {"action": "delete", "uid": 3, "projection": {"mode": "UV"}},
              "delete: projection"),
+            ("layer_edit", {"action": "fill", "name": "A", "base_color": [0, 0, 0],
+                            "symmetry": {"mode": "Mirror", "enabled": True}},
+             "fill: symmetry"),
             ("brush", {"action": "settings", "mode": "erase"}, "settings: mode"),
         ]
         reached = []
@@ -128,6 +131,59 @@ class ProjectRouteTests(unittest.IsolatedAsyncioTestCase):
             ("texture_set_settings", {"texture_set": "Body", "channel_formats": None,
                                       "resolution": None, "mesh_maps": {"ao": "ao.png"}}),
         ])
+
+
+class ProjectionSymmetryContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_symmetry_is_dumped_beside_projection(self):
+        calls = []
+
+        def spy(self, operation, params=None, *, lease_id=None, timeout=None, cancelled=None):
+            calls.append((operation, params, lease_id))
+            return {"uid": 3, "projection": {"mode": "Triplanar"}}
+
+        with patch.object(PainterClient, "call", spy):
+            await server.mcp.call_tool("layer_edit", {
+                "action": "projection",
+                "texture_set": "Body",
+                "uid": 3,
+                "lease_id": "abc",
+                "projection": {"mode": "Triplanar", "hardness": 0.5},
+                "symmetry": {"mode": "Mirror", "enabled": False, "axis": "Z", "flip_u": False},
+            })
+        self.assertEqual(len(calls), 1)
+        operation, params, lease_id = calls[0]
+        self.assertEqual(operation, "layer_edit")
+        self.assertEqual(lease_id, "abc")
+        self.assertEqual(params["action"], "projection")
+        self.assertEqual(params["texture_set"], "Body")
+        self.assertEqual(params["uid"], 3)
+        self.assertEqual(params["projection"], {"mode": "Triplanar", "hardness": 0.5})
+        self.assertEqual(params["symmetry"], {
+            "mode": "Mirror", "enabled": False, "axis": "Z", "flip_u": False})
+        self.assertNotIn("symmetry", params["projection"])
+
+    async def test_invalid_symmetry_does_not_reach_painter(self):
+        cases = (
+            {"mode": "Mirror", "enabled": True, "count": 4},
+            {"mode": "Mirror", "enabled": True, "angle_span": 10},
+            {"mode": "Radial", "enabled": True, "axis_position": [0, 0, 11]},
+            {"mode": "Radial", "enabled": True, "axis_position": [-11, 0, 0]},
+            {"mode": "Radial", "enabled": True, "count": 1},
+            {"mode": "Radial", "enabled": True, "count": 17},
+            {"mode": "Radial", "enabled": True, "angle_span": 361},
+            {"mode": "Radial", "enabled": True, "angle_span": -361},
+        )
+        with patch.object(PainterClient, "call") as call:
+            for symmetry in cases:
+                with self.subTest(symmetry=symmetry), self.assertRaises(ToolError):
+                    await server.mcp.call_tool("layer_edit", {
+                        "action": "projection",
+                        "texture_set": "Body",
+                        "uid": 3,
+                        "projection": {"mode": "Triplanar"},
+                        "symmetry": symmetry,
+                    })
+            call.assert_not_called()
 
 
 if __name__ == "__main__":
