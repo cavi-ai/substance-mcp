@@ -21,18 +21,10 @@ from ..core import host_script, workspace
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock
-from .names import PROJECT
+from .names import MUTATING, PROJECT
 
 LOCK_WAIT = 60
 WORK_PREFIX = ".cavi-work-"
-# Operations that save the project they open. They run on a disposable copy so a
-# failure or a timeout kill can never leave the user's .ssa half written.
-MUTATING = frozenset({
-    "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
-    "insert_material", "set_parameters", "apply_preset", "set_metadata",
-    "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
-    "remove_layer",
-})
 _HELD = contextvars.ContextVar("cavi_sampler_held_locks", default=frozenset())
 IN_APP = "cavi_substance_mcp.sampler.operations"
 
@@ -214,6 +206,8 @@ async def invoke(operation: str, arguments: dict, timeout_seconds: float,
     # Every launch takes the lock file in the workspace, so even a read-only operation
     # needs the directory: the default is created, an explicit one must exist.
     root = workspace.root(workspace_path, create=True)
+    # Operations that save the project they open. They run on a disposable copy so a
+    # failure or a timeout kill can never leave the user's .ssa half written.
     if operation in MUTATING and arguments.get("project") is not None:
         # Hold the lock across copy, run and replace so two edits of one project
         # cannot lose each other's changes.

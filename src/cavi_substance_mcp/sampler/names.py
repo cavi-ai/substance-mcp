@@ -44,6 +44,14 @@ def output_directory(value: str) -> str:
 
 # Vocabularies shared by the job model and server (host) and the operations (in Sampler).
 PROJECT = frozenset({".ssa"})
+# Edits that change the open project. The host copies before them; a batch job saves
+# after them. delete_asset belongs here: its own save is a no-op while a job is active.
+MUTATING = frozenset({
+    "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
+    "insert_material", "set_parameters", "apply_preset", "set_metadata",
+    "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
+    "remove_layer",
+})
 RESOURCE = re.compile(r"^[^@\x00-\x1f\x7f]{1,128}$")
 USAGE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 EXPORT_FORMATS = ("sbsar", "sbs", "png", "jpg", "tga", "tif", "exr")

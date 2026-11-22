@@ -24,6 +24,7 @@ from .names import (
     EXPORT_FORMATS,
     IMPORT_OPTIONS,
     MATERIAL_TYPES,
+    MUTATING,
     PROJECT,
     RESOURCE,
     USAGE,
@@ -1373,7 +1374,8 @@ def _export(ssa, root, args) -> dict:
         for item in channels:
             if not isinstance(item, str) or not USAGE.fullmatch(item):
                 raise ValueError(f"Invalid channel name: {item}")
-    preset_name = args.get("preset")
+    caller_preset = args.get("preset")
+    preset_name = caller_preset
     if preset_name is not None:
         preset_name = _resource_label(preset_name, "preset")
     elif target_name is not None:
@@ -1426,7 +1428,9 @@ def _export(ssa, root, args) -> dict:
         asset.export_material(**options)
         controller.wait()
         expected = ()
-        if target_name is not None and channels is None and args.get("preset") is None:
+        if target_name is not None and channels is None and (
+            caller_preset is None or caller_preset == targets.preset_for(target_name)
+        ):
             # Only the target's own preset promises its map set.
             expected = targets.target(target_name).maps
         files = _wait_files(destination, wait_seconds, expected)
@@ -1586,12 +1590,6 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
     project_spec = job.get("project") or {}
     source = project_spec.get("source")
     source_rel = None
-    mutating = {
-        "create_asset", "import_images", "import_textures", "insert_filter",
-        "insert_material", "set_parameters", "apply_preset", "set_metadata",
-        "activate_channels", "deactivate_channels", "set_channels",
-        "set_blend_parameters", "remove_layer",
-    }
     probe = None
     _BATCH["active"] = True
     try:
@@ -1659,7 +1657,7 @@ def execute_job(job: dict, workspace_path: str, version: str | None = None) -> d
             seconds = round(time.monotonic() - started, 3)
             report({"step": index, "total": total, "action": action, "status": "ok",
                     "seconds": seconds})
-            if action in mutating:
+            if action in MUTATING:
                 unsaved = True
             results.append({
                 "index": index, "action": action, "seconds": seconds,
