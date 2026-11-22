@@ -70,7 +70,7 @@ def properties(node, category):
 def graph_inputs(graph, category):
     result = properties(graph, category)
     for prop in graph.getProperties(category):
-        listed = {item.getId() for item in graph.getPropertyAnnotations(prop)}
+        listed = {item.getId() for item in (graph.getPropertyAnnotations(prop) or ())}
         annotations = {}
         for name in ('label', 'group', 'description', 'min', 'max'):
             if name not in listed:

@@ -161,6 +161,15 @@ class NativePropertyTests(unittest.TestCase):
             self.expose(graph, group='Surface', description='Tile count')
         self.assertEqual(graph.bounds, {})
 
+    def test_describe_input_without_annotations(self):
+        graph = Graph()
+        graph.inputs.append(prop("roughness", "float"))
+        graph.values["roughness"] = 0.5
+        graph.getPropertyAnnotations = lambda property_: None
+        entry = native.describe(graph)["inputs"]["roughness"]
+        self.assertEqual(entry["value"], 0.5)
+        self.assertNotIn("annotations", entry)
+
     def test_describe_includes_annotations_that_were_set(self):
         graph = Graph(annotations=[prop('min', 'int'), prop('max', 'int'),
                                    prop('label', 'string'), prop('group', 'string'),
