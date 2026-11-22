@@ -2,9 +2,10 @@
 
 from typing import Annotated, Literal
 
-from cavi_mcp_core.server import READ_ONLY, WRITES, Server, need, reject_foreign
+from cavi_mcp_core.server import READ_ONLY, WRITES, Server, need
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, StringConstraints
 
+from ..core.actions import checked
 from ..core.contracts import BakeResult, DesignerGraphResult, DesignerMaterial, DesignerStatus
 from ..packing import USAGE, PackSpec
 from . import operations
@@ -27,13 +28,16 @@ Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0
 Suffix = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,31}$")]
 MapName = Literal["normal", "ambient_occlusion", "curvature", "thickness", "position",
                   "world_normal", "bent_normal", "id", "height", "opacity"]
+# action -> (required, optional). cook takes exactly one of path or builtin.
 ACTION_PARAMS = {
-    "info": {"path"},
-    "cook": {"path", "builtin", "directory", "expose_output_size", "expose_random_seed"},
-    "render": {"path", "graph", "directory", "values", "images", "resolution", "seed", "preset",
-               "outputs", "format", "bit_depth", "pack"},
-    "pack": {"directory", "pack", "sources"},
+    "info": ({"path"}, set()),
+    "cook": ({"directory"}, {"path", "builtin", "expose_output_size", "expose_random_seed"}),
+    "render": ({"path", "directory"},
+               {"graph", "values", "images", "resolution", "seed", "preset", "outputs", "format",
+                "bit_depth", "pack"}),
+    "pack": ({"directory", "pack", "sources"}, set()),
 }
+ONE_OF = {"cook": frozenset({"path", "builtin"})}
 DEFAULTS = {"format": "png", "bit_depth": "16", "expose_output_size": True,
             "expose_random_seed": True}
 
@@ -99,10 +103,9 @@ async def material(
     timeout_seconds: Annotated[Timeout, Field(description="Timeout (s).")] = 600,
 ) -> DesignerMaterial:
     """info lists graphs; cook .sbs -> .sbsar; render outputs (+optional pack); pack maps."""
-    reject_foreign(action, {
-        key: value for key, value in locals().items()
-        if key not in ("action", "timeout_seconds") and value != DEFAULTS.get(key)
-    }, ACTION_PARAMS[action])
+    arguments = {key: value for key, value in locals().items()
+                 if key not in ("action", "timeout_seconds")}
+    checked(action, arguments, ACTION_PARAMS, DEFAULTS, one_of=ONE_OF)
     if action == "info":
         return await operations.info(need(path, "path", action), timeout_seconds)
     if action == "cook":
@@ -167,6 +170,16 @@ async def bake(
     return await operations.bake(low, high, cage, maps, directory, options, timeout_seconds)
 
 
+# action -> (required, optional)
+GRAPH_PARAMS = {
+    "create": ({"directory"}, {"recipe", "query", "offset", "limit"}),
+    "edit": ({"directory", "path"}, {"recipe", "query", "offset", "limit"}),
+    "inspect": ({"path"}, {"directory", "recipe", "query", "offset", "limit"}),
+    "catalog": (set(), {"directory", "path", "recipe", "query", "offset", "limit"}),
+}
+GRAPH_DEFAULTS = {"query": "", "offset": 0, "limit": 100}
+
+
 @mcp.tool(annotations=WRITES)
 async def graph(
     action: Annotated[
@@ -189,6 +202,9 @@ async def graph(
 ) -> DesignerGraphResult:
     """Author SBS graphs in a dedicated native batch. Edits copy the source and preserve
     unspecified settings. Refuses running Designer; cook/render the saved package with material."""
+    arguments = {key: value for key, value in locals().items()
+                 if key not in ("action", "timeout_seconds")}
+    checked(action, arguments, GRAPH_PARAMS, GRAPH_DEFAULTS)
     if directory is None and action in ("inspect", "catalog"):
         return await graph_query(action, path, query, offset, limit, timeout_seconds)
     return await graph_invoke(action, need(directory, "directory", action), path, recipe, query,
