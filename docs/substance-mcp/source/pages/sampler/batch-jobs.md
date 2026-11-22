@@ -75,3 +75,6 @@ cavi-substance-sampler-mcp doctor --launch
 
 The repository's `examples/sampler/photo-to-pbr/`, `examples/sampler/ai-to-material/`
 and `examples/sampler/multiangle-to-material/` are complete recipes.
+
+Grouped exposed parameters retain their groups in SBSAR exports. These exports require
+Designer’s `sbscooker`; configure `CAVI_DESIGNER_APP` or `CAVI_DESIGNER_BIN_DIR` if needed.

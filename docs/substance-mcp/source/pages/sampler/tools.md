@@ -85,3 +85,6 @@ code, operation, outcome, retry_safe and next_action. Transport/protocol failure
 retain an unknown outcome even when caused by JSON decoding. Inspect the
 application and outputs before deciding whether another mutation is appropriate.
 Unexpected defects remain opaque.
+
+Grouped exposed parameters retain their groups in SBS exports. Grouped SBSAR exports require
+Designer’s `sbscooker`; configure `CAVI_DESIGNER_APP` or `CAVI_DESIGNER_BIN_DIR` if needed.

@@ -12,7 +12,10 @@ import json
 import math
 import re
 import shutil
+import subprocess
+import tempfile
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .. import receipts
@@ -36,7 +39,8 @@ USAGE_LABEL = re.compile(r"^[^@\x00-\x1f\x7f]{1,64}$")
 _BATCH = {"active": False}
 _CURRENT = {"path": None}
 # The installed Sampler's version, supplied by the host with each request.
-_APP = {"version": None}
+_APP = {"version": None, "cooker": None}
+_GROUP_KEY = "cavi_exposure_groups"
 def _wait_file(path: Path, timeout: float = 120) -> Path:
     deadline = time.monotonic() + timeout
     while not path.is_file() and time.monotonic() < deadline:
@@ -224,6 +228,9 @@ def _resource_name(value):
 
 def _metadata(asset) -> dict:
     metadata = _get(asset, "metadata")
+    custom = _get(metadata, "custom_metadata")
+    if isinstance(custom, dict) and _GROUP_KEY in custom:
+        custom = {key: value for key, value in custom.items() if key != _GROUP_KEY}
     return {
         "name": _jsonable(_get(metadata, "name")),
         "author": _jsonable(_get(metadata, "author")),
@@ -231,7 +238,7 @@ def _metadata(asset) -> dict:
         "description": _jsonable(_get(metadata, "description")),
         "tags": _jsonable(_get(metadata, "tags")),
         "physical_size": _jsonable(_get(metadata, "physical_size")),
-        "custom_metadata": _jsonable(_get(metadata, "custom_metadata")),
+        "custom_metadata": _jsonable(custom),
     }
 
 
@@ -1059,10 +1066,52 @@ def _exposure_label(value) -> str:
 
 
 def _exposure_group(value) -> str:
-    if not isinstance(value, str) or len(value) > 128:
-        raise ValueError("group must be a string of at most 128 characters")
+    if (not isinstance(value, str) or len(value) > 128 or any(
+        not (c in "\t\n\r" or " " <= c <= "\ud7ff" or "\ue000" <= c <= "\ufffd"
+             or "\U00010000" <= c <= "\U0010ffff") for c in value
+    )):
+        raise ValueError("group must be XML-compatible text of at most 128 characters")
     return value
 
+
+
+def _groups(asset):
+    metadata = _get(asset, "metadata")
+    if metadata is None:
+        return None, {}, {}
+    custom = dict(_get(metadata, "custom_metadata") or {})
+    raw = custom.get(_GROUP_KEY)
+    if raw is None:
+        return metadata, custom, {}
+    try:
+        groups = json.loads(raw)
+        if not isinstance(groups, dict):
+            raise ValueError()
+        for key, group in groups.items():
+            if (not isinstance(key, str) or not
+                    re.fullmatch(r"[^\x00-\x1f]{1,128}_[1-9][0-9]*", key)):
+                raise ValueError()
+            if not _exposure_group(group):
+                raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("Invalid saved exposure group metadata") from None
+    return metadata, custom, groups
+
+
+def _annotate_groups(path, groups):
+    tree = ET.parse(path)
+    matched = 0
+    for node in tree.findall("./content/graph/paraminputs/paraminput"):
+        identifier = node.find("identifier")
+        key = identifier.get("v") if identifier is not None else None
+        if key in groups:
+            for previous in node.findall("group"):
+                node.remove(previous)
+            ET.SubElement(node, "group", {"v": groups[key]})
+            matched += 1
+    if matched:
+        tree.write(path, encoding="utf-8", xml_declaration=True)
+    return matched
 
 def _unsupported_image(parameter) -> None:
     if _enum(_get(parameter, "type")) == "image":
@@ -1138,14 +1187,31 @@ def _expose(ssa, root, args) -> dict:
         parameter = _parameter(layer, parameter_name)
         _unsupported_image(parameter)
         resolved.append((parameter, label, group))
+    metadata, custom, groups = _groups(asset)
+    original_groups = dict(groups)
     applied = []
     for parameter, label, group in resolved:
-        parameter.expose(exposed_label=label, exposed_group=group)
+        identifier = _get(parameter, "identifier")
+        suffix = parameter.expose(exposed_label=label, exposed_group=group)
+        if group:
+            if type(suffix) is not int or suffix <= 0:
+                raise RuntimeError("Sampler did not return a valid exposed parameter identifier")
+            if metadata is None:
+                raise RuntimeError("Sampler asset has no metadata object")
+            groups[f"{identifier}_{suffix}"] = group
+        elif type(suffix) is int and suffix > 0:
+            groups.pop(f"{identifier}_{suffix}", None)
         applied.append({
             "parameter": _jsonable(_get(parameter, "identifier")),
             "label": label,
             "group": group,
         })
+    if groups != original_groups:
+        if groups:
+            custom[_GROUP_KEY] = json.dumps(groups, ensure_ascii=True)
+        else:
+            custom.pop(_GROUP_KEY, None)
+        metadata.custom_metadata = custom
     ssa.wait_for_computation()
     if applied:
         _save(ssa)
@@ -1234,7 +1300,13 @@ def _set_metadata(ssa, root, args) -> dict:
             simple = (bool, int, float, str, type(None))
             if not isinstance(key, str) or not isinstance(value, simple):
                 raise TypeError("custom_metadata keys and values must be simple JSON values")
-        metadata.custom_metadata = dict(custom)
+        if _GROUP_KEY in custom:
+            raise ValueError("custom_metadata contains a reserved key")
+        existing_custom = dict(_get(metadata, "custom_metadata") or {})
+        replacement = dict(custom)
+        if _GROUP_KEY in existing_custom:
+            replacement[_GROUP_KEY] = existing_custom[_GROUP_KEY]
+        metadata.custom_metadata = replacement
     ssa.wait_for_computation()
     _save(ssa)
     return {
@@ -1506,8 +1578,57 @@ def _export(ssa, root, args) -> dict:
         if resolution:
             options["w_resolution"] = resolution
             options["h_resolution"] = resolution
-        asset.export_material(**options)
-        controller.wait()
+        metadata, custom, groups = _groups(asset)
+        public_custom = {key: value for key, value in custom.items() if key != _GROUP_KEY}
+        try:
+            if _GROUP_KEY in custom:
+                metadata.custom_metadata = public_custom
+            if groups and fmt == "sbsar":
+                with tempfile.TemporaryDirectory(prefix=".cavi-groups-", dir=destination) as stage:
+                    options["path"] = stage
+                    options["format"] = ssa.MaterialExportFormat.sbs
+                    asset.export_material(**options)
+                    controller.wait()
+                    staged = _wait_files(Path(stage), wait_seconds, ())
+                    sources = [path for path in staged if path.suffix.lower() == ".sbs"]
+                    if len(sources) != 1:
+                        raise RuntimeError(
+                            "Sampler did not produce exactly one SBS for grouped export")
+                    source = sources[0]
+                    if _annotate_groups(source, groups):
+                        cooker = _APP.get("cooker")
+                        if not cooker:
+                            raise RuntimeError("Grouped SBSAR export requires Designer sbscooker; "
+                                               "set CAVI_DESIGNER_APP or CAVI_DESIGNER_BIN_DIR")
+                        cook_dir = destination / source.parent.relative_to(stage)
+                        cook_dir.mkdir(parents=True, exist_ok=True)
+                        result = subprocess.run([cooker, "--inputs", str(source), "--output-path",
+                                                 str(cook_dir)], capture_output=True, text=True,
+                                                timeout=wait_seconds, check=False)
+                        if result.returncode:
+                            detail = (result.stderr or result.stdout)[-4096:]
+                            raise RuntimeError(f"sbscooker failed: {detail}")
+                        cooked = cook_dir / f"{source.stem}.sbsar"
+                        if not cooked.is_file() or not cooked.stat().st_size:
+                            raise RuntimeError("sbscooker did not produce the expected SBSAR")
+                    else:
+                        options["path"] = str(destination)
+                        options["format"] = ssa.MaterialExportFormat.sbsar
+                        controller = ssa.ExportController()
+                        options["controller"] = controller
+                        asset.export_material(**options)
+                        controller.wait()
+            else:
+                asset.export_material(**options)
+                controller.wait()
+                if groups and fmt == "sbs":
+                    files = _wait_files(destination, wait_seconds, ())
+                    for source in files:
+                        if source.suffix.lower() == ".sbs":
+                            _annotate_groups(source, groups)
+        finally:
+            if _GROUP_KEY in custom:
+                metadata.custom_metadata = custom
         expected = ()
         if target is not None and channels is None and preset_name == target.preset:
             # Only the target's own preset promises its map set.
@@ -1805,6 +1926,7 @@ def execute_in_sampler(operation: str, arguments: dict, workspace_path: str,
 
 def run(request: dict):
     """Answer one launch request: a preflight, a batch job or a single operation."""
+    _APP["cooker"] = request.get("cooker")
     if "preflight" in request:
         return preflight_job(request["preflight"], request["workspace"], request["project"])
     if "job" in request:

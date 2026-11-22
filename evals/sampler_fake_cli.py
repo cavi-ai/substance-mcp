@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import types
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 # The variable that points the host at an install made by install().
@@ -80,6 +81,7 @@ class Parameter:
         if log:
             with open(log, "a", encoding="utf-8") as stream:
                 stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+        return len(owner["published"]) if isinstance(owner, dict) else 1
 
     def value_labels(self):
         size = {"float2": 2, "float3": 3, "float4": 4,
@@ -355,7 +357,18 @@ class Asset:
                 maps = maps[:-1]
             written = [target / f"{name}_{channel}.{fmt}" for channel in maps]
         for item in written:
-            item.write_text("fake")
+            if fmt == "sbs":
+                package = ET.Element("package")
+                inputs = ET.SubElement(ET.SubElement(ET.SubElement(
+                    package, "content"), "graph"), "paraminputs")
+                for layer in self.data.get("layers", []):
+                    for index, record in enumerate(layer.get("published", []), 1):
+                        node = ET.SubElement(inputs, "paraminput")
+                        ET.SubElement(node, "identifier",
+                                      v=f"{record['parameter']}_{index}")
+                ET.ElementTree(package).write(item, encoding="utf-8", xml_declaration=True)
+            else:
+                item.write_text("fake")
         if mode == "growing":
             # Sampler flushes large maps after the controller reports completion.
             def finish():
