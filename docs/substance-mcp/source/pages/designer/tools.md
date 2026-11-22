@@ -78,11 +78,9 @@ and reports nodes, connections, graph inputs and actual precision. Creation
 returns `node_ids` so later edits can address the saved native identifiers.
 
 `expose` may set `label`, `minimum`, `maximum`, `group` and `description`.
-`group` and `description` are the annotation ids from Adobe's scripting
-reference; they were not run inside Designer. They are optional strings of at
-most 128 characters. Empty or whitespace-only text is refused. Inspect reports
-`label`, `group`, `description`, `min` and `max` on each graph input when that
-annotation exists.
+`group` and `description` are optional strings of at most 128 characters.
+Empty or whitespace-only text is refused. Inspect reports `label`, `group`,
+`description`, `min` and `max` on each graph input when that annotation exists.
 
 For example, pass this recipe to `graph(action="create", directory=...)`:
 
