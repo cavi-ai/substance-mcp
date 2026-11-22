@@ -2,6 +2,8 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from owned_client import OwnedPainterClient, wait_ready
 
@@ -277,6 +279,22 @@ class ProjectionTests(Fixture):
     def fill(self, name="Base"):
         return self.client.call("create_fill_layer", {
             "texture_set": "Body", "name": name, "base_color": [0.2, 0.5, 0.8]})
+
+    def test_projection_enums_support_native_binding_shape(self):
+        uid = self.fill()["uid"]
+        layerstack = self.sim.module.layerstack
+        mode = SimpleNamespace(__members__=layerstack.ProjectionMode.__members__)
+        axis = SimpleNamespace(__members__=layerstack.SymmetryAxis.__members__)
+        filtering = SimpleNamespace(__members__=layerstack.FilteringMode.__members__)
+        with (patch.object(layerstack, "ProjectionMode", mode),
+              patch.object(layerstack, "SymmetryAxis", axis),
+              patch.object(layerstack, "FilteringMode", filtering)):
+            result = self.edit("projection", uid=uid,
+                               projection={"mode": "Planar", "filtering_mode": "Nearest"},
+                               symmetry={"mode": "Mirror", "enabled": True, "axis": "Y"})
+        self.assertEqual(result["projection"]["mode"], "Planar")
+        self.assertEqual(result["projection"]["filtering_mode"], "Nearest")
+        self.assertEqual(result["projection"]["symmetry"]["axis"], "Y")
 
     def test_uv_scale_rotation_and_offset_round_trip(self):
         uid = self.fill()["uid"]
