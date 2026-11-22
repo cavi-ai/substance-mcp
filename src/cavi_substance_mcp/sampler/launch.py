@@ -18,6 +18,7 @@ from pathlib import Path
 from cavi_mcp_core import proc
 
 from ..core import host_script, workspace
+from ..designer import runner as designer_runner
 from . import runner
 from .errors import AppRunning
 from .lock import WorkspaceLock
@@ -124,7 +125,12 @@ async def _launch(payload: dict, timeout_seconds: float, progress_file=None,
     if progress_file is not None and on_progress is not None:
         tailer = asyncio.create_task(_tail_progress(Path(progress_file), on_progress, stop))
     try:
-        host_script.prepare(script, request, response, IN_APP, {**payload, "version": version})
+        cooker = None
+        if payload.get("operation") == "export" or "job" in payload:
+            binary = designer_runner.installation().binary("sbscooker")
+            cooker = str(binary.resolve()) if binary else None
+        host_script.prepare(script, request, response, IN_APP,
+                            {**payload, "version": version, "cooker": cooker})
         started = time.monotonic()
         result = await runner.run_script(script, remaining, job)
         deadline = time.monotonic() + 2

@@ -13,6 +13,7 @@ from home import isolate_home
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from cavi_mcp_core import proc
+from designer_fake_cli import install as install_designer
 from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
@@ -288,6 +289,46 @@ class SamplerTests(unittest.TestCase):
                             asset="Rock", layer="Brick", parameters={"Opacity": 0.5})
         self.assertEqual(blended["parameters"]["opacity"], 0.5)
 
+    def test_grouped_exports_and_metadata(self):
+        self.create_project()
+        self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
+                  filter="Tiling", position=0)
+        self.call("expose", project="projects/Rock.ssa", asset="Rock", layer="Tiling",
+                  exposures=[{"parameter": "tiling", "label": "Repeat",
+                              "group": "Material/Proof"}])
+        metadata = self.call("set_metadata", project="projects/Rock.ssa", asset="Rock",
+                             custom_metadata={"user": "value"})["metadata"]
+        self.assertEqual(metadata["custom_metadata"], {"user": "value"})
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            self.call("set_metadata", project="projects/Rock.ssa", asset="Rock",
+                      custom_metadata={"cavi_exposure_groups": "{}"})
+        self.call("export", project="projects/Rock.ssa", asset="Rock",
+                  directory="raw-group", format="sbs", dry_run=False)
+        import xml.etree.ElementTree as ET
+        xml = ET.parse(self.workspace / "raw-group/Rock.sbs")
+        item = xml.find("./content/graph/paraminputs/paraminput")
+        self.assertEqual(item.find("identifier").get("v"), "tiling_1")
+        self.assertEqual(item.find("group").get("v"), "Material/Proof")
+        with patch.object(launch.designer_runner, "installation") as missing:
+            missing.return_value.binary.return_value = None
+            with self.assertRaisesRegex(RuntimeError, "requires Designer sbscooker"):
+                self.call("export", project="projects/Rock.ssa", asset="Rock",
+                          directory="missing-cooker", format="sbsar", dry_run=False)
+        self.assertFalse((self.workspace / "missing-cooker").exists())
+        silent = write_launcher(Path(self.folder.name) / "silent", "sbscooker", "pass\n")
+        with patch.object(launch.designer_runner, "installation") as broken:
+            broken.return_value.binary.return_value = silent
+            with self.assertRaisesRegex(RuntimeError, "expected SBSAR"):
+                self.call("export", project="projects/Rock.ssa", asset="Rock",
+                          directory="empty-cooker", format="sbsar", dry_run=False)
+        self.assertFalse((self.workspace / "empty-cooker").exists())
+        with patch.dict(os.environ, {"CAVI_DESIGNER_BIN_DIR": str(install_designer(
+                Path(self.folder.name)))}):
+            self.call("export", project="projects/Rock.ssa", asset="Rock",
+                      directory="cooked-group", format="sbsar", dry_run=False)
+        self.assertTrue((self.workspace / "cooked-group/Rock.sbsar").is_file())
+        self.assertFalse(list((self.workspace / "cooked-group").rglob("*.sbs")))
+
     def test_expose_publishes_parameters(self):
         self.create_project()
         self.call("insert_filter", project="projects/Rock.ssa", asset="Rock",
@@ -314,6 +355,8 @@ class SamplerTests(unittest.TestCase):
         ])
         saved = json.loads(project.read_text())
         layer = next(item for item in saved["assets"][0]["layers"] if item["name"] == "Tiling")
+        groups = saved["assets"][0]["custom_metadata"]["cavi_exposure_groups"]
+        self.assertEqual(json.loads(groups), {"tiling_1": "Material"})
         calls = [
             {"parameter": "tiling", "exposed_label": "Repeat", "exposed_group": "Material"},
             {"parameter": "opacity", "exposed_label": "Amount", "exposed_group": ""},

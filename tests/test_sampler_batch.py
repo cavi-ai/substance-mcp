@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 from cavi_mcp_core import apps
 from clock import Clock
+from designer_fake_cli import install as install_designer
 from env import SAMPLER, patched_environment
 from launcher import write_launcher
 from sampler_fake_cli import ENV, install
@@ -755,7 +756,9 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(plan["project_check"], "ok")
         self.assertFalse(log.exists())
         self.assertEqual((self.workspace / source).read_bytes(), digest)
-        manifest = run_job_file(path, self.workspace)
+        with patch.dict(os.environ, {"CAVI_DESIGNER_BIN_DIR": str(
+                install_designer(self.workspace.parent))}):
+            manifest = run_job_file(path, self.workspace)
         step = next(item for item in manifest["steps"] if item["action"] == "expose")
         self.assertEqual(step["result"]["exposures"], [
             {"parameter": "tiling", "label": "Repeat", "group": "Tile"},
