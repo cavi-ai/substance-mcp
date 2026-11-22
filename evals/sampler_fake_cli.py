@@ -67,6 +67,20 @@ class Parameter:
             return [["Off", 0], ["On", 1]]
         return []
 
+    def expose(self, *, exposed_label, exposed_group=""):
+        record = {
+            "parameter": self.identifier,
+            "exposed_label": exposed_label,
+            "exposed_group": exposed_group,
+        }
+        owner = getattr(self, "_owner", None)
+        if isinstance(owner, dict):
+            owner.setdefault("published", []).append(record)
+        log = os.environ.get("FAKE_SAMPLER_EXPOSE_LOG")
+        if log:
+            with open(log, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+
     def value_labels(self):
         size = {"float2": 2, "float3": 3, "float4": 4,
                 "integer2": 2, "integer3": 3, "integer4": 4}.get(self.type)
@@ -120,6 +134,7 @@ class Layer:
         for item in self.data.get("blend_parameters", []):
             parameter = Parameter(*item)
             parameter._data = item
+            parameter._owner = self.data
             found.append(parameter)
         return found
 
@@ -147,6 +162,7 @@ class Layer:
         for item in self.data.get("parameters", []):
             parameter = Parameter(*item)
             parameter._data = item
+            parameter._owner = self.data
             found.append(parameter)
         return found
 

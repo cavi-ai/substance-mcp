@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -266,6 +267,30 @@ class SetParameters(AssetStep):
     _layer = field_validator("layer")(resource_name)
 
 
+class Exposure(StrictModel):
+    parameter: Annotated[str, Field(min_length=1, max_length=128)]
+    label: Annotated[str, Field(min_length=1, max_length=128)]
+    group: Annotated[str, Field(max_length=128)] = ""
+
+    @field_validator("parameter", "label")
+    @classmethod
+    def not_blank(cls, value: str, info: ValidationInfo):
+        if not value.strip():
+            raise ValueError(f"{info.field_name} must not be empty or whitespace")
+        return value
+
+
+class Expose(AssetStep):
+    action: Literal["expose"]
+    asset: PlainName
+    layer: ResourceName
+    position: Annotated[int | None, Field(ge=0, le=100000)] = None
+    exposures: Annotated[list[Exposure], Field(min_length=1, max_length=64)]
+
+    _asset = field_validator("asset")(plain_name)
+    _layer = field_validator("layer")(resource_name)
+
+
 class ApplyPreset(AssetStep):
     action: Literal["apply_preset"]
     asset: PlainName
@@ -342,7 +367,8 @@ class Export(StrictModel):
 
 Step = Annotated[
     ImportImages | ImportTextures | CreateAsset | SetMetadata | ActivateChannels
-    | DeactivateChannels | InsertFilter | InsertMaterial | SetParameters | ApplyPreset
+    | DeactivateChannels | InsertFilter | InsertMaterial | SetParameters | Expose
+    | ApplyPreset
     | SetChannels | SetBlendParameters | RemoveLayer | ImportResource | Export,
     Field(discriminator="action"),
 ]

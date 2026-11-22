@@ -48,7 +48,7 @@ PROJECT = frozenset({".ssa"})
 # after batch-dispatchable edits. delete_asset is a tool operation only.
 MUTATING = frozenset({
     "create_asset", "delete_asset", "import_images", "import_textures", "insert_filter",
-    "insert_material", "set_parameters", "apply_preset", "set_metadata",
+    "insert_material", "set_parameters", "expose", "apply_preset", "set_metadata",
     "activate_channels", "deactivate_channels", "set_channels", "set_blend_parameters",
     "remove_layer",
 })
